@@ -154,7 +154,7 @@ Phase 1のスケルトン配置時点で固定したバージョンを記録す�
 | TypeScript | 7.0.2 | `package.json` |
 | Biome | 2.5.11 | `package.json` |
 | Lefthook | 2.1.12 | `package.json` |
-| winapp CLI | 未決 | Phase 1のMSIXスパイクで確定する |
+| winapp CLI | 0.6.1 | `scripts/build-msix.ps1` の `$requiredWinappVersion`（WinGet `Microsoft.WinAppCli`） |
 
 Rustのeditionは2024を採用する。新規プロジェクトであり、既存コードとの互換性制約がないため。MSRVは edition 2024 が要求する1.85とする。
 
@@ -681,6 +681,68 @@ mermaid fence
 - winapp CLIへの依存はCIで固定バージョンとする。4.5に記録したとおり、makeappxへ切り替え可能な状態を保つ。
 
 MSIX技術スパイクでは、BunとWinGet版winapp CLIだけで完結できるか、Node.jsがビルド時依存として必要かを確認する。
+
+### 13.1 スパイクで確定した構成
+
+Phase 1のスパイクで次を確定した。
+
+| 項目 | 確定値 |
+| --- | --- |
+| Identity Name | `scottlz0310.md-peruse` |
+| Publisher | `CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6` |
+| PublisherDisplayName | `scottlz0310` |
+| Package Family Name | `scottlz0310.md-peruse_r99jq8jxntmym` |
+| Microsoft Store ID | `9P35BW61FN4W` |
+| Package Version | `MAJOR.MINOR.PATCH.0`（`tauri.conf.json` の `version` に `.0` を付与して生成） |
+| TargetDeviceFamily | `Windows.Desktop`、MinVersion `10.0.22000.0`、MaxVersionTested `10.0.26100.0` |
+| Application | `EntryPoint="Windows.FullTrustApplication"`、`uap10:RuntimeBehavior="packagedClassicApp"`、`uap10:TrustLevel="mediumIL"` |
+| Capability | `rescap:Capability Name="runFullTrust"` のみ。`broadFileSystemAccess` は宣言しない |
+| 関連付け | `windows.fileTypeAssociation` で `.md` と `.markdown` |
+| winapp CLI | 0.6.1（WinGet `Microsoft.WinAppCli`） |
+
+マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `ProcessorArchitecture` と `Version` を置換して生成する。アーキテクチャごとに別のマニフェストを保守しない。
+
+visual assetは `assets/app-icon.svg` を唯一の原本とし、`tauri icon` で各サイズを生成する。手作業での差し替えは行わない。現在のアイコンは暫定であり、最終デザインへの差し替えは追跡Issueで管理する。
+
+`uap:DefaultTile` に `Square310x310Logo` を指定する場合、`Wide310x150Logo` の同時指定がMSIXのマニフェスト検証で必須となる。暫定アイコンは横長図案を持たないため、大タイルは指定していない。最終アイコンの差し替え時に併せて追加する。
+
+### 13.2 ビルド時依存の境界
+
+ARM64はx64ホストからのクロスコンパイル（`aarch64-pc-windows-msvc`）で生成する。ネイティブARM64ランナーは使用しない。x64とARM64の両方で `tauri build` が成功し、生成したMSIXのサイズはそれぞれ約1.4MBである。
+
+MSIXの生成にNode.jsは不要である。Bun、Rustツールチェーン、winapp CLI、Windows SDKだけで完結する。winapp CLIは内部でWindows SDKの `makeappx` と `signtool` を呼び出す。
+
+### 13.3 スパイクの実測結果（x64、Windows 11 26200）
+
+MSIXをインストールして測定した。測定時点のアプリはスケルトンであり、Markdown描画、Mermaid、KaTeXを含まない。
+
+| 項目 | 実測値 | [spec.md](./spec.md) の目標 |
+| --- | --- | --- |
+| private working set（全プロセス合計、7プロセス） | 79.4 MB | 300 MB以内 |
+| private working set（Rust側プロセス単体） | 3.9 MB | 50 MB以内 |
+| ウォームスタート（ウィンドウ表示まで、5回平均） | 342 ms（最小302 ms、最大440 ms） | 操作受付まで1秒以内 |
+
+目標値は据え置く。上記は描画機能を積む前の値であり、実装が進んだ時点で再測定する。現時点で目標に対して十分な余裕があり、目標を緩める根拠はない。
+
+ウィンドウを閉じると、WebView2の子プロセス6個を含めてすべて終了することを確認した。常駐プロセスは残らない。
+
+PackageFamilyNameは `scottlz0310.md-peruse_r99jq8jxntmym` として解決され、Partner Centerの登録値と一致した。
+
+#### WACKの結果
+
+`appcert.exe` でx64版MSIXをテストした。OVERALL_RESULTは `PASS`（24テスト中23 PASS、1 FAIL）。
+
+FAILした「ブロック済みの実行可能ファイル」は `OPTIONAL="TRUE"` のテストであり、総合結果には影響しない。指摘内容と原因は次のとおり。
+
+| 指摘 | 原因 |
+| --- | --- |
+| `kernel32.dll!CreateProcessW` への参照 | Rust標準ライブラリの `std::process` |
+| `shell32.dll!ShellExecuteW`、`ShellExecuteExW` への参照 | `tauri-plugin-opener` が外部URLを既定ブラウザで開くために使用する |
+| `cmd`、`cmd.exe`、`\cmd.exe` への参照 | Rust標準ライブラリに含まれる文字列（`library/std` のパス、およびbatch file実行用の `cmd.exe /e:ON /v:OFF /d /c` テンプレート）。アプリからcmdを起動する経路はない |
+| `basH`、`DNX`、`CdB` への参照 | 大文字小文字が混在しており、バイナリ中のバイト列への誤検出 |
+
+いずれもアプリのコードが外部プロセスを起動するものではない。Store提出を妨げる失敗はないと判断するが、審査で指摘された場合に備えて上記の内訳を記録する。ARM64版のWACKは、パッケージをインストールして実行する都合上ホストと同じアーキテクチャを要するため、Phase 5の提出前検証で実施する。
+
 
 ## 14. テスト方針
 

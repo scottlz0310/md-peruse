@@ -49,28 +49,28 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 ## Phase 1: MSIX技術スパイク
 
 - [x] Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する
-- [ ] x64とARM64のReleaseビルドを生成する
-- [ ] `Package.appxmanifest` とパッケージ用アセットを作成する
-- [ ] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える
-- [ ] packaged classic app、`mediumIL`、`runFullTrust` を設定する（`broadFileSystemAccess` は宣言しない）
-- [ ] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
-- [ ] 開発用自己署名証明書でローカル検証用パッケージを署名する
-- [ ] Windows App Certification Kit（WACK）を実行し、結果を保存する
+- [x] x64とARM64のReleaseビルドを生成する
+- [x] `Package.appxmanifest` とパッケージ用アセットを作成する
+- [x] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える（暫定デザイン。最終版への差し替えは追跡Issue）
+- [x] packaged classic app、`mediumIL`、`runFullTrust` を設定する（`broadFileSystemAccess` は宣言しない）
+- [x] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
+- [x] 開発用自己署名証明書でローカル検証用パッケージを署名する
+- [x] Windows App Certification Kit（WACK）を実行し、結果を保存する（x64。OVERALL_RESULT は PASS。[design-decisions.md](./docs/design-decisions.md) 13.3）
 - [ ] custom URI scheme protocolを1つ登録し、オリジンとURL形式を実測する
 - [ ] CSPとDOMPurifyの許可URIパターンを実測値で検証する
 - [ ] MSIX環境でフォルダー選択、読込、監視、関連付け起動を最小検証コードで確認する
 - [ ] MSIX環境でアプリ設定ディレクトリがLocalStateへ解決されることを確認する
-- [ ] 起動時間とアイドル時メモリを測定し、[spec.md](./docs/spec.md) の暫定目標を確定または改訂する
+- [x] 起動時間とアイドル時メモリを測定し、[spec.md](./docs/spec.md) の暫定目標を確定または改訂する（目標は据え置き。[design-decisions.md](./docs/design-decisions.md) 13.3）
 
 ### このフェーズで解決する未決事項
 
-- [x] 各ツールの初期バージョン（winapp CLIを除き確定。[design-decisions.md](./docs/design-decisions.md) 4.10）
-- [ ] ARM64のビルド方式（ネイティブARM64ランナー／クロスコンパイル）
+- [x] 各ツールの初期バージョン（winapp CLI 0.6.1 を含め確定。[design-decisions.md](./docs/design-decisions.md) 4.10）
+- [x] ARM64のビルド方式（x64ホストからのクロスコンパイルに確定。[design-decisions.md](./docs/design-decisions.md) 13.2）
 - [ ] custom image protocolのURL形式とresource ID
 - [ ] CSPの初期値とcapabilityの検証（確定はPhase 3）
 - [ ] MSIXでのフォルダー選択、監視、関連付け起動
 - [ ] MSIXでのアプリ設定保存先
-- [ ] BunのみでのMSIXビルド可否（Node.js依存の有無）
+- [x] BunのみでのMSIXビルド可否（Node.jsは不要。[design-decisions.md](./docs/design-decisions.md) 13.2）
 
 ## Phase 2: 開発基盤と品質ガードレール
 
@@ -140,6 +140,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 - [ ] x64版とARM64版のMSIXが同一バージョンで生成される
 - [ ] 対象MSIXについてWACKが完了している
+- [ ] ARM64実機でのインストール、起動、WACKを確認している
 - [ ] Store提出物とCIで検証した成果物が一致している
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる
