@@ -2,7 +2,7 @@
 
 AI駆動開発で更新される設計書・仕様書・タスクリストの観測とレビューに特化した、Windows向けの閲覧専用Markdownビューワー。
 
-> **開発状況**: 設計フェーズ完了、実装着手前（Phase 0）。動作するアプリケーションはまだ提供していない。進捗は [tasks.md](./tasks.md) を参照。
+> **開発状況**: Phase 1。アプリケーションのスケルトンを配置した段階で、Markdownの閲覧機能はまだ実装していない。MSIXパッケージングも未検証。進捗は [tasks.md](./tasks.md) を参照。
 
 ## コアバリュー
 
@@ -59,15 +59,45 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 
 ## 開発
 
-実装着手前のため、ビルド手順はスケルトン配置時に追記する。
-
 ### 前提ツール
 
-| ツール | 用途 |
+| ツール | バージョン | 用途 |
+| --- | --- | --- |
+| [Bun](https://bun.com/) | 1.4.0 | JavaScript依存関係の管理、Frontendのビルドとテスト |
+| [Rust](https://www.rust-lang.org/) | 1.98.0 | Tauri backendのビルド（`rust-toolchain.toml` で固定） |
+| [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | — | Visual Studio Build Tools、WebView2 Runtime |
+
+各依存の初期バージョンは [design-decisions.md](./docs/design-decisions.md) の4.10に記載する。
+
+### セットアップ
+
+```sh
+bun install
+```
+
+### コマンド
+
+| コマンド | 内容 |
 | --- | --- |
-| [Bun](https://bun.com/) | JavaScript依存関係の管理、Frontendのビルドとテスト |
-| [Rust](https://www.rust-lang.org/) (stable) | Tauri backendのビルド |
-| [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | Visual Studio Build Tools、WebView2 Runtime |
+| `bun run tauri dev` | 開発用にアプリを起動する |
+| `bun run tauri build` | Releaseビルドを生成する（MSIX生成は別工程） |
+| `bun run build` | 型検査とFrontendのビルドを実行する |
+| `bun run check` | BiomeでLintとFormattingを検査する |
+| `bun run check:fix` | Biomeの自動修正を適用する |
+| `bun run typecheck` | `tsc --noEmit` で型検査する |
+| `bun test` | Frontendのテストを実行する |
+
+`bun test` はテスト構成をPhase 2で確立するまでテストファイルを持たないため、現時点ではテストファイルが見つからず失敗する。CIへ組み込むのはテスト追加後とする。
+
+Rust側は `src-tauri` で実行する。
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` の `bundle.active` を `false` としているため、`tauri build` は実行ファイルのみを生成し、NSIS や MSI のインストーラーは作らない。
 
 ## 貢献
 

@@ -131,6 +131,32 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 - 引き受けるリスク: フォントの同梱が必要。対応構文がLaTeXの部分集合にとどまる。マクロ展開による処理時間の増大。
 - 緩和策: フォントをローカル同梱しCDNを使わない。`trust` を無効にして `\href` などを禁止する。マクロ展開と出力サイズに上限を設ける。sanitize schemaをKaTeX出力に合わせて拡張する。
 
+### 4.10 初期バージョン
+
+Phase 1のスケルトン配置時点で固定したバージョンを記録する。以降の更新はRenovateが担う。
+
+| 対象 | バージョン | 固定箇所 |
+| --- | --- | --- |
+| Rust toolchain | 1.98.0 | `rust-toolchain.toml` |
+| Rust edition | 2024 | `src-tauri/Cargo.toml` |
+| Rust MSRV | 1.85 | `src-tauri/Cargo.toml` の `rust-version` |
+| Bun | 1.4.0 | `package.json` の `packageManager` |
+| tauri | 2.11.5 | `src-tauri/Cargo.toml` |
+| tauri-build | 2.6.3 | `src-tauri/Cargo.toml` |
+| tauri-plugin-opener | 2.5.4 | `src-tauri/Cargo.toml` |
+| serde / serde_json | 1.0.229 / 1.0.151 | `src-tauri/Cargo.toml` |
+| @tauri-apps/cli | 2.11.4 | `package.json` |
+| @tauri-apps/api | 2.11.1 | `package.json` |
+| @tauri-apps/plugin-opener | 2.5.4 | `package.json` |
+| React / React DOM | 19.2.8 | `package.json` |
+| Vite | 8.2.2 | `package.json` |
+| @vitejs/plugin-react | 6.1.1 | `package.json` |
+| TypeScript | 7.0.2 | `package.json` |
+| Biome | 2.5.11 | `package.json` |
+| winapp CLI | 未決 | Phase 1のMSIXスパイクで確定する |
+
+Rustのeditionは2024を採用する。新規プロジェクトであり、既存コードとの互換性制約がないため。MSRVは edition 2024 が要求する1.85とする。
+
 ## 5. アーキテクチャ
 
 ### 5.1 レイヤー構成
@@ -227,6 +253,7 @@ form-action 'none';
 - `font-src` はKaTeXの同梱フォントのために必要となる。
 - Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る。
 - capabilityは、ダイアログ、ウィンドウ操作、単一インスタンス、独自commandに限定する。ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。
+- `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突するため、必要な `core:*` 権限を個別に列挙する。同様に `core:tray:default` はトレイアイコンを使わないため付与しない。
 
 ## 6. ワークスペースとファイルツリー
 

@@ -1,0 +1,42 @@
+:root {
+  --color-bg: #ffffff;
+  --color-fg: #1f2328;
+  --color-fg-muted: #59636e;
+
+  color-scheme: light dark;
+  font-family:
+    "Segoe UI Variable", "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0d1117;
+    --color-fg: #e6edf3;
+    --color-fg-muted: #9198a1;
+  }
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 2rem;
+}
+
+.app h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.app p {
+  margin: 0;
+  color: var(--color-fg-muted);
+}
