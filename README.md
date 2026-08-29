@@ -151,13 +151,9 @@ bun run tauri icon assets/app-icon.png
 
 Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。
 
-横長タイル（`Wide310x150Logo`）は `tauri icon` が生成しないため、専用スクリプトで生成する。原本は `assets/wide-logo.png`（3100x1500、比率2.0667）とする。
+横長タイル（`Wide310x150Logo`）は `tauri icon` が生成しないため、`scripts/generate-wide-logo.ps1` で生成する。原本は `assets/wide-logo.png`（3100x1500、比率2.0667）とする。
 
-```powershell
-./scripts/generate-wide-logo.ps1
-```
-
-原本の比率が2.0667から外れている場合、スクリプトは生成せず失敗する。
+このスクリプトは `build-msix.ps1` がパッケージレイアウトへ直接出力するために呼ぶ。生成物をリポジトリへ置かないため、原本を更新したあとに生成を忘れて古いロゴを梱包することがない。原本の比率が2.0667から外れている場合、スクリプトは生成せず失敗する。
 
 ### Git Hooks
 

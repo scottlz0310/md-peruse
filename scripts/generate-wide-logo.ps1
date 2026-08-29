@@ -8,12 +8,21 @@
     `tauri icon` は正方形アイコンしか生成しないため、横長タイルは本スクリプトで生成する。
     原本は assets/wide-logo.png（比率 2.0667）とし、手作業でのリサイズは行わない。
 
+    生成物はリポジトリへ置かず、MSIXのパッケージレイアウトへ直接出力する。
+    原本を更新したあとに生成を忘れ、古いロゴを梱包する経路をなくすためである。
+
+.PARAMETER OutputPath
+    生成先のパス。build-msix.ps1 がパッケージレイアウト内を指定する。
+
 .EXAMPLE
-    ./scripts/generate-wide-logo.ps1
+    ./scripts/generate-wide-logo.ps1 -OutputPath ./build/msix/x64/Images/Wide310x150Logo.png
 #>
 
 [CmdletBinding()]
-param()
+param(
+    [Parameter(Mandatory = $true)]
+    [string]$OutputPath
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -21,7 +30,6 @@ Add-Type -AssemblyName System.Drawing
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $repoRoot 'assets/wide-logo.png'
-$output = Join-Path $repoRoot 'src-tauri/icons/Wide310x150Logo.png'
 
 if (-not (Test-Path $source)) {
     throw "原本が見つかりません: $source"
@@ -29,6 +37,11 @@ if (-not (Test-Path $source)) {
 
 $targetWidth = 310
 $targetHeight = 150
+
+$outputDir = Split-Path -Parent $OutputPath
+if ($outputDir -and -not (Test-Path $outputDir)) {
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+}
 
 $src = [System.Drawing.Image]::FromFile($source)
 try {
@@ -54,7 +67,7 @@ try {
         finally {
             $g.Dispose()
         }
-        $bmp.Save($output, [System.Drawing.Imaging.ImageFormat]::Png)
+        $bmp.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
     }
     finally {
         $bmp.Dispose()
@@ -64,4 +77,4 @@ finally {
     $src.Dispose()
 }
 
-Write-Host "生成しました: $output ($targetWidth x $targetHeight)"
+Write-Host "==> ワイドタイルを生成: $OutputPath ($targetWidth x $targetHeight)"
