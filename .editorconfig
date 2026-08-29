@@ -1,0 +1,25 @@
+# https://editorconfig.org
+# 改行コードの正本は .gitattributes とし、本ファイルはエディタ側の入力規則を揃える。
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.rs]
+indent_size = 4
+
+# 行末2スペースによる改行を保持する
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{bat,cmd,ps1,psm1}]
+end_of_line = crlf
+
+[Makefile]
+indent_style = tab

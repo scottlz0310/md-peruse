@@ -1,0 +1,30 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "description": [
+    "required status check が存在しないため、自動マージを全面的に停止している。",
+    "presets/options/automerge を extends から外し、preset 由来の automerge も下記で打ち消す。",
+    "GitHub Actions と branch protection を配置した時点で、automerge preset の復帰と下記の打ち消し解除をまとめて行う。",
+    "追跡は tasks.md の Phase 2 で行う。"
+  ],
+  "extends": [
+    "github>scottlz0310/renovate-config//presets/default",
+    "github>scottlz0310/renovate-config//presets/languages/nodejs",
+    "github>scottlz0310/renovate-config//presets/languages/rust",
+    "github>scottlz0310/renovate-config//presets/languages/typescript",
+    "github>scottlz0310/renovate-config//presets/package-managers/bun",
+    "github>scottlz0310/renovate-config//presets/tools/biome",
+    "github>scottlz0310/renovate-config//presets/tools/lefthook",
+    "github>scottlz0310/renovate-config//presets/options/schedule",
+    "github>scottlz0310/renovate-config//presets/options/security"
+  ],
+  "vulnerabilityAlerts": {
+    "automerge": false
+  },
+  "packageRules": [
+    {
+      "description": "preset 由来の automerge を打ち消す。CI 整備後に削除する。",
+      "matchPackageNames": ["*"],
+      "automerge": false
+    }
+  ]
+}

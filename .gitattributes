@@ -1,0 +1,43 @@
+# 改行コードとdiff表現の正規化
+#
+# リポジトリ内はLFで保持し、作業ツリーでもLFへチェックアウトする。
+# rustfmt、Biome、Viteの出力がLFであるため、環境ごとの改行差分を避ける。
+
+* text=auto eol=lf
+
+# Windows専用スクリプトはCRLFで扱う
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+
+# 言語別のdiffハンク見出し
+*.rs diff=rust
+*.md diff=markdown
+
+# 生成物: GitHubのdiffで折りたたみ、言語統計から除外する
+bun.lock   linguist-generated=true
+Cargo.lock linguist-generated=true
+
+# 画像・フォント・アイコン
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff  binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+
+# Windowsパッケージと署名関連
+*.msix       binary
+*.msixbundle binary
+*.appx       binary
+*.appxbundle binary
+*.pri        binary
+*.pfx binary
+*.cer binary
+*.p12 binary
+*.snk binary

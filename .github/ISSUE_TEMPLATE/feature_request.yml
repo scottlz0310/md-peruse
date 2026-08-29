@@ -1,0 +1,41 @@
+name: 機能要望
+description: 新しい機能や改善を提案する
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `md-peruse` は閲覧専用のMarkdownビューワーです。
+        編集機能、ファイル書き込み、ネットワークアクセス、テレメトリはスコープ外です。
+        スコープの定義は [docs/spec.md](https://github.com/scottlz0310/md-peruse/blob/main/docs/spec.md) を参照してください。
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 解決したい課題
+      description: どのような場面で困っているかを記述する
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 提案する機能
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 検討した代替手段
+      description: 既存機能や他ツールでの回避策があれば記述する
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: スコープの確認
+      options:
+        - label: 閲覧専用という前提を崩さない提案である
+          required: true
+        - label: 常駐プロセスやバックグラウンド処理を必要としない提案である
+          required: true
