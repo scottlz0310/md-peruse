@@ -15,7 +15,7 @@
 | Phase | 内容 | 状態 |
 | --- | --- | --- |
 | Phase 0 | リポジトリ整備 | 進行中 |
-| Phase 1 | MSIX技術スパイク | 未着手 |
+| Phase 1 | MSIX技術スパイク | 進行中 |
 | Phase 2 | 開発基盤と品質ガードレール | 一部先行 |
 | Phase 3 | 詳細設計 | 未着手 |
 | Phase 4 | 機能実装 | 未着手 |
@@ -48,9 +48,10 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 ## Phase 1: MSIX技術スパイク
 
-- [ ] Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する
+- [x] Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する
 - [ ] x64とARM64のReleaseビルドを生成する
 - [ ] `Package.appxmanifest` とパッケージ用アセットを作成する
+- [ ] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える
 - [ ] packaged classic app、`mediumIL`、`runFullTrust` を設定する（`broadFileSystemAccess` は宣言しない）
 - [ ] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
 - [ ] 開発用自己署名証明書でローカル検証用パッケージを署名する
@@ -63,7 +64,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 ### このフェーズで解決する未決事項
 
-- [ ] 各ツールの初期バージョン
+- [x] 各ツールの初期バージョン（winapp CLIを除き確定。[design-decisions.md](./docs/design-decisions.md) 4.10）
 - [ ] ARM64のビルド方式（ネイティブARM64ランナー／クロスコンパイル）
 - [ ] custom image protocolのURL形式とresource ID
 - [ ] CSPの初期値とcapabilityの検証（確定はPhase 3）
@@ -73,11 +74,11 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 ## Phase 2: 開発基盤と品質ガードレール
 
-- [ ] Bunのバージョンを固定し、`bun.lock` をコミットする
-- [ ] BiomeでLintとFormattingを実行する
-- [ ] `tsc --noEmit` で型検査を実行する
+- [x] Bunのバージョンを固定し、`bun.lock` をコミットする
+- [x] BiomeでLintとFormattingを実行する
+- [x] `tsc --noEmit` で型検査を実行する
 - [ ] LefthookでFrontendとRustの品質チェックをGit Hooksへ組み込む
-- [ ] Rustで `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test` を実行する
+- [x] Rustで `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test` を実行する
 - [ ] GitHub ActionsでPull Requestごとのテスト、ビルド、静的検査を実行する
 - [ ] CIで `bun install --frozen-lockfile` を使用する
 - [ ] `bun:test` でReactコンポーネントのDOMテストが成立する構成を確立する
