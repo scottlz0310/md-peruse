@@ -163,6 +163,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | --- | --- | --- |
 | `biome` | ステージした JS/TS/JSON/CSS/HTML | `biome check` |
 | `typecheck` | ステージした TS/TSX | `tsc --noEmit` |
+| `frontend-test` | ステージした TS/TSX | `bun test` |
 | `rust-fmt` | ステージした Rust | `cargo fmt --check` |
 | `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |
 
@@ -177,7 +178,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-カバレッジの集計方針は `codecov.yml` に定義する。テスト構成をPhase 2で確立するまでCIからのアップロードは行わないため、ステータスは `informational` としてPull Requestをブロックしない。
+カバレッジの集計方針は `codecov.yml` に定義する。CIからのアップロードはPhase 2の残タスクであり、開始するまでステータスは `informational` としてPull Requestをブロックしない。
 
 ## 貢献
 

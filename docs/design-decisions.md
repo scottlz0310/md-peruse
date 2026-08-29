@@ -168,7 +168,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 | Rustツールチェーンの導入 | rustupによる `rust-toolchain.toml` の自動解決 | Actionでチャネルを別途指定すると、`rust-toolchain.toml` の固定と二重管理になる |
 | Frontendビルドの先行実行 | Rustジョブでも `bun run build` を実行する | `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、存在しないとコンパイルできない |
 | 依存関係の導入 | `bun install --frozen-lockfile` | `bun.lock` との不整合を検出し、CIとローカルの依存を一致させる |
-| テストの扱い | `cargo test` のみ実行し、`bun test` は組み込まない | Frontendのテスト構成が未確立で、テストファイルが存在しないと `bun test` が失敗する（4.8、Phase 2で解決する） |
+| テストの扱い | `cargo test` と `bun test` を実行する | FrontendのDOMテスト構成をPhase 2で確立したため、Rustと同じくPull Requestごとに実行する（4.8、14.5） |
 | Codecovのステータス | `informational` | アップロードを開始するまでカバレッジ未計測となるため、Pull Requestをブロックさせない |
 | Rustビルドキャッシュ | `Swatinem/rust-cache` を `save-if: main` で使用 | GitHub Actionsのキャッシュはブランチスコープで、PRブランチが保存したものは他ブランチから復元できない。`main` でのみ保存し、全PRがそれを復元する |
 
