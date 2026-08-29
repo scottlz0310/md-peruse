@@ -287,6 +287,18 @@ WebView2ではcustom protocolがWindows特有のオリジン形式で提供さ�
 
 resource IDはワークスペースごとに生成し、推測不可能な値とする。ワークスペースを切り替えたら旧IDを無効化し、旧IDでの要求を拒否する。
 
+Phase 1のスパイクで実測した結果は次のとおり（13.4）。
+
+| 項目 | 実測値 |
+| --- | --- |
+| WebViewのオリジン | `http://tauri.localhost` |
+| custom protocolのオリジン | `http://mdperuse-img.localhost` |
+| URL形式 | `http://<scheme>.localhost/<path>` |
+| スキーム名 | ハイフンを含む名前（`mdperuse-img`）を使用できる |
+| CSPの配信方法 | meta要素ではなくHTTPヘッダ |
+
+`img` 要素からの読込みは成功し、`fetch` は同じURLでも失敗する。custom protocolのオリジンはWebView本体と別オリジンであり、`fetch` にはCORSの許可が要る。画像は `img` 要素で読み込むため、レスポンスへ `Access-Control-Allow-Origin` を付けない。付けないことで、Frontendのスクリプトが画像バイト列そのものを読み取る経路を与えない。
+
 ### 5.5 CSPとcapabilityの初期案
 
 次を出発点とし、Phase 1の実測を経て確定する。確定値はTauri設定と本書の双方へ記録する。
@@ -309,6 +321,17 @@ form-action 'none';
 - Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る。
 - capabilityは、ダイアログ、ウィンドウ操作、単一インスタンス、独自commandに限定する。ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。
 - `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突するため、必要な `core:*` 権限を個別に列挙する。同様に `core:tray:default` はトレイアイコンを使わないため付与しない。
+
+Phase 1の実測を反映した現時点の値は次のとおり。確定はPhase 3で行う。
+
+```text
+img-src 'self' http://mdperuse-img.localhost;
+connect-src 'self' ipc: http://ipc.localhost;
+```
+
+`connect-src` へ画像用オリジンを加えない。画像は `img` 要素で読み込み、`fetch` からは到達させない。`fetch` を許可すると、Frontendのスクリプトが画像バイト列を直接読める経路になる。
+
+`rehype-sanitize` のschemaが許可するプロトコルと、Frontendが組み立てる画像URLも `http://mdperuse-img.localhost/<resource-id>` の形へ揃える。`http:` を無条件に許可せず、このオリジンに限定する。
 
 ## 6. ワークスペースとファイルツリー
 
@@ -368,6 +391,23 @@ form-action 'none';
 - ファイルハンドルをタブの寿命まで保持しない。
 - Windowsでは読込時に共有読込・書込・削除を許可し、置換を妨げない。
 - Watcherのバッファオーバーフローを検知した場合は、展開済みディレクトリの再取得とアクティブ文書の再読込へフォールバックし、その旨を表示する。
+
+
+Phase 1のスパイクで、MSIX環境の `notify` が返すイベント列を実測した（13.4）。ルート直下とサブディレクトリの双方でイベントを受信でき、再帰監視は成立する。
+
+atomic replace（一時ファイルへ書いてからrename）は次の順で観測された。新しいものが下になる。
+
+```text
+Create(Any)        <root>\a.md.tmp
+Modify(Any)        <root>\a.md.tmp
+Remove(Any)        <root>\a.md
+Modify(Name(From)) <root>\a.md.tmp
+Modify(Name(To))   <root>\a.md
+```
+
+置換先の既存ファイルに対して、rename直前に `Remove` が届く。この `Remove` を素朴に削除と解釈すると、置換のたびにタブを閉じてしまう。6.5の削除判定は、`Remove` を受けた時点では確定させず、debounce期間内に同一パスへの `Modify(Name(To))` または `Create` が続かないことを確認してから削除と判断する。
+
+単一の書込みに対しても `Create` と複数の `Modify` が届く。debounceは実装上の最適化ではなく、正しさのために必要である。
 
 大規模ツリーでのイベント量に上限を設けるか、監視範囲を縮退させるモードを設けるかは未決とする。
 
@@ -600,7 +640,7 @@ mermaid fence
 
 ### 11.1 設定の保存
 
-- 保存先はアプリ専用のローカルデータ領域とする。MSIXではパッケージのLocalStateへリダイレクトされるため、Tauriが返す設定ディレクトリが期待どおりの位置になることをPhase 1で確認する。
+- 保存先はTauriが返すアプリ設定ディレクトリとする。Phase 1のスパイクで実測したところ、MSIX環境でもパッケージのLocalStateへはリダイレクトされず、`%APPDATA%\com.scottlz0310.md-peruse`（Roaming）へ解決された。書込みは成功する。この位置をそのまま使用する（13.4）。
 - 形式はJSONとし、`schemaVersion` を持つ。
 - 未知のキーは読み捨てる。破損時は既定値で起動し、破損ファイルを退避したうえで通知する。
 - 書込みはdebounceし、終了時にflushする。アイドル時に周期的な書込みを行わない。
@@ -742,6 +782,60 @@ FAILした「ブロック済みの実行可能ファイル」は `OPTIONAL="TRUE
 | `basH`、`DNX`、`CdB` への参照 | 大文字小文字が混在しており、バイナリ中のバイト列への誤検出 |
 
 いずれもアプリのコードが外部プロセスを起動するものではない。Store提出を妨げる失敗はないと判断するが、審査で指摘された場合に備えて上記の内訳を記録する。ARM64版のWACKは、パッケージをインストールして実行する都合上ホストと同じアーキテクチャを要するため、Phase 5の提出前検証で実施する。
+
+### 13.4 MSIX環境での動作検証（x64）
+
+最小の検証コードをMSIXへ含め、インストールした状態で確認した。検証コードはdev-flow 1章の方針により製品コードへ持ち込まず、確定値のみを本書へ記録する。
+
+| 検証項目 | 結果 |
+| --- | --- |
+| フォルダー選択 | ネイティブダイアログが開き、選択したパスをRust側で受け取れる。`broadFileSystemAccess` を宣言せずに成立する |
+| ファイル読込 | 選択したフォルダー配下の読込みに成功する |
+| ファイル監視 | `notify` の再帰監視が成立する。イベントの詳細は6.4 |
+| 設定ディレクトリ | `%APPDATA%\com.scottlz0310.md-peruse` へ解決される。LocalStateへはリダイレクトされない。書込みと読み戻しに成功する |
+| custom protocol | `http://mdperuse-img.localhost/<path>` として配信される。詳細は5.4 |
+| 関連付け起動 | `.md` と `.markdown` がProgIdとして登録され、起動時にファイルの絶対パスが `argv[1]` として渡る |
+
+#### 設定ディレクトリがLocalStateへリダイレクトされない件
+
+11.1では「MSIXではLocalStateへリダイレクトされる」と想定していたが、実測では次のとおりリダイレクトされない。
+
+| API | 解決先 |
+| --- | --- |
+| `app_config_dir` / `app_data_dir` | `C:\Users\<user>\AppData\Roaming\com.scottlz0310.md-peruse` |
+| `app_local_data_dir` / `app_cache_dir` | `C:\Users\<user>\AppData\Local\com.scottlz0310.md-peruse` |
+
+Desktop Bridge初期のファイルシステムリダイレクトは既定ではなくなっており、packaged classic appがWin32 APIで取得するAppDataはリダイレクトされない。WinRTの `ApplicationData.Current.LocalFolder` を呼べばLocalStateを取得できるが、次の理由でTauriが返すパスをそのまま使う。
+
+- 実装が単純で、非パッケージ実行（`tauri dev`）と保存先の扱いが一致する。
+- `windows` crateへの依存と、パッケージ内外での分岐を持ち込まない。
+- WACKを通過しており、Store提出の妨げにならない。
+
+トレードオフとして、アンインストール時に設定ファイルが残る。11.1の記述はこの実測に合わせて訂正済みである。
+
+#### 開発時の再インストール
+
+同一バージョンで内容の異なるMSIXは `Add-AppxPackage` が `0x80073CFB` で拒否する。検証を繰り返す際は、既存パッケージを削除してから導入する。
+
+```powershell
+Get-AppxPackage -Name scottlz0310.md-peruse | Remove-AppxPackage
+Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
+```
+
+#### 関連付け起動
+
+マニフェストの `windows.fileTypeAssociation` により、ProgIdと `AppUserModelID`、`ContractId="Windows.File"` がレジストリへ登録される。
+
+エクスプローラーの「プログラムから開く」から起動し、引数の渡り方を実測した。ファイルパスは通常のコマンドライン引数として渡る。
+
+```text
+argv[0] = C:\Program Files\WindowsApps\scottlz0310.md-peruse_0.1.0.0_x64__r99jq8jxntmym\md-peruse.exe
+argv[1] = <選択したファイルの絶対パス>
+```
+
+したがって関連付け起動の受け口は `std::env::args()` でよく、WinRTのアクティベーションハンドラを実装する必要はない。`ContractId="Windows.File"` はレジストリへ登録されるが、`EntryPoint="Windows.FullTrustApplication"` のpackaged classic appに対してはWindowsがコマンドライン起動へ変換する。
+
+COMの `IApplicationActivationManager::ActivateForFile` を直接呼ぶと `0x80270254`（コントラクト未サポート）で失敗する。これは同じ理由によるものであり、関連付けの登録が不正なわけではない。検証にこのAPIを使わない。
 
 
 ## 14. テスト方針

@@ -15,7 +15,7 @@
 | Phase | 内容 | 状態 |
 | --- | --- | --- |
 | Phase 0 | リポジトリ整備 | 完了 |
-| Phase 1 | MSIX技術スパイク | 進行中 |
+| Phase 1 | MSIX技術スパイク | 完了 |
 | Phase 2 | 開発基盤と品質ガードレール | 一部先行 |
 | Phase 3 | 詳細設計 | 未着手 |
 | Phase 4 | 機能実装 | 未着手 |
@@ -56,20 +56,20 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 - [x] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
 - [x] 開発用自己署名証明書でローカル検証用パッケージを署名する
 - [x] Windows App Certification Kit（WACK）を実行し、結果を保存する（x64。OVERALL_RESULT は PASS。[design-decisions.md](./docs/design-decisions.md) 13.3）
-- [ ] custom URI scheme protocolを1つ登録し、オリジンとURL形式を実測する
-- [ ] CSPとDOMPurifyの許可URIパターンを実測値で検証する
-- [ ] MSIX環境でフォルダー選択、読込、監視、関連付け起動を最小検証コードで確認する
-- [ ] MSIX環境でアプリ設定ディレクトリがLocalStateへ解決されることを確認する
+- [x] custom URI scheme protocolを1つ登録し、オリジンとURL形式を実測する（`http://mdperuse-img.localhost/<path>`。[design-decisions.md](./docs/design-decisions.md) 5.4）
+- [x] CSPとDOMPurifyの許可URIパターンを実測値で検証する（[design-decisions.md](./docs/design-decisions.md) 5.5。確定はPhase 3）
+- [x] MSIX環境でフォルダー選択、読込、監視、関連付け起動を最小検証コードで確認する（[design-decisions.md](./docs/design-decisions.md) 13.4）
+- [x] MSIX環境でアプリ設定ディレクトリの解決先を確認する（LocalStateへはリダイレクトされずRoamingへ解決。[design-decisions.md](./docs/design-decisions.md) 13.4）
 - [x] 起動時間とアイドル時メモリを測定し、[spec.md](./docs/spec.md) の暫定目標を確定または改訂する（目標は据え置き。[design-decisions.md](./docs/design-decisions.md) 13.3）
 
 ### このフェーズで解決する未決事項
 
 - [x] 各ツールの初期バージョン（winapp CLI 0.6.1 を含め確定。[design-decisions.md](./docs/design-decisions.md) 4.10）
 - [x] ARM64のビルド方式（x64ホストからのクロスコンパイルに確定。[design-decisions.md](./docs/design-decisions.md) 13.2）
-- [ ] custom image protocolのURL形式とresource ID
-- [ ] CSPの初期値とcapabilityの検証（確定はPhase 3）
-- [ ] MSIXでのフォルダー選択、監視、関連付け起動
-- [ ] MSIXでのアプリ設定保存先
+- [x] custom image protocolのURL形式（`http://mdperuse-img.localhost/<resource-id>`。resource IDの生成方式はPhase 3）
+- [x] CSPの初期値とcapabilityの検証（実測反映済み。確定はPhase 3）
+- [x] MSIXでのフォルダー選択、監視、関連付け起動（いずれも動作。[design-decisions.md](./docs/design-decisions.md) 13.4）
+- [x] MSIXでのアプリ設定保存先（Roamingを使用。[design-decisions.md](./docs/design-decisions.md) 11.1、13.4）
 - [x] BunのみでのMSIXビルド可否（Node.jsは不要。[design-decisions.md](./docs/design-decisions.md) 13.2）
 
 ## Phase 2: 開発基盤と品質ガードレール
