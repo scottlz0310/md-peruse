@@ -28,7 +28,7 @@
 - `main` ブランチの保護を設定し、CIの `Frontend` / `Rust` を required status check とした
 - MSIXパッケージングを追加。`packaging/Package.appxmanifest.template` と `scripts/build-msix.ps1` により、x64とARM64のMSIXを生成・署名できる
 - FrontendのDOMテスト構成を追加。`bun:test` に happy-dom と Testing Library を組み合わせ、`bunfig.toml` のpreloadで初期化する。CIとpre-commitで `bun test` を実行する
-- CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する
+- CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する。RustのlcovはWindowsのジョブがartifactへ保存し、`Coverage` ジョブ（ubuntu）がアップロードする
 
 ### Changed
 
