@@ -81,8 +81,8 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 - [x] Rustで `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test` を実行する
 - [x] GitHub ActionsでPull Requestごとのテスト、ビルド、静的検査を実行する
 - [x] CIで `bun install --frozen-lockfile` を使用する
-- [ ] `bun:test` でReactコンポーネントのDOMテストが成立する構成を確立する
-- [ ] Vitestへ退避する条件を明文化する
+- [x] `bun:test` でReactコンポーネントのDOMテストが成立する構成を確立する（happy-dom + Testing Library。[design-decisions.md](./docs/design-decisions.md) 14.5）
+- [x] Vitestへ退避する条件を明文化する（[design-decisions.md](./docs/design-decisions.md) 14.5）
 - [ ] Codecovでカバレッジを可視化する（RustとFrontendを分けて集計。`codecov.yml` の集計方針は確定済み、アップロードはテスト追加後）
 - [ ] Bun本体の更新を通常依存から分離する（Renovate共有プリセット側で対応）
 - [x] required status checkを設定したうえで、Renovateの `presets/options/automerge` を戻し、`renovate.json` のautomerge打ち消し（`vulnerabilityAlerts.automerge` と `packageRules`）を解除する
@@ -90,7 +90,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 ### このフェーズで解決する未決事項
 
-- [ ] `bun:test` でのDOMテスト成立可否とVitestへの退避条件
+- [x] `bun:test` でのDOMテスト成立可否とVitestへの退避条件（[design-decisions.md](./docs/design-decisions.md) 14.5）
 - [ ] ライセンス一覧の生成手段
 
 ## Phase 3: 詳細設計

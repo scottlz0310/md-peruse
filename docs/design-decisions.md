@@ -122,7 +122,7 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 - 選定理由: Bun採用と一貫し、追加依存がない。実行が速い。
 - 却下理由: VitestはVite設定を共有でき、React Testing Libraryとjsdomの資産が厚いが、Bunで完結する利点を失う。
 - 引き受けるリスク: Viteの変換パイプラインを共有しないため、`import.meta.env` やCSS取り込みで挙動差が出る。Reactコンポーネントに対するDOMテスト環境を自前で整える必要がある。
-- 緩和策: Phase 2でDOMテスト環境とReact Testing Libraryの組合せを確立する。成立しない場合にVitestへ退避する条件をPhase 2の時点で明文化し、判断を先送りしない。
+- 緩和策: Phase 2でDOMテスト環境とReact Testing Libraryの組合せを確立した。構成とVitestへの退避条件は14.5に記載する。
 
 ### 4.9 数式: KaTeX（遅延ロード）
 
@@ -901,13 +901,42 @@ COMの `IApplicationActivationManager::ActivateForFile` を直接呼ぶと `0x80
 - x64実機を必須とし、ARM64実機または同等環境でスモークテストする。
 - [spec.md](./spec.md)の性能目標をインストール済みパッケージに対して測定する。
 
+### 14.5 FrontendのDOMテスト構成と退避条件
+
+Phase 2で `bun:test` によるReactコンポーネントのDOMテストが成立することを確認した。構成は次のとおり。
+
+| 要素 | 採用 |
+| --- | --- |
+| test runner | `bun:test` |
+| DOM実装 | `@happy-dom/global-registrator` |
+| コンポーネント操作 | `@testing-library/react` |
+| プリロード | `bunfig.toml` の `[test] preload` で `test/setup.ts` を読み込む |
+
+`test/setup.ts` はhappy-domをグローバルへ登録し、`IS_REACT_ACT_ENVIRONMENT` を有効にしたうえで、`afterEach` に Testing Library の `cleanup` を登録する。Testing Libraryは読み込み時に `document` を参照するため、登録後に動的importする。
+
+確認した範囲は次のとおり。
+
+- `render` と `screen` によるクエリ
+- `fireEvent` による操作とstate更新の反映
+- テスト間のDOM cleanup
+- `tsc --noEmit` によるテストコードの型検査（`types: ["bun"]` と `include` への `test` 追加）
+
+Vitestへ退避する条件は次のとおり。いずれかに該当した時点で、その回避策を本番コードへ持ち込む前に切り替えを判断する。
+
+1. Viteの変換に依存する記法（`import.meta.env`、CSS Modules、`?raw` や `?url` のimport、worker import）を含むモジュールのテストが書けず、回避策として本番コードの構造を変える必要が生じたとき。
+2. happy-domが実装しないブラウザAPIについて、テスト用のモックが本番コードへ影響する形でしか用意できないとき。
+3. `bun:test` 側の制約でReactの非同期更新やタイマー制御が安定せず、フレークが継続的に発生するとき。
+4. 上記の回避に要するコストが、Vitestの導入と維持のコストを上回ると判断できるとき。
+
+退避する場合は、`bunfig.toml` のpreloadをVitestのsetupファイルへ移し、`package.json` の `test` スクリプトとCIの実行コマンドを差し替え、本節と4.8を改訂する。happy-domとTesting Libraryの資産はそのまま引き継げるため、退避コストはrunnerの差し替えに限定される。
+
 ## 15. 未決事項
 
 技術スタックの選定は第4章で確定済みであり、本章では扱わない。
 
 ### P0: 実装着手前
 
-Phase 1のスパイクで解決した項目は次のとおり。
+Phase 1のスパイクとPhase 2の基盤整備で解決した項目は次のとおり。
 
 | 項目 | 結論 | 参照 |
 | --- | --- | --- |
@@ -918,6 +947,7 @@ Phase 1のスパイクで解決した項目は次のとおり。
 | MSIXでのアプリ設定保存先が期待どおりに解決されること | パッケージ領域へリダイレクトされ、アンインストールで併せて削除される | 11.1、13.4 |
 | custom image protocolのURL形式 | `http://mdperuse-img.localhost/<resource-id>` | 5.4 |
 | x64のMSIX生成、インストール、起動、WACK結果 | いずれも成立。WACKはOVERALL PASS | 13.1、13.3、13.4 |
+| `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | happy-domとTesting Libraryの組合せで成立。退避条件を明文化 | 4.8、14.5 |
 
 未解決の項目は次のとおり。
 
@@ -925,7 +955,6 @@ Phase 1のスパイクで解決した項目は次のとおり。
 - custom image protocolのresource ID生成、無効化、キャッシュ方針
 - CSPの最終値とTauri capabilityの最小集合（実測を反映した現時点の値は5.5）
 - ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否（イベント列は6.4で実測済み。タブ状態の設計はPhase 3）
-- `bun:test` でReactコンポーネントのDOMテストが成立するか、およびVitestへの退避条件
 - ARM64のMSIXインストール、起動、WACK結果（Phase 5の提出前検証で実施する）
 
 ### P1: 初期版仕様確定前

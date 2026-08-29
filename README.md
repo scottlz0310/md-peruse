@@ -89,7 +89,7 @@ bun install
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
 
-`bun test` はテスト構成をPhase 2で確立するまでテストファイルを持たないため、現時点ではテストファイルが見つからず失敗する。CIへ組み込むのはテスト追加後とする。
+`bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
 Rust側は `src-tauri` で実行する。
 
@@ -172,7 +172,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 | ジョブ | ランナー | 内容 |
 | --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run build` |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun test`、`bun run build` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo test` |
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
