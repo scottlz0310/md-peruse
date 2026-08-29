@@ -111,6 +111,8 @@ MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` �
 winget install --id Microsoft.WinAppCli --version 0.6.1 --exact
 ```
 
+`scripts/build-msix.ps1` は実行前に `winapp --version` を照合し、`$requiredWinappVersion`（現在は 0.6.1）と一致しなければ失敗する。マニフェスト検証、PRI生成、署名の挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。
+
 ARM64版をビルドする場合はRustのターゲットを追加する。
 
 ```sh

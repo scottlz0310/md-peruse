@@ -37,9 +37,22 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $rustTarget = @{ x64 = 'x86_64-pc-windows-msvc'; arm64 = 'aarch64-pc-windows-msvc' }[$Architecture]
+
+# winapp CLI のバージョンはここを正本として固定する。マニフェスト検証、PRI生成、署名の
+# 挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。
+# 更新するときは docs/design-decisions.md 4.10 と README.md も併せて変更すること。
+$requiredWinappVersion = '0.6.1'
+
+if (-not (Get-Command winapp -ErrorAction SilentlyContinue)) {
+    throw "winapp CLI が見つかりません。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で導入してください。"
+}
+
+$winappVersion = (& winapp --version 2>&1 | Out-String).Trim()
+if ($winappVersion -ne $requiredWinappVersion) {
+    throw "winapp CLI のバージョンが一致しません。期待値 $requiredWinappVersion、実際 '$winappVersion'。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で固定してください。"
+}
 
 # 開発用証明書のパスワード。ローカル検証専用のため既定値は winapp CLI に合わせる。
 # 値を変えたい場合は MDPERUSE_DEV_CERT_PASSWORD で渡す。

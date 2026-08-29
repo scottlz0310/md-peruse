@@ -154,7 +154,7 @@ Phase 1のスケルトン配置時点で固定したバージョンを記録す�
 | TypeScript | 7.0.2 | `package.json` |
 | Biome | 2.5.11 | `package.json` |
 | Lefthook | 2.1.12 | `package.json` |
-| winapp CLI | 0.6.1 | WinGet `Microsoft.WinAppCli`（`scripts/build-msix.ps1` が使用） |
+| winapp CLI | 0.6.1 | `scripts/build-msix.ps1` の `$requiredWinappVersion`（WinGet `Microsoft.WinAppCli`） |
 
 Rustのeditionは2024を採用する。新規プロジェクトであり、既存コードとの互換性制約がないため。MSRVは edition 2024 が要求する1.85とする。
 
