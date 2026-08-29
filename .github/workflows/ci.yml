@@ -128,3 +128,26 @@ jobs:
           files: lcov.info
           flags: rust
           fail_ci_if_error: true
+
+  licenses:
+    name: Licenses
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: 依存関係をインストール
+        run: bun install --frozen-lockfile
+
+      # cargo-about は Cargo.lock とcrateのメタデータだけを読むため、
+      # Windowsターゲットの一覧をLinuxランナー上で生成できる。
+      - uses: taiki-e/install-action@cargo-about
+
+      - name: ライセンス一覧を生成
+        run: bun run generate:licenses
+
+      - name: 生成物が最新か検査
+        run: git diff --exit-code -- src/generated/third-party-licenses.json

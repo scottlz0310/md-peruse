@@ -13,6 +13,7 @@
     "check:fix": "biome check --write",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "generate:licenses": "bun run scripts/generate-licenses.ts",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov",
     "prepare": "lefthook install"
   },

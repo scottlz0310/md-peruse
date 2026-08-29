@@ -89,6 +89,7 @@ bun install
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
 | `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
+| `bun run generate:licenses` | サードパーティライセンス一覧を生成する（`cargo-about` が必要） |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -179,8 +180,11 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
+| `Licenses` | `ubuntu-latest` | ライセンス一覧を再生成し、生成物が最新であることを検査する |
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
+
+ライセンス一覧は `Licenses` ジョブが `bun run generate:licenses` で再生成し、`git diff --exit-code` で `src/generated/third-party-licenses.json` が最新であることを検査する。依存を追加・更新したら、生成物も併せてコミットする（[design-decisions.md](./docs/design-decisions.md) 11.3）。
 
 カバレッジはFrontendとRustの両方でlcovを生成し、`codecov/codecov-action` でCodecovへアップロードする。認証はGitHub ActionsのOIDCを使い、upload tokenをリポジトリのsecretへ置かない。RustのlcovはWindowsのRustジョブがartifactとして保存し、`Coverage` ジョブ（ubuntu）がアップロードする（理由は [design-decisions.md](./docs/design-decisions.md) 4.11）。集計方針は `codecov.yml` に定義し、flagsを `frontend` と `rust` に分ける。Rustのテストは Phase 4 のコア実装と併せて追加するため、それまではステータスを `informational` としてPull Requestをブロックしない。
 
@@ -189,7 +193,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
 - 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
-- `main` は保護されており、直接pushできない。CIの `Frontend`、`Rust`、`Coverage` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
+- `main` は保護されており、直接pushできない。CIの `Frontend`、`Rust`、`Coverage`、`Licenses` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
 - 人が作成する変更は、CIの通過に加えてthread-owlのレビューとVerdictコメントを必須とする。マージ方式はsquashのみ。
 - Renovateによる定型依存更新は、CIの通過をもってゲートとし自動マージする（独立レビューは求めない）。範囲と根拠は [design-decisions.md](./docs/design-decisions.md) 4.12「レビューの適用範囲」を参照。
 
