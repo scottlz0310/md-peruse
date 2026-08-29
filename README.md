@@ -143,13 +143,13 @@ Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
 
 ### アイコン
 
-アイコンの原本は `assets/app-icon.svg` の1点とし、各サイズは生成する。
+アイコンの原本は `assets/app-icon.png`（1024x1024）の1点とし、各サイズは生成する。
 
 ```sh
-bun run tauri icon assets/app-icon.svg
+bun run tauri icon assets/app-icon.png
 ```
 
-Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。現在のアイコンは暫定であり、最終デザインへの差し替えは別途行う。
+Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。
 
 ### Git Hooks
 

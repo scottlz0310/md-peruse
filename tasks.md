@@ -51,7 +51,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 - [x] Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する
 - [x] x64とARM64のReleaseビルドを生成する
 - [x] `Package.appxmanifest` とパッケージ用アセットを作成する
-- [x] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える（暫定デザイン。最終版への差し替えは追跡Issue）
+- [x] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える
 - [x] packaged classic app、`mediumIL`、`runFullTrust` を設定する（`broadFileSystemAccess` は宣言しない）
 - [x] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
 - [x] 開発用自己署名証明書でローカル検証用パッケージを署名する
@@ -129,6 +129,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 ## Phase 5: 配布パイプラインとStore公開
 
 - [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
+- [ ] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
 - [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
 - [ ] GitHub Actionsでx64版とARM64版をビルドし、MSIXとWACK結果をartifactとして保存する
 - [ ] プライバシーポリシーとデータ収集申告を準備する
