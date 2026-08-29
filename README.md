@@ -97,7 +97,33 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
+`tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、Rust側の検査を実行する前に一度 `bun run build` を実行しておく必要がある。
+
 MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` の `bundle.active` を `false` としているため、`tauri build` は実行ファイルのみを生成し、NSIS や MSI のインストーラーは作らない。
+
+### Git Hooks
+
+`bun install` の `prepare` スクリプトでLefthookがGit Hooksへ導入される。`lefthook.yml` に定義したpre-commitで、CIと同じ検査をコミット前に実行する。
+
+| ジョブ | 対象 | 内容 |
+| --- | --- | --- |
+| `biome` | ステージした JS/TS/JSON/CSS/HTML | `biome check` |
+| `typecheck` | ステージした TS/TSX | `tsc --noEmit` |
+| `rust-fmt` | ステージした Rust | `cargo fmt --check` |
+| `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |
+
+### CI
+
+`.github/workflows/ci.yml` がPull Requestと `main` へのpushで動作する。
+
+| ジョブ | ランナー | 内容 |
+| --- | --- | --- |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run build` |
+| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo test` |
+
+依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
+
+カバレッジの集計方針は `codecov.yml` に定義する。テスト構成をPhase 2で確立するまでCIからのアップロードは行わないため、ステータスは `informational` としてPull Requestをブロックしない。
 
 ## 貢献
 
