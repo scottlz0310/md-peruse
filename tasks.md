@@ -129,7 +129,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 ## Phase 5: 配布パイプラインとStore公開
 
 - [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
-- [ ] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
+- [x] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
 - [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
 - [ ] GitHub Actionsでx64版とARM64版をビルドし、MSIXとWACK結果をartifactとして保存する
 - [ ] プライバシーポリシーとデータ収集申告を準備する

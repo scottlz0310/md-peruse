@@ -91,7 +91,7 @@ Copy-Item $executable -Destination $layout
 
 # マニフェストが参照する visual asset のみを配置する。
 $iconSource = Join-Path $repoRoot 'src-tauri/icons'
-foreach ($logo in @('StoreLogo.png', 'Square44x44Logo.png', 'Square71x71Logo.png', 'Square150x150Logo.png')) {
+foreach ($logo in @('StoreLogo.png', 'Square44x44Logo.png', 'Square71x71Logo.png', 'Square150x150Logo.png', 'Square310x310Logo.png', 'Wide310x150Logo.png')) {
     $path = Join-Path $iconSource $logo
     if (-not (Test-Path $path)) { throw "アイコンが見つかりません: $path" }
     Copy-Item $path -Destination (Join-Path $layout 'Images')
