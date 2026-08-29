@@ -17,5 +17,8 @@
 
 - 概略要件定義書、設計判断、開発フローの設計文書を追加
 - `README.md`、`CHANGELOG.md`、`tasks.md` を追加
+- `.gitattributes` と `.editorconfig` を追加し、改行コードとインデント規則を統一
+- Pull RequestテンプレートとIssueテンプレート（バグ報告・機能要望）を追加
+- Renovate共有プリセットを参照する `renovate.json` を追加
 
 [Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main

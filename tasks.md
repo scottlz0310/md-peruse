@@ -42,11 +42,11 @@
 - [x] `CHANGELOG.md` を作成し、Keep a Changelog形式の記載方針を定める
 - [x] `tasks.md` を作成する
 - [x] Conventional Commitsを規約として明記する
-- [ ] `.editorconfig` を配置する
-- [ ] `.gitattributes` を配置する
-- [ ] Pull Requestテンプレートを配置する
-- [ ] Issueテンプレートを配置する
-- [ ] Renovate共有プリセットを参照する `renovate.json` を配置する
+- [x] `.editorconfig` を配置する
+- [x] `.gitattributes` を配置する
+- [x] Pull Requestテンプレートを配置する
+- [x] Issueテンプレートを配置する
+- [x] Renovate共有プリセットを参照する `renovate.json` を配置する
 
 ### 完了条件
 

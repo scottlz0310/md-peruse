@@ -1,0 +1,86 @@
+name: バグ報告
+description: 表示の崩れ、クラッシュ、意図しない動作を報告する
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        再現手順と環境が揃っていると調査が早く進みます。
+        セキュリティ上の問題は Issue ではなく非公開の経路で連絡してください。
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: 症状
+      description: 何が起きたかを記述する
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 再現手順
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期待する動作
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: アーキテクチャ
+      options:
+        - x64
+        - ARM64
+        - 不明
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Windowsのバージョン
+      description: "設定 > システム > バージョン情報 の「OS ビルド」（例: 22631.4460）"
+    validations:
+      required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: md-peruse のバージョン
+      description: "リリース版はバージョン番号、開発ビルドはコミットハッシュ"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: 導入方法
+      options:
+        - Microsoft Store
+        - MSIX の手動インストール
+        - 開発ビルド（bun run tauri dev など）
+    validations:
+      required: true
+
+  - type: textarea
+    id: markdown
+    attributes:
+      label: 再現するMarkdown
+      description: 描画に関する問題の場合、最小の再現入力を貼り付ける
+      render: markdown
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: 補足
+      description: スクリーンショット、エラーメッセージなど
