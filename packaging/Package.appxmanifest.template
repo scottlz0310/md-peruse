@@ -47,15 +47,14 @@
       <uap:VisualElements
         DisplayName="md-peruse"
         Description="設計書や仕様書の観測に特化した、閲覧専用のMarkdownビューワー。"
-        BackgroundColor="#16202B"
+        BackgroundColor="#111958"
         Square150x150Logo="Images\Square150x150Logo.png"
         Square44x44Logo="Images\Square44x44Logo.png">
-        <!-- Square310x310Logo(大タイル)は Wide310x150Logo の同時指定が必須。
-             ワイドロゴは比率2.067を要し正方形アイコンから生成できないため、
-             図案を用意したうえで両方をまとめて追加する。追跡は Issue #7。 -->
         <uap:DefaultTile
           ShortName="md-peruse"
-          Square71x71Logo="Images\Square71x71Logo.png" />
+          Square71x71Logo="Images\Square71x71Logo.png"
+          Square310x310Logo="Images\Square310x310Logo.png"
+          Wide310x150Logo="Images\Wide310x150Logo.png" />
       </uap:VisualElements>
 
       <Extensions>

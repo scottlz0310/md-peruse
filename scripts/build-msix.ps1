@@ -91,11 +91,16 @@ Copy-Item $executable -Destination $layout
 
 # マニフェストが参照する visual asset のみを配置する。
 $iconSource = Join-Path $repoRoot 'src-tauri/icons'
-foreach ($logo in @('StoreLogo.png', 'Square44x44Logo.png', 'Square71x71Logo.png', 'Square150x150Logo.png')) {
+foreach ($logo in @('StoreLogo.png', 'Square44x44Logo.png', 'Square71x71Logo.png', 'Square150x150Logo.png', 'Square310x310Logo.png')) {
     $path = Join-Path $iconSource $logo
     if (-not (Test-Path $path)) { throw "アイコンが見つかりません: $path" }
     Copy-Item $path -Destination (Join-Path $layout 'Images')
 }
+
+# 横長タイルは `tauri icon` の生成対象外のため、ここで原本から直接生成する。
+# 生成物をリポジトリへ置かないことで、原本を更新したあとに生成を忘れて
+# 古いロゴを梱包する経路をなくす。
+& (Join-Path $PSScriptRoot 'generate-wide-logo.ps1') -OutputPath (Join-Path $layout 'Images/Wide310x150Logo.png')
 
 $manifest = Get-Content (Join-Path $repoRoot 'packaging/Package.appxmanifest.template') -Raw
 $manifest = $manifest.Replace('__PACKAGE_VERSION__', $packageVersion).Replace('__PROCESSOR_ARCHITECTURE__', $Architecture)

@@ -143,13 +143,17 @@ Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
 
 ### アイコン
 
-アイコンの原本は `assets/app-icon.png`（1024x1024）の1点とし、各サイズは生成する。
+正方形アイコンの原本は `assets/app-icon.png`（1024x1024）の1点とし、各サイズは生成する。
 
 ```sh
 bun run tauri icon assets/app-icon.png
 ```
 
 Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。
+
+横長タイル（`Wide310x150Logo`）は `tauri icon` が生成しないため、`scripts/generate-wide-logo.ps1` で生成する。原本は `assets/wide-logo.png`（3100x1500、比率2.0667）とする。
+
+このスクリプトは `build-msix.ps1` がパッケージレイアウトへ直接出力するために呼ぶ。生成物をリポジトリへ置かないため、原本を更新したあとに生成を忘れて古いロゴを梱包することがない。原本の比率が2.0667から外れている場合、スクリプトは生成せず失敗する。
 
 ### Git Hooks
 

@@ -742,9 +742,24 @@ Phase 1のスパイクで次を確定した。
 
 マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `ProcessorArchitecture` と `Version` を置換して生成する。アーキテクチャごとに別のマニフェストを保守しない。
 
-visual assetは `assets/app-icon.png`（1024x1024）を唯一の原本とし、`tauri icon` で各サイズを生成する。手作業での差し替えは行わない。
+visual assetの原本は2点とし、いずれも手作業でのリサイズは行わない。
 
-`uap:DefaultTile` に `Square310x310Logo` を指定する場合、`Wide310x150Logo` の同時指定がMSIXのマニフェスト検証で必須となる。ワイドロゴは縦横比が `Square310x310Logo` と異なり、正方形アイコンから機械的に生成できないため、大タイルは指定していない。Store提出物を準備するPhase 5で、比率2.067の図案を用意したうえで両方を追加する。
+| 原本 | 寸法 | 生成対象 | 生成手段 | 生成物の扱い |
+| --- | --- | --- | --- | --- |
+| `assets/app-icon.png` | 1024x1024 | 正方形アイコン一式、`icon.ico`、各Squareロゴ、StoreLogo | `bun run tauri icon assets/app-icon.png` | `src-tauri/icons` へコミットする |
+| `assets/wide-logo.png` | 3100x1500（比率2.0667） | `Wide310x150Logo.png` | `scripts/generate-wide-logo.ps1` | コミットせず、パッケージレイアウトへ直接生成する |
+
+`tauri icon` は正方形しか生成しないため、横長タイルは専用スクリプトで生成する。スクリプトは原本の比率が2.0667から外れていれば失敗し、引き伸ばされた画像がパッケージへ入ることを防ぐ。
+
+横長タイルの生成物はリポジトリへ置かず、`scripts/build-msix.ps1` がパッケージレイアウトへ直接出力する。生成物をコミットすると、原本を更新したあとに生成を忘れた場合に古いロゴを梱包し得る。生成を毎回パッケージ工程で行えば、この乖離は原理的に起きない。
+
+正方形アイコンは `tauri icon` の生成物を `src-tauri/icons` へコミットする。Tauriのビルドと開発時の実行が同じディレクトリを参照するためである。この系統は原本と生成物が乖離し得るため、一致の検査手段を別途設ける（Issue #13）。
+
+`uap:DefaultTile` に `Square310x310Logo` を指定する場合、`Wide310x150Logo` の同時指定がMSIXのマニフェスト検証で必須となる。両方を指定している。
+
+ただしWindows 11のスタートメニューはアイコン表示のみで、Windows 10のライブタイルは廃止されている。そのため `Wide310x150Logo` と `Square310x310Logo` は現行OSの画面上では使われない。マニフェスト検証の要件を満たすことと、Store掲載時の資産としての完全性のために保持する。
+
+`BackgroundColor` はアイコンの角丸の外側と、透過部分の背景として使われる。値はアイコンとワイドロゴから実測した濃紺 `#111958`（アイコン左下の実測値。ワイドロゴ背景の `#132148` と近い）とする。
 
 ### 13.2 ビルド時依存の境界
 

@@ -31,7 +31,8 @@
 ### Changed
 
 - Renovateの自動マージを再開。required status checkが揃ったため、`presets/options/automerge` を `extends` へ戻し、`renovate.json` のautomerge打ち消しを削除した。レビューの必須範囲（人が作成する変更とRenovateの定型更新の区別）を [design-decisions.md](./docs/design-decisions.md) 4.12 に定義した
-- アプリアイコンをTauriテンプレートの既定からmd-peruse独自のデザインへ差し替え。原本を `assets/app-icon.png`（1024x1024）の1点とし、各サイズは `tauri icon` で生成する
+- アプリアイコンをTauriテンプレートの既定からmd-peruse独自のデザインへ差し替え。正方形アイコンの原本は `assets/app-icon.png`（1024x1024）、横長タイルの原本は `assets/wide-logo.png`（3100x1500）とし、各サイズは生成する
+- MSIXのタイルへ `Wide310x150Logo` と `Square310x310Logo` を追加し、`BackgroundColor` をアイコンの実測色へ変更。横長タイルはパッケージ工程で原本から直接生成する
 - MSIX環境での動作をスパイクで実測し、設計判断を確定（[design-decisions.md](./docs/design-decisions.md) 5.4、5.5、6.4、11.1、13.4）
 
 [Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main
