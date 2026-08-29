@@ -1,0 +1,706 @@
+# md-peruse 設計判断
+
+## 1. 文書の位置付け
+
+| 項目 | 内容 |
+| --- | --- |
+| 状態 | 設計段階 |
+| 基準日 | 2026-08-29 |
+| 役割 | 要件を実装へ落とすための設計判断、境界条件、未決事項の正本 |
+| 上位文書 | [spec.md](./spec.md) |
+| 実装順序 | [dev-flow.md](./dev-flow.md) |
+| UI参考資料 | [uimock.html](./uimock.html) |
+
+退避済みの旧設計合意文書から、プロダクト要件、セキュリティ境界、ファイル処理、UI、アクセシビリティに関する判断を継承する。旧文書のWinUI 3、.NET、Windows App SDK固有の設計は継承せず、本書のTauri v2 + MSIX構成を優先する。
+
+`uimock.html` は画面構成の参考資料であり、要件または実装コードの正本ではない。モックが埋め込むサンプルMarkdown本文は旧構成（`marked.js` / `pulldown-cmark`）を記述しており、現行の設計判断と一致しない。モックのCDN読込とHTML実装のメニューバーも製品構成ではない。
+
+本書で「暫定」と記した値は、Phase 1のスパイクまたはPhase 3の詳細設計で確定する。「未決」と記した項目は第15章で優先度とともに管理する。技術スタックの選定理由と却下理由は第4章に記録する。
+
+## 2. プロダクト境界
+
+### 2.1 初期版で提供するもの
+
+- 単一ワークスペース内のMarkdown探索
+- GFM、Mermaid、コードハイライト、数式を含む安全なプレビュー
+- 複数文書を切り替えるタブ
+- ファイル変更の自動検知と再描画
+- Windowsのテーマとアクセシビリティ設定への追従
+- Microsoft StoreからのMSIX配布と更新
+
+### 2.2 初期版で提供しないもの
+
+- Markdownの編集と保存
+- 任意Webページを表示するHTMLブラウザー機能
+- Markdown内のRaw HTMLまたはJavaScriptの実行
+- PlantUML、Graphviz、Pandocなどの外部プロセス実行
+- PDF、スライド、印刷、エクスポート
+- 全ドライブを横断するExplorer
+- 複数ウィンドウと分割ペイン
+- タブセッションの完全復元
+- アプリ独自Updaterと `.appinstaller`
+- テレメトリとクラッシュレポートの外部送信
+
+Read-onlyはユーザーのMarkdownと関連リソースを書き換えないことを意味する。テーマなどのアプリ設定は、アプリ専用データ領域へ保存できる。
+
+## 3. プラットフォームとRuntime
+
+| 項目 | 決定 |
+| --- | --- |
+| OS | Windows 11 |
+| 最小OSビルド | 22000 |
+| CPU | x64、ARM64 |
+| WebView | Evergreen WebView2 Runtime |
+| 非対応 | x86、Windows 10、EOL済みWindows |
+
+- Fixed Version WebView2 Runtimeは同梱しない。
+- WebView2の初期化に失敗した場合、原因と公式修復先をネイティブ側から表示する。
+- アプリ自身がWebView2 Runtimeをダウンロードまたはインストールしない。
+- Tauri/Rustを採用するため、.NET Desktop RuntimeとWindows App SDK Framework Packageには依存しない。
+
+## 4. 技術選定
+
+各軸について候補を比較して決定した。将来の再検討時に前提へ立ち返れるよう、選定理由だけでなく却下理由と引き受けるリスクを残す。
+
+### 4.1 決定一覧
+
+| 軸 | 決定 | 主な代替候補 |
+| --- | --- | --- |
+| デスクトップシェル | Tauri v2（Rust + WebView2） | WinUI 3 + WebView2、Electron、Wails v3 |
+| Frontendフレームワーク | React + Vite | Svelte 5、SolidJS、素のTypeScript |
+| JSツールチェーン | Bun | pnpm、npm |
+| パッケージングと配布 | MSIX + Microsoft Store（winapp CLI） | makeappxの自前スクリプト化、MSIXとMSIの併用、MSI/NSIS + 自前Updater |
+| Markdown解析とsanitize | unified（remark + rehype） | markdown-it + DOMPurify、Rust側 comrak + ammonia |
+| シンタックスハイライト | highlight.js/core（lowlight経由） | Shiki、Rust側 syntect |
+| Frontend test runner | `bun:test` | Vitest |
+| 数式 | KaTeX（遅延ロード） | 非対応、MathJax |
+
+### 4.2 デスクトップシェル: Tauri v2
+
+- 選定理由: 配布サイズと常駐メモリが最小で、軽量・低負荷というコアバリューへ直結する。capabilityによる細粒度の権限制御が、Read-only境界とワークスペース境界の設計と噛み合う。.NET Desktop RuntimeとWindows App SDKに依存しない。
+- 却下理由: WinUI 3は起動とサイズが重く、Mermaidのため結局WebView2を抱える二重構成になる。ElectronはChromium同梱でコアバリューと正面衝突する。Wails v3はWindowsパッケージングとStore配布の事例が不足している。
+- 引き受けるリスク: Rustの実装コスト。MSIX生成がTauri CLIの標準機能ではない。
+- 緩和策: ファイル操作を限定されたTauri commandへ集約し、Rust側の実装面積を絞る。MSIX生成を独立工程として扱い、Phase 1で先に検証する。
+
+### 4.3 Frontendフレームワーク: React + Vite
+
+- 選定理由: unified、Mermaid、DOMPurifyとの連携実例が最も多く、保守情報の入手性が高い。`rehype-react` によるReact要素への直接変換という選択肢を取れる。UI規模（ツリー、タブ、プレビューの3領域）に対し、ランタイム分の負荷は許容範囲と判断する。
+- 却下理由: Svelte 5とSolidJSはバンドルサイズで優位だが、エコシステムと参考情報が薄い。素のTypeScriptはツリーとタブの差分描画を自前保守することになり、保守コストが後で効く。
+- 引き受けるリスク: Reactランタイム分のバンドルとメモリ。
+- 緩和策: 状態管理ライブラリを持ち込まず、アクティブタブだけ本文DOMを保持する方針で総量を抑える。[spec.md](./spec.md)のメモリ目標で検証する。
+
+### 4.4 JSツールチェーン: Bun
+
+- 選定理由: install、test、runを単一ツールで完結でき、ローカルとCIの工程が短い。
+- 却下理由: pnpmはユーザー標準で整合コストが低いが、test runnerを別途要する。npmは速度面で劣る。
+- 引き受けるリスク: ユーザー標準（pnpm）からの逸脱。共有Renovateプリセットがpnpm前提のルールを含む場合の不整合。Windows ARM64サポートの確認が必要。
+- 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する。Phase 1でARM64上の動作を確認する。
+
+### 4.5 パッケージングと配布: MSIX + Microsoft Store（winapp CLI）
+
+- 選定理由: 署名と更新をStoreへ一本化でき、自前Updaterとコード署名証明書の調達を持たない。Tauri向けの公式ガイドが存在する。
+- 却下理由: makeappxの自前スクリプト化はPreviewツール依存を避けられるが、パッケージング一式を自前保守することになる。MSI/NSIS + 自前Updaterは証明書コスト、更新機構の保守、SmartScreen警告を抱える。MSIXとMSIの併用は検証系統が二重化する。
+- 引き受けるリスク: winapp CLIがPublic Previewであり、破壊的変更がありうる。
+- 緩和策: CIで使用バージョンを固定する。`Package.appxmanifest` とパッケージ用アセットをツールから独立して管理し、makeappxへ切り替え可能な状態を保つ。Phase 1で切替コストを評価する。
+
+### 4.6 Markdown解析とsanitize: unified（remark + rehype）
+
+- 選定理由: sanitizeをhastの段階で行い、`rehype-react` でReact要素へ直接変換できるため、本文描画から `dangerouslySetInnerHTML` を排除できる。HTML文字列を経由しないため、sanitizeを迂回する余地が構造的に小さい。`remark-gfm` と `remark-math` でGFMと数式の入口が揃う。
+- 却下理由: markdown-it + DOMPurifyはパースが速く実績も厚いが、HTML文字列と `dangerouslySetInnerHTML` を前提とする。Rust側 comrak + ammoniaはWebView負荷を下げられるが、ハイライトとMermaidがJS側に残って責務が分散し、sanitizeのallowlistも自前設計することになる。
+- 引き受けるリスク: 依存パッケージ数とバンドルの増加。markdown-itより遅いパース。Mermaid生成SVGには別途DOMPurifyが必要で、sanitizeの道具が二本立てになる。
+- 緩和策: Markdown 10 MiB上限とバンドルサイズの計測で負荷を管理する。DOMPurifyの利用箇所をMermaid生成SVGだけに限定し、そこを `dangerouslySetInnerHTML` の唯一の例外として明示する。
+
+### 4.7 シンタックスハイライト: highlight.js/core
+
+- 選定理由: 言語単位で遅延ロードでき、初期バンドルを小さく保てる。着色をCSSテーマとして持つため、テーマ切替と `forced-colors` 時の代替表現へ対応しやすい。`lowlight` を介してhastを得られるため、unifiedおよびReact要素への変換方針と一貫する。
+- 却下理由: Shikiは発色が正確だが、文法データが重く、インラインstyle出力がテーマ切替、`forced-colors`、CSPの各方針と衝突する。syntectはJS依存を消せるが、テーマ切替のたびに再生成が必要で、インラインstyleの課題は残る。
+- 引き受けるリスク: 文法精度がTextMate系に劣る。
+- 緩和策: 言語の自動判定を行わず、allowlistで明示された言語だけを対象とする。未対応言語はプレーン表示とする。
+
+### 4.8 Frontend test runner: `bun:test`
+
+- 選定理由: Bun採用と一貫し、追加依存がない。実行が速い。
+- 却下理由: VitestはVite設定を共有でき、React Testing Libraryとjsdomの資産が厚いが、Bunで完結する利点を失う。
+- 引き受けるリスク: Viteの変換パイプラインを共有しないため、`import.meta.env` やCSS取り込みで挙動差が出る。Reactコンポーネントに対するDOMテスト環境を自前で整える必要がある。
+- 緩和策: Phase 2でDOMテスト環境とReact Testing Libraryの組合せを確立する。成立しない場合にVitestへ退避する条件をPhase 2の時点で明文化し、判断を先送りしない。
+
+### 4.9 数式: KaTeX（遅延ロード）
+
+- 選定理由: 描画が同期的で高速。`remark-math` と `rehype-katex` でunifiedパイプラインへ自然に組み込める。数式を含む文書を開いたときだけロードすれば、アイドル時のコストはゼロになる。
+- 却下理由: 非対応はスコープが最小だが、数式を含む設計書で表示が崩れる。MathJaxはカバレッジが最大だが明確に重く、軽量というコアバリューと衝突する。
+- 引き受けるリスク: フォントの同梱が必要。対応構文がLaTeXの部分集合にとどまる。マクロ展開による処理時間の増大。
+- 緩和策: フォントをローカル同梱しCDNを使わない。`trust` を無効にして `\href` などを禁止する。マクロ展開と出力サイズに上限を設ける。sanitize schemaをKaTeX出力に合わせて拡張する。
+
+## 5. アーキテクチャ
+
+### 5.1 レイヤー構成
+
+```text
+Tauri v2 / Rust
+  ├─ native file/folder dialog
+  ├─ workspace and path policy
+  ├─ directory traversal and file decoding
+  ├─ file watcher lifecycle
+  ├─ validated image resource protocol
+  ├─ single-instance and file activation
+  └─ typed commands and events
+
+WebView2
+  └─ React + TypeScript + Vite
+       ├─ workspace/tree/tab state
+       ├─ Markdown parsing and sanitization
+       ├─ preview rendering
+       ├─ navigation and selection
+       └─ theme and accessibility UI
+```
+
+### 5.2 Frontend
+
+- React + TypeScript + Viteを使用する。
+- JavaScript依存関係とスクリプト実行にはBunを使用する。
+- React Router、Redux、Zustand、SSRは初期導入しない。
+- Reactのlocal state、`useReducer`、Contextを基本とする。
+- Biome、`tsc --noEmit`、Lefthookを品質ツールとして使用する。
+- テストは `bun:test` を使用する。
+
+Bunはユーザー標準のパッケージマネージャー（pnpm）と異なるため、次の影響を設計として引き受ける。選定理由は4.4に記録する。
+
+- 共有Renovateプリセットがpnpm前提のルールを含む場合、Bun向けの調整をプリセット側へ集約する。
+- CIキャッシュとlockfile（`bun.lock`）の扱いをpnpm前提のワークフローから分離する。
+
+### 5.3 Tauri IPC
+
+- 要求と応答にはTauri commandを使用する。
+- ファイル変更、テーマ変更などの通知にはTauri eventまたはchannelを使用する。
+- Frontendへ汎用ファイルシステムAPIを公開しない。
+- commandごとに必要なcapabilityだけを許可する。
+- Frontendから受け取ったパス、URL、resource IDはRust側で再検証する。
+- Markdown由来の文字列をJavaScriptとして連結または評価しない。
+
+IPCの型、プロトコルバージョン、request ID、キャンセル、エラーコードは実装前に確定する。エラーは次の構造を持ち、Frontendでの分岐に文字列比較を使わない。
+
+- `code`: 安定した機械可読の識別子
+- `message`: 表示用の日本語メッセージ
+- `detail`: 任意の補足情報
+- `retryable`: ユーザーが明示的に再実行できるか
+
+ネイティブ絶対パスを `message` と `detail` へ含めない。表示にはワークスペースルートからの相対パスを用いる。
+
+### 5.4 WebViewへの資産提供
+
+- Vite成果物はTauriの組み込みアプリプロトコルから提供する。
+- 製品版で `file://`、`NavigateToString`、ローカルHTTPサーバー、CDNを使用しない。
+- ユーザーが選択したワークスペース全体をTauri asset protocolへ公開しない。
+- `assetProtocol.scope` をホームディレクトリ全体へ広げない。
+- ユーザー画像は、Rust側で検証したresource IDをキーとする専用の非同期custom URI scheme protocolから提供する。
+- custom protocolは読込完了後にファイルハンドルを閉じ、正しいContent-Type、CSP、`X-Content-Type-Options: nosniff` を返す。
+- KaTeXのフォントを含む静的アセットも組み込みアプリプロトコルから提供し、外部取得を行わない。
+
+Tauri v2には非同期custom URI scheme protocolがあるため、画像I/OでUIスレッドをブロックせず、ワークスペース全体をWebViewへ公開しない構成を採れる。
+
+WebView2ではcustom protocolがWindows特有のオリジン形式で提供される場合がある。URL形式を推測で確定せず、Phase 1のスパイクで実際に配信されるオリジンとURL形式を実測し、次の3か所を同じ前提で揃える。
+
+- CSPの `img-src`
+- `rehype-sanitize` のschemaが許可するプロトコル
+- Frontendが生成する画像URLの組み立て
+
+resource IDはワークスペースごとに生成し、推測不可能な値とする。ワークスペースを切り替えたら旧IDを無効化し、旧IDでの要求を拒否する。
+
+### 5.5 CSPとcapabilityの初期案
+
+次を出発点とし、Phase 1の実測を経て確定する。確定値はTauri設定と本書の双方へ記録する。
+
+```text
+default-src 'none';
+script-src 'self';
+style-src 'self' 'unsafe-inline';
+img-src 'self' <image-protocol-origin>;
+font-src 'self';
+connect-src <tauri-ipc-origin>;
+frame-src 'none';
+object-src 'none';
+base-uri 'none';
+form-action 'none';
+```
+
+- `style-src` の `'unsafe-inline'` は、Mermaidが生成SVGへ `style` 要素とインライン `style` 属性を出力するために必要となる見込みである。必要性をPhase 1で検証し、不要であれば削除する。残す場合は、sanitizeでイベントハンドラー属性と外部参照を除去することを緩和策とする。
+- `font-src` はKaTeXの同梱フォントのために必要となる。
+- Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る。
+- capabilityは、ダイアログ、ウィンドウ操作、単一インスタンス、独自commandに限定する。ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。
+
+## 6. ワークスペースとファイルツリー
+
+### 6.1 ルートモデル
+
+- `フォルダーを開く`で単一のルートを選択する。
+- ツリーには選択ルート以下だけを表示する。
+- ルートより上、兄弟ドライブ、`This PC`全体をツリーから辿らせない。
+- 別フォルダーを開くと、Watcher、探索キャッシュ、通常タブ、loose tabを破棄して完全に切り替える。
+- 新しいルートではREADMEなどを自動選択せず、welcomeまたは未選択状態を表示する。
+- `ワークスペースを閉じる`は、切り替えと同じ破棄処理を行ったうえでwelcome状態へ戻す。
+
+### 6.2 探索
+
+- ルート直下だけを最初に取得し、サブフォルダーは展開時に遅延取得する。
+- 取得済みディレクトリの結果はセッション中だけキャッシュする。
+- ルート全体を起動時に再帰列挙しない。
+- symlink、junction、その他のreparse pointは探索しない。
+- アクセス拒否は該当項目へ表示し、ツリー全体の失敗にしない。
+
+初期除外対象は次のとおりとする。比較は大文字小文字を区別しない。
+
+| 分類 | 名称 |
+| --- | --- |
+| バージョン管理 | `.git`、`.hg`、`.svn` |
+| 依存関係 | `node_modules`、`.venv`、`venv`、`vendor` |
+| ビルド成果物とキャッシュ | `target`、`dist`、`build`、`out`、`bin`、`obj`、`.next`、`.turbo`、`__pycache__`、`.mypy_cache`、`.pytest_cache` |
+| IDEとツール | `.vs`、`.idea`、`.vscode` |
+| 属性による除外 | 隠し属性、システム属性、reparse point |
+
+除外一覧は初期版ではユーザー設定から変更できない。除外されたフォルダーはツリーに表示しない。`.gitignore` の解釈は行わない。
+
+ツリーの表示対象は未決とする。推奨案は、フォルダーと `.md`、`.markdown` だけを表示し、対象ファイルを1つも含まないフォルダーも表示する（存在の把握を優先し、展開して空であることを許容する）である。
+
+### 6.3 対象ファイルと文字コード
+
+| 項目 | 方針 |
+| --- | --- |
+| 拡張子 | `.md`、`.markdown` |
+| 文字コード | UTF-8（BOMあり／なし）、BOMで判定できるUTF-16 LE／BE |
+| 推測変換 | CP932などの推測変換は行わない |
+| Markdown上限 | 10 MiB |
+
+未対応または不正な文字コードは置換せず、原因を表示する。上限を超えたMarkdownは解析・描画しない。
+
+改行コードはCRLF、LF、CRを受け入れ、描画前にLFへ正規化する。
+
+### 6.4 ファイル変更監視
+
+- Rustの `notify` crateでルート以下を再帰監視する。監視対象は開いているファイルに限定しない。ツリー表示とタブの両方が変更へ追従する必要があるためである。
+- `notify` はディレクトリ単位の除外を行えないため、除外対象配下のイベントは受信後にパスで判定して破棄する。
+- イベントをdebounceし、同一ファイルの連続イベントをまとめる。debounce時間は暫定150 msとし、Phase 4で実測して確定する。
+- アクティブ文書は再読込し、非アクティブタブはdirty状態にする。
+- 再描画後は可能な範囲でスクロール位置を保持する。
+- 変更のたびにルート全体を再走査しない。展開済みディレクトリのうち、イベントが届いた階層だけを再取得する。
+- ワークスペース切り替え時は旧Watcherを停止してから状態を破棄する。
+- ファイルハンドルをタブの寿命まで保持しない。
+- Windowsでは読込時に共有読込・書込・削除を許可し、置換を妨げない。
+- Watcherのバッファオーバーフローを検知した場合は、展開済みディレクトリの再取得とアクティブ文書の再読込へフォールバックし、その旨を表示する。
+
+大規模ツリーでのイベント量に上限を設けるか、監視範囲を縮退させるモードを設けるかは未決とする。
+
+### 6.5 削除、rename、置換後のタブ状態
+
+Phase 3で確定する。次を推奨案とする。
+
+| 事象 | 推奨する挙動 |
+| --- | --- |
+| 削除 | タブを自動で閉じない。最後に読めた内容を表示したまま「削除済み」状態にし、以後の再読込を停止する。閉じる操作はユーザーに委ねる |
+| rename（追跡できる場合） | タブのパスとタイトルを新しいパスへ追従させる。ツリーの選択状態も追従させる |
+| rename（追跡できない場合） | 旧パスの削除と新パスの作成として扱う |
+| atomic replace | debounce窓内の create / remove / modify の連続を1回の変更へ畳み込み、同一パスを開き直して読み直す |
+| ルートフォルダー自体の削除やrename | Watcherを停止し、ワークスペースを閉じた状態へ遷移して原因を表示する |
+
+atomic replaceは、置換の瞬間に読込が共有違反または `NotFound` で失敗しうる。「共有違反時に自動リトライしない」という原則と衝突するため、次のいずれかをPhase 3で選択する。
+
+- 案A: debounce窓の終端でのみ読込を行い、失敗はそのままエラーとして表示する。原則を維持するが、AIエージェントの連続書込みでエラー表示が出やすい。
+- 案B: 同一イベントに対して短い間隔で1回だけ再読込を許可し、それでも失敗した場合にエラーとする。原則の限定的な例外として明文化する。
+
+推奨は案Bとする。[spec.md](./spec.md)のユースケースでは置換直後の一時的な失敗が常態であり、これをユーザーへ提示する価値が低いためである。
+
+## 7. パス、リンク、画像の安全方針
+
+### 7.1 パス境界
+
+- ルートと対象を絶対パスへ正規化して比較する。
+- `..` によるパストラバーサルを拒否する。
+- Markdownリソースとしてabsolute path、UNC、device pathを受け付けない。
+- symlink、junction、reparse pointを解決した最終パスでも境界内であることを確認する。
+- 検証と読込の間に対象が置換される競合を考慮し、可能な箇所ではhandleベースで最終確認する。
+- ネイティブ絶対パスをFrontendのURLまたはDOMへ露出しない。
+
+Windows固有の条件を次のとおり扱う。
+
+- 境界判定は大文字小文字を区別せずに行う。ただし単純な前方一致は使わず、パスコンポーネント単位で比較する。`C:\root` が `C:\rootx` を含むと誤判定しないためである。
+- 8.3形式の短い名前で与えられたパスを長い名前へ解決してから比較する。
+- ファイル名のUnicode正規化差（NFC / NFD）を考慮し、比較前に正規化する。正規化してもファイルシステム上の同一性を保証できないため、最終判断はhandleベースの確認へ寄せる。
+- 代替データストリーム表記（`file.md:stream`）と末尾のドットや空白を含む名前を拒否する。
+- 260文字を超えるパスの扱いを確定する。長いパスを扱う場合はマニフェストでの長パス対応と、Rust側APIの挙動をPhase 1で検証する。
+
+### 7.2 Markdownリンク
+
+- `#anchor` は同一文書内で移動する。
+- ルート内の相対Markdownリンクはアプリ内で開く。
+- `http` と `https` は明示的なユーザー操作時だけOS既定ブラウザーで開く。
+- `javascript:`、`data:`、`file:`、任意の `ms-` schemeを遮断する。
+- ルート外の相対Markdownリンクを許可するかは未決とする。
+
+補足として次を定める。
+
+- 見出しIDはGitHub互換のslug規則（小文字化、記号除去、空白のハイフン置換、重複時の連番付与）を用い、日本語の文字は保持する。生成方法（`rehype-slug` の追加可否）はPhase 3で確定する。
+- 相対Markdownリンクにアンカーを含む場合（`./other.md#section`）は、対象文書を開いたうえで描画完了後にアンカーへ移動する。
+- リンク中のパーセントエンコードを復号してからパス解決と境界判定を行う。復号は1回だけ行い、多重エンコードを拒否する。
+- 相対リンクの解決基準は、リンクを含むMarkdownファイルの所在フォルダーとする。
+- 存在しない相対リンクは遷移せず、その場で理由を表示する。
+- リンク遷移とアンカー遷移に対する戻る／進む操作は未決とする。採用する場合はタブごとに履歴を保持する。
+
+### 7.3 画像
+
+- ワークスペース内の相対画像だけを表示する。
+- リモート画像、`data:`画像、ワークスペース外、UNC、device pathを初期版では遮断する。
+- 許可形式はPNG、JPEG、GIF、WebP、AVIF、BMP、SVGとする。
+- 1画像32 MiB、同時読込2件を上限とする。
+- `<img loading="lazy" decoding="async">` を使用する。
+- 読込失敗は本文全体を壊さず、画像位置に原因を表示する。
+
+ファイルサイズの上限だけでは、圧縮率の高い画像による過大なデコード後メモリ（decompression bomb）を防げない。ピクセル寸法の上限を設けることを前提とし、値はPhase 3で確定する。暫定案は、1辺16384 px以下かつ総ピクセル数40 Mpx以下、超過時は表示せず理由を示す、である。
+
+Content-Typeは拡張子ではなく、Rust側で判定した内容に基づいて返す。判定結果が許可形式に一致しない場合は配信しない。
+
+### 7.4 SVG
+
+- ローカルSVGは `img` の画像リソースとしてだけ提供する。
+- SVG URLへのトップレベル遷移を遮断する。
+- script、外部画像、外部通信を許可しない。
+- 独自XML書換えは行わず、レスポンスCSPで動作を制限する。
+- Mermaid生成SVGはMarkdown描画パイプラインで別途sanitizeする。
+
+`img` 要素として参照されるSVGはスクリプトを実行しないが、レスポンス側のCSPを省略しない。直接ナビゲートされた場合の保険とする。
+
+## 8. Markdown解析と描画
+
+### 8.1 基本パイプライン
+
+```text
+Markdown source
+  → remark-parse
+  → remark-gfm
+  → remark-math
+  → remark-rehype（Raw HTML はテキストとして出力）
+  → rehype-katex
+  → rehype-sanitize（拡張した strict schema）
+  → rehype-react
+  → React 要素
+
+mermaid fence
+  → Mermaid で SVG 生成
+  → DOMPurify（SVG 用 strict allowlist）
+  → dangerouslySetInnerHTML（本文描画における唯一の例外）
+```
+
+- CommonMarkを基礎とし、`remark-gfm` で表、タスクリスト、取り消し線、autolinkを有効にする。
+- `remark-rehype` は既定でRaw HTMLを破棄する。本方針は「Raw HTMLをソース文字列として表示する」であり、破棄でも実行でもない第三の扱いを要する。mdastの `html` ノードをテキストとして出力するhandlerを定義し、`allowDangerousHtml` と `rehype-raw` を使用しない。
+- `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。
+- unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
+
+### 8.2 sanitize schemaの拡張
+
+`rehype-sanitize` の既定schema（GitHub相当）を出発点とし、必要な範囲だけを拡張する。拡張は差分として明示し、暗黙の許可を作らない。最終定義はPhase 3で確定する。
+
+| 拡張対象 | 目的 |
+| --- | --- |
+| 見出しの `id` | アンカー移動 |
+| `code` の `className`（`language-*`） | ハイライト対象言語の伝達 |
+| タスクリストの `input[type=checkbox][disabled]` | GFMタスクリスト |
+| `img` の `src` プロトコルへ画像用custom protocolを追加 | ワークスペース内画像の表示 |
+| KaTeX出力（`span` のclassとMathML要素） | 数式表示 |
+
+- `href` の許可プロトコルは `http`、`https`、および同一文書内アンカーに限定する。
+- `on*` 属性、`style` 属性、`srcset`、`ping`、`formaction` を許可しない。
+- `target="_blank"` を出力する場合は `rel="noopener noreferrer"` を強制する。
+- unifiedパイプライン内では `rehype-sanitize` を最後に置き、sanitize後にプラグインで要素を追加しない。
+- ハイライトだけは例外として、sanitize後にコンポーネント側で適用する。入力がテキストのみであり、lowlightの出力が `span` とclass名に限られるため、信頼できないmarkupは混入しない。この根拠が崩れる変更（言語定義の外部読込など）を行わない。
+
+`rehype-sanitize` の既定schemaは既知でないプロトコルを除去する。画像用custom protocolはそのままでは通らないため、実測したオリジンに固定した最小限のパターンとして明示的に追加する。任意のプロトコルを通す一般化を行わない。
+
+本文用schemaとMermaid生成SVG用のDOMPurify設定は分け、本文側では `foreignObject` を許可しない。
+
+### 8.3 コードブロック
+
+- コードブロックは常に選択・コピー可能な `pre/code` とする。
+- `lowlight`（`highlight.js/core`）を使い、明示された言語だけをallowlistから遅延登録する。
+- lowlightが返すhastをReact要素へ変換し、`dangerouslySetInnerHTML` を使わない。
+- 自動言語判定は行わない。
+- 未対応言語はハイライトせず、そのまま表示する。
+
+初期allowlistの案を次のとおりとし、Phase 4で確定する。エイリアス（`ts`、`sh`、`yml` など）は正規名へ写像する。
+
+`typescript`、`javascript`、`tsx`、`jsx`、`json`、`rust`、`python`、`go`、`c`、`cpp`、`csharp`、`java`、`kotlin`、`swift`、`sql`、`bash`、`powershell`、`yaml`、`toml`、`ini`、`xml`、`html`、`css`、`diff`、`dockerfile`、`makefile`、`markdown`、`plaintext`
+
+`forced-colors` が有効なときは配色によるトークン区別が失われるため、太字と斜体による区別へ切り替える。
+
+### 8.4 Mermaid
+
+- `mermaid` fenceを検出した場合だけlazy importする。
+- security levelはstrict相当とする。`sandbox` はiframeを使うため採用しない。
+- HTMLラベル、外部リソース、任意scriptを許可しない。
+- Mermaid生成SVGはDOMPurifyでsanitizeする。DOMPurifyの利用箇所はここだけとし、`dangerouslySetInnerHTML` もここだけで使う。
+- テーマ変更時は再描画する。
+- 描画はオフスクリーンで行い、生成される要素IDが文書内で衝突しないよう一意化する。
+
+処理上限はPhase 3で確定する。暫定案は次のとおりとする。
+
+| 項目 | 暫定値 | 超過時 |
+| --- | --- | --- |
+| 1図の入力サイズ | 50 KiB | 描画せず理由を表示 |
+| 1図の描画タイムアウト | 3秒 | 中断して理由を表示 |
+| 文書内の同時描画数 | 2 | 順次描画 |
+| 1文書あたりの図の数 | 50 | 超過分はプレースホルダー表示 |
+
+`forced-colors` が有効なときは、Mermaidのテーマを高コントラスト向けへ切り替え、色ではなく形状と境界線で区別する。
+
+### 8.5 数式
+
+- `remark-math` と `rehype-katex` でパイプラインへ組み込む。
+- 数式を含む文書を開いたときだけKaTeXをlazy importする。MathJaxは採用しない。
+- KaTeXのフォントはローカル同梱とし、CDNから取得しない。
+- `trust` を無効にし、`\href` や `\includegraphics` を禁止する。
+- マクロ展開の上限（`maxExpand`）と出力サイズの上限（`maxSize`）を設定する。値はPhase 3で確定する。
+- 構文エラーは本文全体を壊さず、該当箇所に原因を表示する。`throwOnError` を無効にし、エラー表示を自前の要素で行う。
+- `rehype-katex` の出力を `rehype-sanitize` が除去しないよう、8.2のschema拡張と整合させる。
+
+### 8.6 文書内検索
+
+初期版へ含めるかは未決とする。レビュー用途では価値が高い一方、WebView2既定の検索UIをTauriから利用できるかが不明であり、自前実装の場合はDOM走査とハイライトの実装コストが加わる。Phase 3で利用可否を確認したうえで判断する。
+
+## 9. タブと起動
+
+### 9.1 タブ
+
+- アプリは原則1インスタンス、1ウィンドウ、1 WebViewとする。
+- 複数タブをReact側で管理し、アクティブタブだけ本文DOMを保持する。
+- 非アクティブタブはパス、タイトル、スクロール位置、dirty状態を保持する。
+- 同一文書を重複して開かない。
+- ルート外Markdownをloose tabとして扱う運用は、7.2の判断に従う。ルート外リンクを許可しないと決めた場合、loose tabは初期版に存在しない。
+
+同時に開けるタブ数の上限は未決とする。上限を設ける場合は、超過時に最も古い非アクティブタブを閉じるか、新規オープンを拒否するかを併せて決める。
+
+### 9.2 起動と関連付け
+
+- MSIX manifestで `.md` と `.markdown` の関連付けを宣言する。
+- 既定アプリにするかはWindowsのユーザー設定に任せる。
+- 関連付け起動は既存インスタンスへ渡し、既存ウィンドウを前面化する。
+- 関連付けで開かれたファイルがワークスペース外にある場合の扱いは、7.2および9.1の判断に従う。ワークスペース未選択のまま単一ファイルを表示する状態を許すかをPhase 3で確定する。
+- 起動時復元を採用する場合は最後のワークスペースだけを対象とし、通常タブとloose tabは復元しない。
+
+最近使ったフォルダー、最後のワークスペース復元、複数ファイル引数は初期版へ含めるか未決とする。
+
+## 10. UIとアクセシビリティ
+
+- 標準のWindowsタイトルバーを使用する。
+- ファイル選択、フォルダー選択、エラー確認にはネイティブダイアログを使用する。
+- System、Light、Darkの3テーマを提供する。
+- ツリーは矢印、`Enter`、`Home`、`End` で操作できるようにする。左右キーで展開と折りたたみを行う。
+- タブは `Ctrl+Tab`、`Ctrl+W`、左右移動に対応する。
+- `tree`、`treeitem`、`tablist`、`tab`、`tabpanel` などのARIAを設定する。
+- Windowsハイコントラスト、`forced-colors`、`prefers-reduced-motion` に対応する。
+- 本文の見出し、リスト、コードブロックの意味構造を保持する。
+- 製品UIからsave、print、view source、devtoolsを除外する。
+
+### 10.1 メニューの実装方式
+
+ネイティブメニューとWebView内メニューのどちらを採るかは未決とする。推奨はネイティブメニューであり、標準タイトルバーを使う方針、OSのアクセシビリティ機構との統合、キーボード操作の実装コストの点で優位である。`uimock.html` のHTMLメニューバーは視覚上の参考であり、実装方式を決めない。
+
+### 10.2 ペイン境界の操作
+
+- `role="separator"`、`aria-orientation="vertical"`、`aria-valuenow`、`aria-valuemin`、`aria-valuemax`、`tabindex="0"` を設定する。
+- 左右キーで幅を変更し、`Shift` 併用で大きく動かす。`Home` と `End` で最小幅と最大幅へ移動する。
+- 幅の範囲と刻みはPhase 3で確定する。暫定案は最小200 px、最大600 px、刻み16 pxとする。
+- サイドバーの表示切り替えは幅の値とは独立した状態として保持する。
+
+### 10.3 文字サイズ
+
+- 変更範囲と刻みはPhase 3で確定する。暫定案は80 %から200 %まで、10ポイント刻みとする。
+- 変更対象はプレビュー本文とし、ツリーとメニューはOSのスケーリングに従う。
+- `Ctrl` と `+` / `-` / `0` を割り当てるかをPhase 3で確定する。
+
+## 11. アプリ設定と診断
+
+### 11.1 設定の保存
+
+- 保存先はアプリ専用のローカルデータ領域とする。MSIXではパッケージのLocalStateへリダイレクトされるため、Tauriが返す設定ディレクトリが期待どおりの位置になることをPhase 1で確認する。
+- 形式はJSONとし、`schemaVersion` を持つ。
+- 未知のキーは読み捨てる。破損時は既定値で起動し、破損ファイルを退避したうえで通知する。
+- 書込みはdebounceし、終了時にflushする。アイドル時に周期的な書込みを行わない。
+- 書込みは一時ファイルへ書いてからrenameし、途中終了で設定を失わないようにする。
+
+保存対象と非保存対象を次のとおりとする。
+
+| 状態 | 扱い |
+| --- | --- |
+| テーマ | 保存する |
+| サイドバー幅 | 保存する |
+| サイドバー表示状態 | 保存する |
+| 文字サイズ | 保存する |
+| ウィンドウ位置とサイズ | 保存する |
+| 最近使ったフォルダー | 採用した場合のみ保存する |
+| 最後のワークスペース | 採用した場合のみ保存する |
+| 開いているタブ、選択中ファイル、スクロール位置 | 保存しない |
+
+### 11.2 診断
+
+- 既定ではファイルログを出力しない。アイドル時のディスクI/Oを行わない方針と整合させるためである。
+- 明示的な診断モードで起動したときだけ、ローカルデータ領域へログを出力する。
+- ログを外部へ送信しない。
+- ログにはワークスペースルートからの相対パスを記録し、ユーザー名を含む絶対パスを既定で記録しない。
+
+### 11.3 ライセンス表記
+
+- 同梱するJavaScript依存関係とRust crateのライセンス一覧を、ビルド時に生成してアプリへ同梱する。
+- 生成手段はPhase 2で確定する。Rust側は依存ライセンス集約ツール、JavaScript側はBunの依存情報からの生成を候補とする。
+- KaTeXの同梱フォントを含む再配布アセットのライセンス表記を漏らさない。
+- 生成物が最新でない場合にCIを失敗させる。
+
+## 12. エラー方針
+
+次の失敗では原因と対象を表示し、握りつぶさない。
+
+- WebView2 Runtimeの欠落または初期化失敗
+- フォルダー選択失敗、アクセス拒否
+- Markdownのデコード失敗、サイズ上限超過
+- 画像の境界違反、サイズ超過、ピクセル寸法超過、読込失敗
+- Mermaid、lowlight、KaTeXの描画失敗とlazy importの失敗
+- ファイルの削除、移動、置換、共有違反
+- Watcherのバッファオーバーフローまたは監視停止
+- 設定ファイルの破損
+- MSIXのPackage IdentityまたはRuntime初期化失敗
+
+自動的な無限リトライや暗黙の代替処理は行わない。再試行可能な操作では、ユーザーが明示的に再実行できるようにする。6.5で選択した場合のatomic replace再読込だけを、明文化された限定的な例外とする。
+
+エラー表示の場所を次のとおり使い分ける。
+
+| 範囲 | 表示場所 |
+| --- | --- |
+| アプリ全体の起動失敗 | ネイティブダイアログ |
+| ワークスペース単位の失敗 | プレビュー領域全体 |
+| ツリー項目単位の失敗 | 該当項目のインライン表示 |
+| 文書内の要素単位の失敗 | 該当要素の位置へのインライン表示 |
+
+## 13. パッケージングとStore
+
+- Tauri CLIのRelease出力をx64とARM64で生成する。
+- winapp CLIでアーキテクチャ別MSIXを生成する。
+- `Package.appxmanifest`、Identity、Publisher、Version、Assetsをリポジトリで管理する。
+- Tauri実行ファイルをpackaged classic app、`mediumIL` として登録し、必要な `runFullTrust` を宣言する。
+- `broadFileSystemAccess` は宣言せず、ユーザー権限と明示的に選択されたワークスペース境界でアクセスする。
+- ローカルとWACK用に自己署名し、製品配布ではStore署名を利用する。
+- Tauri Updaterを組み込まない。
+- Storeへ提出したartifactと、CIで検証したartifactを一致させる。
+- Store Submission APIの実行前に手動承認ゲートを設ける。
+- Storeへの提出、認証、公開を別々の状態として記録する。
+
+補足として次を定める。
+
+- Package Versionは `MAJOR.MINOR.PATCH.0` とし、第4要素はStoreの予約により常に0とする。バージョン規約は[spec.md](./spec.md)を正本とする。
+- 必要なvisual asset（各サイズのタイル、ストアロゴ、スプラッシュ）の一覧と生成方法をリポジトリで管理し、手作業での差し替えを避ける。
+- Partner Centerの予約名、Identity、Publisher、Publisher Display Nameがマニフェストと一致することを提出前に検証する。
+- データ収集を行わない旨の申告とプライバシーポリシーの提示先を、初回提出前に確定する。
+- Store Submission APIについては、利用するAPIのバージョン、認証方式、MSIXパッケージフローへの対応状況をPhase 5の着手時点で確認する。API仕様の変更を前提に、手動提出の手順書も維持する。
+- winapp CLIへの依存はCIで固定バージョンとする。4.5に記録したとおり、makeappxへ切り替え可能な状態を保つ。
+
+MSIX技術スパイクでは、BunとWinGet版winapp CLIだけで完結できるか、Node.jsがビルド時依存として必要かを確認する。
+
+## 14. テスト方針
+
+### 14.1 Frontend
+
+- remarkとrehypeのプラグイン構成、Raw HTMLがテキストとして出力されること、`rehype-sanitize` のschemaをテストする。
+- schemaの拡張差分（見出し `id`、`language-*`、タスクリスト、画像プロトコル、KaTeX出力）が意図どおりに許可・拒否されることをテストする。
+- URL scheme、相対リンク、画像resource IDの変換をテストする。
+- ツリー、タブ、dirty状態、キーボード操作をテストする。
+- Mermaid、lowlight、KaTeXのlazy import失敗をテストする。
+- KaTeXの `trust` 無効化と展開上限が効くことをテストする。
+- Tauri commandとeventはadapter経由で注入し、テストではモックへ置き換える。
+- 同じ振る舞いの入力差分は `test.each` などのパラメーター化テストで表現する。
+
+### 14.2 Rust
+
+- パス正規化、境界判定、reparse point、URL schemeをテストする。
+- 大文字小文字差、Unicode正規化差、コンポーネント境界の誤判定（`C:\root` と `C:\rootx`）をテストする。
+- UTF-8、UTF-16、デコードエラー、サイズ上限をテストする。
+- Watcherのdebounce、削除、rename、atomic replaceをテストする。
+- custom image protocolのresource ID、Content-Type、上限、エラー応答をテストする。
+- ファイルシステムとWatcherをtraitで注入し、単体テストから実ファイルとOSイベントを分離する。
+- 同じ振る舞いの入力差分はテーブル駆動テストで表現する。
+
+### 14.3 セキュリティ回帰
+
+悪意ある入力を模した固定のMarkdown一式をリポジトリへ置き、描画結果を検証する回帰テストを設ける。
+
+- Raw HTML、`javascript:` リンク、`data:` 画像、`ms-` scheme
+- `..` を含む相対パス、UNC、device path、絶対パス
+- 巨大画像、巨大Mermaid、深いネスト
+- SVG内のscriptと外部参照
+- KaTeXのマクロ展開を悪用した入力
+
+### 14.4 パッケージと実機
+
+- x64とARM64のReleaseビルドを検証する。
+- MSIX manifest、Identity、Publisher、Version、Capabilitiesを静的検査する。
+- 自己署名MSIXをインストールし、起動、関連付け、Package Identityを確認する。
+- WACKをStore提出前に実行する。
+- Storeへ提出するMSIXがCIで検証したartifactと一致することを確認する。
+- x64実機を必須とし、ARM64実機または同等環境でスモークテストする。
+- [spec.md](./spec.md)の性能目標をインストール済みパッケージに対して測定する。
+
+## 15. 未決事項
+
+技術スタックの選定は第4章で確定済みであり、本章では扱わない。
+
+### P0: 実装着手前
+
+- Tauri、Rust、Bun、React、Vite、winapp CLIの初期バージョン
+- Tauri command/eventの型、version、request ID、cancel、error契約
+- custom image protocolのURL形式、resource ID、キャッシュ、CSP
+- CSPの最終値とTauri capabilityの最小集合
+- `runFullTrust` だけを使用するMSIXでフォルダー選択、監視、関連付け起動が動作すること
+- MSIXでのアプリ設定保存先が期待どおりに解決されること
+- ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否
+- BunのみでMSIXビルドを完結できるか
+- `bun:test` でReactコンポーネントのDOMテストが成立するか、およびVitestへの退避条件
+- x64、ARM64のMSIX生成、インストール、起動、WACK結果
+- ARM64のビルド方式（ネイティブランナーかクロスコンパイルか）
+
+### P1: 初期版仕様確定前
+
+- `rehype-sanitize` schemaの最終定義
+- Raw HTMLをテキストとして出力するhandlerの実装方針
+- 見出しID生成の実装方法（`rehype-slug` の採否）
+- KaTeXのマクロ展開と出力サイズの上限
+- YAML front matterの扱い
+- 文書内検索を初期版へ含めるか
+- リンク遷移の戻る／進む操作を初期版へ含めるか
+- 非Markdownファイルをツリーへ表示するか
+- Mermaidとコードブロックの処理上限
+- lowlightへ登録する言語allowlist
+- 画像のピクセル寸法上限
+- 同時に開けるタブ数の上限
+- スプリッターの幅範囲、刻み、設定保存
+- 文字サイズの範囲、刻み、ショートカット
+- メニューをネイティブ実装とするかWebView内実装とするか
+- メニュー、ショートカット、パンくずの操作仕様
+- 単一ファイルまたは単一フォルダーのドラッグ＆ドロップ
+- ルート外Markdownリンクをloose tabで許可するか
+- 関連付け起動でワークスペース外のファイルを開いたときの状態
+- 最近使ったフォルダーと最後のワークスペース復元
+- 260文字を超えるパスへの対応方針
+- 大規模ツリーでの監視範囲の縮退モードの要否
+- 英語UIを初期版へ含めるか
+- ライセンス一覧の生成手段
+
+### P2: 初期版後
+
+- 大容量MarkdownのWorker処理とDOM仮想化
+- タブセッションの完全復元
+- リモート画像許可UI
+- 除外リストのユーザー設定
+- 印刷、PDF、エクスポート
+- 高度なアウトラインと目次ペイン
+- 支援技術別の完全なアクセシビリティE2E
+
+## 16. 参考資料
+
+- [Tauri v2: Asset protocol scope](https://v2.tauri.app/security/asset-protocol/)
+- [Tauri Rust API: Builder](https://docs.rs/tauri/latest/tauri/struct.Builder.html)
+- [Microsoft Learn: Using winapp CLI with Tauri](https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/guides/tauri)
+- [Microsoft Learn: App capability declarations](https://learn.microsoft.com/windows/apps/package-and-deploy/app-capability-declarations)

@@ -1,0 +1,45 @@
+# Node / Vite
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Bun
+.bun/
+
+# Rust / Tauri
+target/
+src-tauri/target/
+src-tauri/gen/
+
+# MSIX / パッケージング
+*.msix
+*.msixbundle
+*.appx
+*.appxbundle
+*.pri
+
+# 署名関連（開発用自己署名証明書を含め、コミットしない）
+*.pfx
+*.cer
+*.p12
+*.snk
+
+# 環境変数・秘密情報
+.env
+.env.*
+!.env.example
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# エディタ
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ログ・一時ファイル
+*.log
