@@ -26,9 +26,11 @@
 - GitHub ActionsのCIワークフローを追加。Pull Requestと `main` へのpushで、Frontend（Biome・型検査・ビルド）とRust（`cargo fmt`・`clippy`・`cargo test`）を検査する
 - `codecov.yml` を追加し、RustとFrontendをflagsで分けて集計する方針を定義。テスト構成の確立までアップロードは行わない
 - `main` ブランチの保護を設定し、CIの `Frontend` / `Rust` を required status check とした
+- MSIXパッケージングを追加。`packaging/Package.appxmanifest.template` と `scripts/build-msix.ps1` により、x64とARM64のMSIXを生成・署名できる
 
 ### Changed
 
 - Renovateの自動マージを再開。required status checkが揃ったため、`presets/options/automerge` を `extends` へ戻し、`renovate.json` のautomerge打ち消しを削除した。レビューの必須範囲（人が作成する変更とRenovateの定型更新の区別）を [design-decisions.md](./docs/design-decisions.md) 4.12 に定義した
+- アプリアイコンをTauriテンプレートの既定から暫定デザインへ差し替え。原本を `assets/app-icon.svg` の1点とし、各サイズは `tauri icon` で生成する
 
 [Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main

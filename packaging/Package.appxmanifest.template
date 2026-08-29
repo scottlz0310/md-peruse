@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIXのパッケージマニフェスト。ProcessorArchitecture は scripts/build-msix.ps1 が
+  ビルド対象に応じて __PROCESSOR_ARCHITECTURE__ を置換する。
+  Identity と PublisherDisplayName は Partner Center の登録値と一致させること。
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities">
+
+  <Identity
+    Name="scottlz0310.md-peruse"
+    Publisher="CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6"
+    Version="__PACKAGE_VERSION__"
+    ProcessorArchitecture="__PROCESSOR_ARCHITECTURE__" />
+
+  <Properties>
+    <DisplayName>md-peruse</DisplayName>
+    <PublisherDisplayName>scottlz0310</PublisherDisplayName>
+    <Description>設計書や仕様書の観測に特化した、閲覧専用のMarkdownビューワー。</Description>
+    <Logo>Images\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22000.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="ja-JP" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <!--
+      packaged classic app として mediumIL で動作させる。
+      broadFileSystemAccess は宣言せず、ユーザーが明示的に選択したワークスペース境界でのみアクセスする。
+    -->
+    <Application
+      Id="mdperuse"
+      Executable="md-peruse.exe"
+      EntryPoint="Windows.FullTrustApplication"
+      uap10:RuntimeBehavior="packagedClassicApp"
+      uap10:TrustLevel="mediumIL">
+
+      <uap:VisualElements
+        DisplayName="md-peruse"
+        Description="設計書や仕様書の観測に特化した、閲覧専用のMarkdownビューワー。"
+        BackgroundColor="#16202B"
+        Square150x150Logo="Images\Square150x150Logo.png"
+        Square44x44Logo="Images\Square44x44Logo.png">
+        <!-- Square310x310Logo(大タイル)は Wide310x150Logo の同時指定が必須。
+             暫定アイコンは横長図案を持たないため、最終アイコンの差し替え時に併せて追加する。 -->
+        <uap:DefaultTile
+          ShortName="md-peruse"
+          Square71x71Logo="Images\Square71x71Logo.png" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="markdown">
+            <uap:DisplayName>Markdown 文書</uap:DisplayName>
+            <uap:Logo>Images\Square44x44Logo.png</uap:Logo>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.md</uap:FileType>
+              <uap:FileType>.markdown</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

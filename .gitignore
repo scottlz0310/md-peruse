@@ -1,6 +1,7 @@
 # Node / Vite
 node_modules/
 dist/
+build/
 .vite/
 *.tsbuildinfo
 
@@ -43,3 +44,6 @@ $RECYCLE.BIN/
 
 # ログ・一時ファイル
 *.log
+
+# Development certificate
+devcert.pfx

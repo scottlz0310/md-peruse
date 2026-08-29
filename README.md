@@ -66,6 +66,8 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | [Bun](https://bun.com/) | 1.4.0 | JavaScript依存関係の管理、Frontendのビルドとテスト |
 | [Rust](https://www.rust-lang.org/) | 1.98.0 | Tauri backendのビルド（`rust-toolchain.toml` で固定） |
 | [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | — | Visual Studio Build Tools、WebView2 Runtime |
+| winapp CLI | 0.6.1 | MSIXの生成と署名（WinGet `Microsoft.WinAppCli`） |
+| Windows SDK | 10.0.26100.0 | `makeappx`、`signtool`、Windows App Certification Kit |
 
 各依存の初期バージョンは [design-decisions.md](./docs/design-decisions.md) の4.10に記載する。
 
@@ -99,7 +101,53 @@ cargo test
 
 `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、Rust側の検査を実行する前に一度 `bun run build` を実行しておく必要がある。
 
+### MSIXパッケージング
+
 MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` の `bundle.active` を `false` としているため、`tauri build` は実行ファイルのみを生成し、NSIS や MSI のインストーラーは作らない。
+
+前提として winapp CLI を導入する。
+
+```powershell
+winget install --id Microsoft.WinAppCli --version 0.6.1 --exact
+```
+
+ARM64版をビルドする場合はRustのターゲットを追加する。
+
+```sh
+rustup target add aarch64-pc-windows-msvc
+```
+
+`scripts/build-msix.ps1` がReleaseビルドからパッケージレイアウトを組み立て、MSIXを生成する。
+
+```powershell
+./scripts/build-msix.ps1 -Architecture x64 -Sign
+./scripts/build-msix.ps1 -Architecture arm64 -Sign
+```
+
+| オプション | 内容 |
+| --- | --- |
+| `-Architecture` | `x64` または `arm64`。ARM64はx64ホストからのクロスコンパイルで生成する |
+| `-SkipBuild` | Releaseビルドを省略し、既存の成果物からパッケージだけを作り直す |
+| `-Sign` | 開発用自己署名証明書で署名する。証明書がなければ生成する |
+
+成果物は `build/msix/` に出力する。`-Sign` で生成する `devcert.pfx` はローカル検証とWACK専用で、Store配布には使えない。署名済みMSIXをインストールするには、証明書を一度だけ信頼ストアへ登録する（管理者権限が必要）。
+
+```powershell
+winapp cert install .\devcert.pfx
+Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
+```
+
+`Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`ProcessorArchitecture` と `Version` をビルド時に置換する。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
+
+### アイコン
+
+アイコンの原本は `assets/app-icon.svg` の1点とし、各サイズは生成する。
+
+```sh
+bun run tauri icon assets/app-icon.svg
+```
+
+Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。現在のアイコンは暫定であり、最終デザインへの差し替えは別途行う。
 
 ### Git Hooks
 

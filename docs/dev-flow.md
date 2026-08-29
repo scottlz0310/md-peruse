@@ -73,7 +73,7 @@ Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、
 ### 完了条件
 
 - [ ] x64版MSIXをインストールして起動できる。
-- [ ] ARM64版MSIXをARM64環境でインストールして起動できる。
+- [ ] ARM64版MSIXがx64版と同一の手順で生成できる。WACKはパッケージをインストールして実行するためホストと同じアーキテクチャを要する。ARM64版のインストール、起動、WACKはPhase 5の提出前検証で行う（開発環境にARM64実機がないため）。
 - [ ] WACKの結果を保存し、Store提出を妨げる失敗がない。
 - [ ] Package Identity、Publisher、バージョンの管理方法が確定している。
 - [ ] Bun、winapp CLI、Node.jsの依存境界が確定している。
@@ -214,6 +214,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - GitHub Actionsでx64版とARM64版をビルドする。
 - winapp CLIでMSIXを生成する。
 - WACK結果とMSIXをリリースartifactとして保存する。
+- ARM64実機でMSIXをインストールして起動し、WACKを実行することを提出前に確認する（Phase 1では開発環境にARM64実機がないため生成までを実施した）。
 - プライバシーポリシーとデータ収集申告を準備する。
 - Store掲載情報（説明、スクリーンショット、年齢区分、掲載言語）を準備する。
 - Microsoft Partner Centerで初回登録と審査申請を行う。
