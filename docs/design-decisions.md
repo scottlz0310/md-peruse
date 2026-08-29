@@ -168,8 +168,9 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 | Rustツールチェーンの導入 | rustupによる `rust-toolchain.toml` の自動解決 | Actionでチャネルを別途指定すると、`rust-toolchain.toml` の固定と二重管理になる |
 | Frontendビルドの先行実行 | Rustジョブでも `bun run build` を実行する | `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、存在しないとコンパイルできない |
 | 依存関係の導入 | `bun install --frozen-lockfile` | `bun.lock` との不整合を検出し、CIとローカルの依存を一致させる |
-| テストの扱い | `cargo test` と `bun test` を実行する | FrontendのDOMテスト構成をPhase 2で確立したため、Rustと同じくPull Requestごとに実行する（4.8、14.5） |
-| Codecovのステータス | `informational` | アップロードを開始するまでカバレッジ未計測となるため、Pull Requestをブロックさせない |
+| テストの扱い | Frontendは `bun test`、Rustは `cargo llvm-cov` を実行する | 両者をPull Requestごとに実行する。`cargo llvm-cov` はテスト実行とカバレッジ計測を兼ねるため `cargo test` を置き換える（4.8、14.5） |
+| カバレッジのアップロード | `codecov/codecov-action` をOIDC（`use_oidc`）で認証し、flagsを `frontend` と `rust` に分ける | 長期のupload tokenをリポジトリのsecretへ置かずに済む。flagsを分けることで、片方のカバレッジ変動がもう一方の判定へ混ざらない |
+| Codecovのステータス | `informational` | Rustのテストは Phase 4 のコア実装と併せて追加するため、それまでの低いカバレッジでPull Requestをブロックさせない |
 | Rustビルドキャッシュ | `Swatinem/rust-cache` を `save-if: main` で使用 | GitHub Actionsのキャッシュはブランチスコープで、PRブランチが保存したものは他ブランチから復元できない。`main` でのみ保存し、全PRがそれを復元する |
 
 `main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。

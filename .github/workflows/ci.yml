@@ -16,6 +16,10 @@ jobs:
   frontend:
     name: Frontend
     runs-on: ubuntu-latest
+    # Codecov へのアップロードをOIDCで認証するため、id-tokenの発行を許可する。
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -33,7 +37,15 @@ jobs:
         run: bun run typecheck
 
       - name: テスト
-        run: bun test
+        run: bun run test:coverage
+
+      - name: カバレッジをアップロード
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage/lcov.info
+          flags: frontend
+          fail_ci_if_error: true
 
       - name: Frontend をビルド
         run: bun run build
@@ -41,6 +53,9 @@ jobs:
   rust:
     name: Rust
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
@@ -77,6 +92,17 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
         working-directory: src-tauri
 
-      - name: テスト
-        run: cargo test
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      # cargo llvm-cov はテスト実行とカバレッジ計測を兼ねるため、cargo test を置き換える。
+      - name: テストとカバレッジ計測
+        run: cargo llvm-cov --lcov --output-path lcov.info
         working-directory: src-tauri
+
+      - name: カバレッジをアップロード
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: src-tauri/lcov.info
+          flags: rust
+          fail_ci_if_error: true

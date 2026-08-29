@@ -88,6 +88,7 @@ bun install
 | `bun run check:fix` | Biomeの自動修正を適用する |
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
+| `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -100,6 +101,8 @@ cargo test
 ```
 
 `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、Rust側の検査を実行する前に一度 `bun run build` を実行しておく必要がある。
+
+CIはカバレッジ計測を兼ねて `cargo test` の代わりに `cargo llvm-cov --lcov --output-path lcov.info` を実行する。ローカルで同じ計測を再現する場合は `cargo install cargo-llvm-cov` で導入する。
 
 ### MSIXパッケージング
 
@@ -173,12 +176,12 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 | ジョブ | ランナー | 内容 |
 | --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun test`、`bun run build` |
-| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo test` |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build` |
+| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov` |
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-カバレッジの集計方針は `codecov.yml` に定義する。CIからのアップロードはPhase 2の残タスクであり、開始するまでステータスは `informational` としてPull Requestをブロックしない。
+カバレッジは両ジョブがlcovを生成し、`codecov/codecov-action` でCodecovへアップロードする。認証はGitHub ActionsのOIDCを使い、upload tokenをリポジトリのsecretへ置かない。集計方針は `codecov.yml` に定義し、flagsを `frontend` と `rust` に分ける。Rustのテストは Phase 4 のコア実装と併せて追加するため、それまではステータスを `informational` としてPull Requestをブロックしない。
 
 ## 貢献
 
