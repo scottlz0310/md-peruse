@@ -11,5 +11,12 @@
     "github>scottlz0310/renovate-config//presets/options/automerge",
     "github>scottlz0310/renovate-config//presets/options/schedule",
     "github>scottlz0310/renovate-config//presets/options/security"
+  ],
+  "packageRules": [
+    {
+      "description": "Bun本体はMSIX生成とWACKの確認を要するため自動マージしない。両者をCIへ載せたら削除する（design-decisions.md 4.4）",
+      "matchManagers": ["bun-version"],
+      "automerge": false
+    }
   ]
 }

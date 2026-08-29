@@ -94,7 +94,9 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 - 選定理由: install、test、runを単一ツールで完結でき、ローカルとCIの工程が短い。
 - 却下理由: pnpmはユーザー標準で整合コストが低いが、test runnerを別途要する。npmは速度面で劣る。
 - 引き受けるリスク: ユーザー標準（pnpm）からの逸脱。共有Renovateプリセットがpnpm前提のルールを含む場合の不整合。Windows ARM64サポートの確認が必要。
-- 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する。Phase 1でARM64上の動作を確認する。
+- 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する（下記）。Phase 1でARM64上の動作を確認する。
+
+Bun本体の更新は、共有プリセット `presets/package-managers/bun` が `bun-version` マネージャを「Bun runtime」グループとして切り出すため、JavaScript依存の更新とは別のPull Requestになる。これに加えて、リポジトリローカルの `renovate.json` で `bun-version` の `automerge` を無効化する。理由は、Bunの更新が `bun install`、テスト、ビルド、MSIX生成のすべてに影響する一方、required status check（`Frontend` / `Rust` / `Coverage`）にはMSIX生成とWACKが含まれず、自動マージのゲートでは破壊を検出できないためである。この打ち消しはmd-peruse固有の事情（MSIXの同梱）に基づくため共有プリセットへは入れず、MSIX生成とWACKをCIへ載せた時点（Phase 5）で削除を判断する。
 
 ### 4.5 パッケージングと配布: MSIX + Microsoft Store（winapp CLI）
 
@@ -202,6 +204,7 @@ required status checkが揃ったため、Renovateの `presets/options/automerge
 | --- | --- |
 | 人が作成する変更（機能、修正、設計文書、CI設定） | CI通過に加えて、thread-owlのレビューとVerdictコメント（`READY_TO_MERGE`）を必須とする。マージは明示的な指示を受けてから行う |
 | Renovateによる定型依存更新 | CI通過をもってゲートとし、独立レビューは求めない |
+| Renovateによる Bun本体（`bun-version`）の更新 | 自動マージせず、MSIX生成とWACKの確認を経て手動でマージする（4.4） |
 
 Renovateの更新を対象外とする根拠は次のとおり。
 
