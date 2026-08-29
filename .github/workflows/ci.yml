@@ -58,9 +58,13 @@ jobs:
         run: rustc --version && cargo --version
         working-directory: src-tauri
 
+      # キャッシュの保存は main に限定する。GitHub Actionsのキャッシュはブランチスコープであり、
+      # PRブランチが保存したものは他ブランチから復元できないため、保存しても再利用されない。
+      # main へのpushで更新したキャッシュを、すべてのPRが復元して利用する。
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Formatting を検査
         run: cargo fmt --check

@@ -170,6 +170,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 | 依存関係の導入 | `bun install --frozen-lockfile` | `bun.lock` との不整合を検出し、CIとローカルの依存を一致させる |
 | テストの扱い | `cargo test` のみ実行し、`bun test` は組み込まない | Frontendのテスト構成が未確立で、テストファイルが存在しないと `bun test` が失敗する（4.8、Phase 2で解決する） |
 | Codecovのステータス | `informational` | アップロードを開始するまでカバレッジ未計測となるため、Pull Requestをブロックさせない |
+| Rustビルドキャッシュ | `Swatinem/rust-cache` を `save-if: main` で使用 | GitHub Actionsのキャッシュはブランチスコープで、PRブランチが保存したものは他ブランチから復元できない。`main` でのみ保存し、全PRがそれを復元する |
 
 `main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。
 
