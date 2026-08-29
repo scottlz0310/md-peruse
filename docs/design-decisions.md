@@ -640,7 +640,7 @@ mermaid fence
 
 ### 11.1 設定の保存
 
-- 保存先はTauriが返すアプリ設定ディレクトリとする。Phase 1のスパイクで実測したところ、MSIX環境でもパッケージのLocalStateへはリダイレクトされず、`%APPDATA%\com.scottlz0310.md-peruse`（Roaming）へ解決された。書込みは成功する。この位置をそのまま使用する（13.4）。
+- 保存先はTauriが返すアプリ設定ディレクトリとする。MSIX環境ではアプリが取得するパスは `%APPDATA%\com.scottlz0310.md-peruse` のままだが、実際の読み書きはWindowsがパッケージごとの領域へリダイレクトする。アンインストール時に設定も併せて削除される。WinRTの `ApplicationData` APIを使う必要はない（13.4）。
 - 形式はJSONとし、`schemaVersion` を持つ。
 - 未知のキーは読み捨てる。破損時は既定値で起動し、破損ファイルを退避したうえで通知する。
 - 書込みはdebounceし、終了時にflushする。アイドル時に周期的な書込みを行わない。
@@ -792,26 +792,31 @@ FAILした「ブロック済みの実行可能ファイル」は `OPTIONAL="TRUE
 | フォルダー選択 | ネイティブダイアログが開き、選択したパスをRust側で受け取れる。`broadFileSystemAccess` を宣言せずに成立する |
 | ファイル読込 | 選択したフォルダー配下の読込みに成功する |
 | ファイル監視 | `notify` の再帰監視が成立する。イベントの詳細は6.4 |
-| 設定ディレクトリ | `%APPDATA%\com.scottlz0310.md-peruse` へ解決される。LocalStateへはリダイレクトされない。書込みと読み戻しに成功する |
+| 設定ディレクトリ | Tauriは `%APPDATA%\com.scottlz0310.md-peruse` を返すが、実体はパッケージ領域へリダイレクトされる。書込みと読み戻しに成功し、アンインストールで併せて削除される |
 | custom protocol | `http://mdperuse-img.localhost/<path>` として配信される。詳細は5.4 |
 | 関連付け起動 | `.md` と `.markdown` がProgIdとして登録され、起動時にファイルの絶対パスが `argv[1]` として渡る |
 
-#### 設定ディレクトリがLocalStateへリダイレクトされない件
+#### 設定ディレクトリのリダイレクト
 
-11.1では「MSIXではLocalStateへリダイレクトされる」と想定していたが、実測では次のとおりリダイレクトされない。
+Tauriが返すパスと、実際にファイルが格納される位置は異なる。
 
-| API | 解決先 |
+| 観点 | 値 |
 | --- | --- |
-| `app_config_dir` / `app_data_dir` | `C:\Users\<user>\AppData\Roaming\com.scottlz0310.md-peruse` |
-| `app_local_data_dir` / `app_cache_dir` | `C:\Users\<user>\AppData\Local\com.scottlz0310.md-peruse` |
+| `app_config_dir` / `app_data_dir` が返すパス | `C:\Users\<user>\AppData\Roaming\com.scottlz0310.md-peruse` |
+| `app_local_data_dir` / `app_cache_dir` が返すパス | `C:\Users\<user>\AppData\Local\com.scottlz0310.md-peruse` |
+| 実際の格納先 | `%LOCALAPPDATA%\Packages\scottlz0310.md-peruse_r99jq8jxntmym\LocalCache\Roaming\com.scottlz0310.md-peruse` |
 
-Desktop Bridge初期のファイルシステムリダイレクトは既定ではなくなっており、packaged classic appがWin32 APIで取得するAppDataはリダイレクトされない。WinRTの `ApplicationData.Current.LocalFolder` を呼べばLocalStateを取得できるが、次の理由でTauriが返すパスをそのまま使う。
+アプリから見えるパスはリダイレクトされていないように見えるが、読み書きはWindowsがパッケージごとの領域へリダイレクトする。パッケージ外のプロセスから `%APPDATA%\com.scottlz0310.md-peruse` を参照しても存在しない。
 
-- 実装が単純で、非パッケージ実行（`tauri dev`）と保存先の扱いが一致する。
-- `windows` crateへの依存と、パッケージ内外での分岐を持ち込まない。
-- WACKを通過しており、Store提出の妨げにならない。
+アンインストールするとパッケージ領域ごと削除され、設定ファイルも残らない。実測で次を確認した。
 
-トレードオフとして、アンインストール時に設定ファイルが残る。11.1の記述はこの実測に合わせて訂正済みである。
+- アプリが `%APPDATA%\com.scottlz0310.md-peruse\spike-probe.json` へ書込み、同じパスから読み戻せる
+- 実体は `...\Packages\<PFN>\LocalCache\Roaming\com.scottlz0310.md-peruse\spike-probe.json` にある
+- `Remove-AppxPackage` 後、`...\Packages\<PFN>` ごと削除される
+
+したがってWinRTの `ApplicationData.Current.LocalFolder` を呼ぶ必要はない。Tauriが返すパスをそのまま使えば、MSIXでは自動的にパッケージ領域へ隔離され、非パッケージ実行（`tauri dev`）では通常のAppDataを使う。分岐も `windows` crateへの依存も持ち込まない。
+
+11.1の「MSIXではパッケージのLocalStateへリダイレクトされる」という当初の想定は、リダイレクトが起きる点で正しく、リダイレクト先が `LocalState` ではなく `LocalCache\Roaming` である点で不正確だった。
 
 #### 開発時の再インストール
 
