@@ -1,0 +1,79 @@
+# md-peruse
+
+AI駆動開発で更新される設計書・仕様書・タスクリストの観測とレビューに特化した、Windows向けの閲覧専用Markdownビューワー。
+
+> **開発状況**: 設計フェーズ完了、実装着手前（Phase 0）。動作するアプリケーションはまだ提供していない。進捗は [tasks.md](./tasks.md) を参照。
+
+## コアバリュー
+
+| 価値 | 内容 |
+| --- | --- |
+| 完全Read-only | 本文の編集手段を持たず、閲覧対象のファイルを変更しない |
+| 低負荷 | 常駐プロセス、バックグラウンドインデックス、定期的なディスクI/Oを持たない |
+| 高速な起動 | WebView2とRustの構成で、コールドスタートからの操作受付を短く保つ |
+| 確実な可視化 | Mermaid、GFM、数式、シンタックスハイライトを安全に描画する |
+
+## 主な機能
+
+- フォルダーをワークスペースとして開き、ツリーから `.md` / `.markdown` を閲覧する
+- ファイル変更を検知してプレビューを自動更新する（AIエージェントのatomic replaceに追従する）
+- Mermaid図、GFMテーブル、タスクリスト、KaTeX数式、コードブロックのハイライトを表示する
+- 複数文書をタブで切り替え、パンくずリストで階層を把握する
+- ダーク／ライト／OS追従のテーマ、キーボード操作、ハイコントラストに対応する
+
+編集機能、ファイル書き込み、ネットワークアクセス、テレメトリは実装対象外とする。
+
+## 対象環境
+
+- Windows 11（x64 / ARM64）
+- Microsoft Edge WebView2 Runtime
+- 配布形式: MSIX（Microsoft Store）
+
+## 技術スタック
+
+| レイヤー | 採用技術 |
+| --- | --- |
+| デスクトップシェル | Tauri v2 |
+| Backend | Rust |
+| Frontend | React + TypeScript + Vite |
+| ツールチェーン | Bun |
+| Markdown | unified（remark + rehype） |
+| コード品質 | Biome、`tsc --noEmit`、Lefthook |
+| パッケージング | MSIX、winapp CLI |
+
+選定理由と却下理由は [design-decisions.md](./docs/design-decisions.md) の第4章に記載する。
+
+## ドキュメント
+
+| 文書 | 役割 | 更新責務 |
+| --- | --- | --- |
+| [docs/spec.md](./docs/spec.md) | プロダクト要件、機能要件、非機能要件、配布方針 | 要件が変わったときに更新する |
+| [docs/design-decisions.md](./docs/design-decisions.md) | 設計判断と未決事項の**正本** | 設計判断を下したとき、未決事項の状態が変わったときに更新する |
+| [docs/dev-flow.md](./docs/dev-flow.md) | 実装順序、フェーズごとの作業と完了条件 | フェーズの構成や完了条件が変わったときに更新する |
+| [docs/uimock.html](./docs/uimock.html) | 画面構成の視覚参考（要件は定義しない） | 参考資料のため随時 |
+| [tasks.md](./tasks.md) | 進捗とタスクの**正本** | タスクの着手・完了ごとに更新する |
+| [CHANGELOG.md](./CHANGELOG.md) | 利用者から見た変更履歴 | リリースに影響する変更ごとに更新する |
+
+記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、進捗について `tasks.md` を優先する。
+
+## 開発
+
+実装着手前のため、ビルド手順はスケルトン配置時に追記する。
+
+### 前提ツール
+
+| ツール | 用途 |
+| --- | --- |
+| [Bun](https://bun.com/) | JavaScript依存関係の管理、Frontendのビルドとテスト |
+| [Rust](https://www.rust-lang.org/) (stable) | Tauri backendのビルド |
+| [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | Visual Studio Build Tools、WebView2 Runtime |
+
+## 貢献
+
+- コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
+- Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
+- 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
+
+## ライセンス
+
+[MIT License](./LICENSE)
