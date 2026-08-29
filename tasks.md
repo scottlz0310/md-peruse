@@ -26,7 +26,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 ## Phase 0: リポジトリ整備
 
 - [x] リポジトリを初期化する
-- [x] 既定ブランチの保護設定を決める（required status check は `Frontend` / `Rust`。[design-decisions.md](./docs/design-decisions.md) 4.12）
+- [x] 既定ブランチの保護設定を決める（required status check は `Frontend` / `Rust` / `Coverage`。[design-decisions.md](./docs/design-decisions.md) 4.12）
 - [x] `LICENSE` を配置する（MIT）
 - [x] `.gitignore` を配置する
 - [x] `README.md` を作成し、ドキュメントの入口と更新責務を示す
@@ -83,7 +83,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 - [x] CIで `bun install --frozen-lockfile` を使用する
 - [x] `bun:test` でReactコンポーネントのDOMテストが成立する構成を確立する（happy-dom + Testing Library。[design-decisions.md](./docs/design-decisions.md) 14.5）
 - [x] Vitestへ退避する条件を明文化する（[design-decisions.md](./docs/design-decisions.md) 14.5）
-- [ ] Codecovでカバレッジを可視化する（RustとFrontendを分けて集計。`codecov.yml` の集計方針は確定済み、アップロードはテスト追加後）
+- [x] Codecovでカバレッジを可視化する（RustとFrontendを分けて集計。CIからOIDCでアップロードする。[design-decisions.md](./docs/design-decisions.md) 4.11）
 - [ ] Bun本体の更新を通常依存から分離する（Renovate共有プリセット側で対応）
 - [x] required status checkを設定したうえで、Renovateの `presets/options/automerge` を戻し、`renovate.json` のautomerge打ち消し（`vulnerabilityAlerts.automerge` と `packageRules`）を解除する
 - [ ] 依存ライセンス一覧の生成手段を確定し、未更新時にCIを失敗させる

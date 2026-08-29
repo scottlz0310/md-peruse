@@ -162,14 +162,16 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 | 判断 | 内容 | 理由 |
 | --- | --- | --- |
-| ジョブ分割 | `Frontend` と `Rust` の2ジョブ | 失敗箇所を切り分けやすく、required status checkとして個別に指定できる |
+| ジョブ分割 | `Frontend`、`Rust`、`Coverage` の3ジョブ | 失敗箇所を切り分けやすく、required status checkとして個別に指定できる |
 | Frontendのランナー | `ubuntu-latest` | Biome、`tsc`、Viteのビルドはプラットフォームに依存せず、Windowsランナーより高速で安価 |
 | Rustのランナー | `windows-latest` | 対象プラットフォームがWindowsのみであり、Tauriのビルドが実際に成立することを検証する必要がある |
 | Rustツールチェーンの導入 | rustupによる `rust-toolchain.toml` の自動解決 | Actionでチャネルを別途指定すると、`rust-toolchain.toml` の固定と二重管理になる |
 | Frontendビルドの先行実行 | Rustジョブでも `bun run build` を実行する | `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、存在しないとコンパイルできない |
 | 依存関係の導入 | `bun install --frozen-lockfile` | `bun.lock` との不整合を検出し、CIとローカルの依存を一致させる |
-| テストの扱い | `cargo test` と `bun test` を実行する | FrontendのDOMテスト構成をPhase 2で確立したため、Rustと同じくPull Requestごとに実行する（4.8、14.5） |
-| Codecovのステータス | `informational` | アップロードを開始するまでカバレッジ未計測となるため、Pull Requestをブロックさせない |
+| テストの扱い | Frontendは `bun test`、Rustは `cargo llvm-cov` を実行する | 両者をPull Requestごとに実行する。`cargo llvm-cov` はテスト実行とカバレッジ計測を兼ねるため `cargo test` を置き換える（4.8、14.5） |
+| カバレッジのアップロード | `codecov/codecov-action` をOIDC（`use_oidc`）で認証し、flagsを `frontend` と `rust` に分ける | 長期のupload tokenをリポジトリのsecretへ置かずに済む。flagsを分けることで、片方のカバレッジ変動がもう一方の判定へ混ざらない |
+| Rustカバレッジのアップロード経路 | Rustジョブはlcovをartifactへ保存し、`Coverage` ジョブ（`ubuntu-latest`）がダウンロードしてアップロードする | Codecov CLIは設定ファイルをシステムのANSIコードページで読むため、Windows上では非ASCIIを含む `codecov.yml` でデコードに失敗する。`PYTHONUTF8` はPyInstaller製バイナリでは効かず、`chcp` が変えるのはコンソールのコードページで `GetACP()` には影響しない。CLIをWindowsで実行しない構成にすることで、設定ファイルの文字種に制約を持ち込まずに済む |
+| Codecovのステータス | `informational` | Rustのテストは Phase 4 のコア実装と併せて追加するため、それまでの低いカバレッジでPull Requestをブロックさせない |
 | Rustビルドキャッシュ | `Swatinem/rust-cache` を `save-if: main` で使用 | GitHub Actionsのキャッシュはブランチスコープで、PRブランチが保存したものは他ブランチから復元できない。`main` でのみ保存し、全PRがそれを復元する |
 
 `main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。
@@ -180,7 +182,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 | 設定 | 値 | 理由 |
 | --- | --- | --- |
-| required status check | `Frontend`、`Rust` | CIを通過していない変更を `main` へ入れない |
+| required status check | `Frontend`、`Rust`、`Coverage` | CIを通過していない変更を `main` へ入れない。カバレッジのアップロード失敗も検出する |
 | `strict`（マージ前に最新化を要求） | 無効 | Renovateが複数のPull Requestを同時に開くため、有効にすると相互に古くなり続けてマージが進まない。CIは `main` へのpushでも実行するため、結合後の検証は担保される |
 | 必須の承認レビュー | 設定しない | GitHubでは自分のPull Requestを自分でapproveできず、thread-owlはformal reviewではなくVerdictコメントでレビュー結果を返すため、要求すると恒久的にマージ不能になる。レビューの担保は運用規約（thread-owlのVerdictコメントとreviewed-side cycle）で行う。適用範囲は下記「レビューの適用範囲」を参照する |
 | 会話の解決を必須 | 有効 | 未解決のレビュースレッドを残したままマージできないようにする |
@@ -194,7 +196,7 @@ required status checkが揃ったため、Renovateの `presets/options/automerge
 
 #### レビューの適用範囲
 
-ブランチ保護が強制するのは `Frontend` / `Rust` の通過と会話の解決のみで、thread-owlのVerdictは required status check ではない。したがってRenovateの更新Pull Requestは、Verdictを待たずにCI通過だけで自動マージされる。これは意図した動作であり、レビューの必須範囲を次のとおり分ける。
+ブランチ保護が強制するのは `Frontend` / `Rust` / `Coverage` の通過と会話の解決のみで、thread-owlのVerdictは required status check ではない。したがってRenovateの更新Pull Requestは、Verdictを待たずにCI通過だけで自動マージされる。これは意図した動作であり、レビューの必須範囲を次のとおり分ける。
 
 | 対象 | ゲート |
 | --- | --- |

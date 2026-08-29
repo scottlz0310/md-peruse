@@ -42,6 +42,10 @@ $RECYCLE.BIN/
 !.vscode/extensions.json
 .idea/
 
+# カバレッジ
+coverage/
+lcov.info
+
 # ログ・一時ファイル
 *.log
 

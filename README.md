@@ -88,6 +88,7 @@ bun install
 | `bun run check:fix` | Biomeの自動修正を適用する |
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
+| `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -100,6 +101,8 @@ cargo test
 ```
 
 `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、Rust側の検査を実行する前に一度 `bun run build` を実行しておく必要がある。
+
+CIはカバレッジ計測を兼ねて `cargo test` の代わりに `cargo llvm-cov --lcov --output-path lcov.info` を実行する。ローカルで同じ計測を再現する場合は `cargo install cargo-llvm-cov` で導入する。
 
 ### MSIXパッケージング
 
@@ -173,19 +176,20 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 | ジョブ | ランナー | 内容 |
 | --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun test`、`bun run build` |
-| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo test` |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build` |
+| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
+| `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-カバレッジの集計方針は `codecov.yml` に定義する。CIからのアップロードはPhase 2の残タスクであり、開始するまでステータスは `informational` としてPull Requestをブロックしない。
+カバレッジはFrontendとRustの両方でlcovを生成し、`codecov/codecov-action` でCodecovへアップロードする。認証はGitHub ActionsのOIDCを使い、upload tokenをリポジトリのsecretへ置かない。RustのlcovはWindowsのRustジョブがartifactとして保存し、`Coverage` ジョブ（ubuntu）がアップロードする（理由は [design-decisions.md](./docs/design-decisions.md) 4.11）。集計方針は `codecov.yml` に定義し、flagsを `frontend` と `rust` に分ける。Rustのテストは Phase 4 のコア実装と併せて追加するため、それまではステータスを `informational` としてPull Requestをブロックしない。
 
 ## 貢献
 
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
 - 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
-- `main` は保護されており、直接pushできない。CIの `Frontend` と `Rust` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
+- `main` は保護されており、直接pushできない。CIの `Frontend`、`Rust`、`Coverage` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
 - 人が作成する変更は、CIの通過に加えてthread-owlのレビューとVerdictコメントを必須とする。マージ方式はsquashのみ。
 - Renovateによる定型依存更新は、CIの通過をもってゲートとし自動マージする（独立レビューは求めない）。範囲と根拠は [design-decisions.md](./docs/design-decisions.md) 4.12「レビューの適用範囲」を参照。
 
