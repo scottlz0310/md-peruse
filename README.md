@@ -49,12 +49,12 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | --- | --- | --- |
 | [docs/spec.md](./docs/spec.md) | プロダクト要件、機能要件、非機能要件、配布方針 | 要件が変わったときに更新する |
 | [docs/design-decisions.md](./docs/design-decisions.md) | 設計判断と未決事項の**正本** | 設計判断を下したとき、未決事項の状態が変わったときに更新する |
-| [docs/dev-flow.md](./docs/dev-flow.md) | 実装順序、フェーズごとの作業と完了条件 | フェーズの構成や完了条件が変わったときに更新する |
+| [docs/dev-flow.md](./docs/dev-flow.md) | 実装順序、フェーズごとの作業と完了条件の**正本** | フェーズの構成、着手順、完了条件が変わったときに更新する |
 | [docs/uimock.html](./docs/uimock.html) | 画面構成の視覚参考（要件は定義しない） | 参考資料のため随時 |
 | [tasks.md](./tasks.md) | 進捗とタスクの**正本** | タスクの着手・完了ごとに更新する |
 | [CHANGELOG.md](./CHANGELOG.md) | 利用者から見た変更履歴 | リリースに影響する変更ごとに更新する |
 
-記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、進捗について `tasks.md` を優先する。
+記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、実装順序と完了条件について `dev-flow.md`、進捗について `tasks.md` を優先する。
 
 ## 開発
 
