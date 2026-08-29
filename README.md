@@ -189,7 +189,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
 - 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
-- `main` は保護されており、直接pushできない。CIの `Frontend` と `Rust` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
+- `main` は保護されており、直接pushできない。CIの `Frontend`、`Rust`、`Coverage` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
 - 人が作成する変更は、CIの通過に加えてthread-owlのレビューとVerdictコメントを必須とする。マージ方式はsquashのみ。
 - Renovateによる定型依存更新は、CIの通過をもってゲートとし自動マージする（独立レビューは求めない）。範囲と根拠は [design-decisions.md](./docs/design-decisions.md) 4.12「レビューの適用範囲」を参照。
 
