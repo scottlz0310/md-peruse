@@ -174,6 +174,44 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 `main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。
 
+### 4.12 ブランチ保護と自動マージ
+
+`main` に以下の保護を設定する。
+
+| 設定 | 値 | 理由 |
+| --- | --- | --- |
+| required status check | `Frontend`、`Rust` | CIを通過していない変更を `main` へ入れない |
+| `strict`（マージ前に最新化を要求） | 無効 | Renovateが複数のPull Requestを同時に開くため、有効にすると相互に古くなり続けてマージが進まない。CIは `main` へのpushでも実行するため、結合後の検証は担保される |
+| 必須の承認レビュー | 設定しない | GitHubでは自分のPull Requestを自分でapproveできず、thread-owlはformal reviewではなくVerdictコメントでレビュー結果を返すため、要求すると恒久的にマージ不能になる。レビューの担保は運用規約（thread-owlのVerdictコメントとreviewed-side cycle）で行う。適用範囲は下記「レビューの適用範囲」を参照する |
+| 会話の解決を必須 | 有効 | 未解決のレビュースレッドを残したままマージできないようにする |
+| 直線的な履歴を必須 | 有効 | マージ方式をsquashのみに限定している方針と整合させる |
+| force pushとブランチ削除 | 禁止 | 履歴の破壊を防ぐ |
+| 管理者への適用 | 有効 | 単独開発であっても `main` への直接pushを禁止し、すべての変更をPull Request経由にする |
+
+マージ方式はsquashのみ許可する。merge commitとrebase mergeはリポジトリ設定で無効化する。
+
+required status checkが揃ったため、Renovateの `presets/options/automerge` を `extends` へ戻し、`renovate.json` に置いていたautomergeの打ち消し（`vulnerabilityAlerts.automerge` と `packageRules`）を削除する。presetは `platformAutomerge` と `automergeStrategy: squash` を使うため、リポジトリの「Allow auto-merge」を有効にする。
+
+#### レビューの適用範囲
+
+ブランチ保護が強制するのは `Frontend` / `Rust` の通過と会話の解決のみで、thread-owlのVerdictは required status check ではない。したがってRenovateの更新Pull Requestは、Verdictを待たずにCI通過だけで自動マージされる。これは意図した動作であり、レビューの必須範囲を次のとおり分ける。
+
+| 対象 | ゲート |
+| --- | --- |
+| 人が作成する変更（機能、修正、設計文書、CI設定） | CI通過に加えて、thread-owlのレビューとVerdictコメント（`READY_TO_MERGE`）を必須とする。マージは明示的な指示を受けてから行う |
+| Renovateによる定型依存更新 | CI通過をもってゲートとし、独立レビューは求めない |
+
+Renovateの更新を対象外とする根拠は次のとおり。
+
+- 変更内容がバージョン番号の差し替えとlockfileの更新に限られ、レビューで検出すべき設計上の判断を含まない。
+- 回帰の検出はCIが担う。Frontend（Biome、型検査、ビルド）とRust（`cargo fmt`、`clippy`、`cargo test`）の全検査を通過しなければマージされない。
+- automergeの範囲がpresetで限定されている。majorは対象外、patchとminorは0.x系を対象外とし、minorには `minimumReleaseAge: 3 days` を置く。
+- 自動マージの方針は共有プリセット `github>scottlz0310/renovate-config` が定める組織横断の規約であり、本リポジトリだけで上書きしない。
+
+ただしdevDependenciesのminorとpatch、および `@types/**` は0.x系を含めて自動マージ対象となる。いずれも開発時のみ依存し配布物には含まれないため、この範囲は許容する。
+
+この区別は運用規約であり、ブランチ保護では強制されない。人が作成する変更を自動マージしてはならない。
+
 ## 5. アーキテクチャ
 
 ### 5.1 レイヤー構成
