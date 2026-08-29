@@ -171,6 +171,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 | テストの扱い | Frontendは `bun test`、Rustは `cargo llvm-cov` を実行する | 両者をPull Requestごとに実行する。`cargo llvm-cov` はテスト実行とカバレッジ計測を兼ねるため `cargo test` を置き換える（4.8、14.5） |
 | カバレッジのアップロード | `codecov/codecov-action` をOIDC（`use_oidc`）で認証し、flagsを `frontend` と `rust` に分ける | 長期のupload tokenをリポジトリのsecretへ置かずに済む。flagsを分けることで、片方のカバレッジ変動がもう一方の判定へ混ざらない |
 | Codecovのステータス | `informational` | Rustのテストは Phase 4 のコア実装と併せて追加するため、それまでの低いカバレッジでPull Requestをブロックさせない |
+| `codecov.yml` の文字種 | ASCIIのみとし、方針の説明は本節に置く | WindowsランナーのCodecov CLIは `codecov.yml` をcp1252として読み、非ASCIIバイトでデコードに失敗する。`PYTHONUTF8` はPyInstaller製バイナリでは効かないため、ファイル側をASCIIに保つ |
 | Rustビルドキャッシュ | `Swatinem/rust-cache` を `save-if: main` で使用 | GitHub Actionsのキャッシュはブランチスコープで、PRブランチが保存したものは他ブランチから復元できない。`main` でのみ保存し、全PRがそれを復元する |
 
 `main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。

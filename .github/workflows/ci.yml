@@ -99,12 +99,8 @@ jobs:
         run: cargo llvm-cov --lcov --output-path lcov.info
         working-directory: src-tauri
 
-      # Windowsランナーではcodecov CLIがcp1252でcodecov.ymlを読み、
-      # 日本語コメントのデコードに失敗する。UTF-8モードを強制する。
       - name: カバレッジをアップロード
         uses: codecov/codecov-action@v5
-        env:
-          PYTHONUTF8: "1"
         with:
           use_oidc: true
           files: src-tauri/lcov.info

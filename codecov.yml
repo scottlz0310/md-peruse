@@ -1,7 +1,6 @@
-# カバレッジの集計方針。RustとFrontendをflagsで分けて追跡する。
-# CIの各ジョブがOIDCで認証してlcovをアップロードする（.github/workflows/ci.yml）。
-# Rustのテストは Phase 4 のコア実装と併せて追加するため、当面カバレッジは低い値になる。
-# 実装が揃うまでステータスはinformationalとし、Pull Requestをブロックしない。
+# Coverage aggregation policy. Rationale: docs/design-decisions.md 4.11.
+# Keep this file ASCII-only: on Windows runners the codecov CLI reads it as
+# cp1252 and fails on non-ASCII bytes.
 
 codecov:
   require_ci_to_pass: true
