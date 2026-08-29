@@ -253,6 +253,7 @@ form-action 'none';
 - `font-src` はKaTeXの同梱フォントのために必要となる。
 - Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る。
 - capabilityは、ダイアログ、ウィンドウ操作、単一インスタンス、独自commandに限定する。ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。
+- `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突するため、必要な `core:*` 権限を個別に列挙する。同様に `core:tray:default` はトレイアイコンを使わないため付与しない。
 
 ## 6. ワークスペースとファイルツリー
 

@@ -87,6 +87,8 @@ bun install
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
 
+`bun test` はテスト構成をPhase 2で確立するまでテストファイルを持たないため、現時点ではテストファイルが見つからず失敗する。CIへ組み込むのはテスト追加後とする。
+
 Rust側は `src-tauri` で実行する。
 
 ```sh
