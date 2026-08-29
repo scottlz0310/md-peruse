@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: 依存関係をインストール
+        run: bun install --frozen-lockfile
+
+      - name: Lint と Formatting を検査
+        run: bun run check
+
+      - name: 型検査
+        run: bun run typecheck
+
+      - name: Frontend をビルド
+        run: bun run build
+
+  rust:
+    name: Rust
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: 依存関係をインストール
+        run: bun install --frozen-lockfile
+
+      # tauri::generate_context! が frontendDist（dist/）を埋め込むため、
+      # Rust の検査より先に Frontend をビルドする必要がある。
+      - name: Frontend をビルド
+        run: bun run build
+
+      # rustup は rust-toolchain.toml のチャネルとコンポーネントを自動で導入する。
+      - name: ツールチェーンを確認
+        run: rustc --version && cargo --version
+        working-directory: src-tauri
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Formatting を検査
+        run: cargo fmt --check
+        working-directory: src-tauri
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+        working-directory: src-tauri
+
+      - name: テスト
+        run: cargo test
+        working-directory: src-tauri

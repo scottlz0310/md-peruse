@@ -1,0 +1,42 @@
+# カバレッジの集計方針。RustとFrontendをflagsで分けて追跡する。
+# テスト構成はPhase 2で確立するため、確立までCIからのアップロードは行わない。
+# アップロード開始までステータスをinformationalとし、PRをブロックしない。
+
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  precision: 2
+  round: down
+  range: "60...90"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+        informational: true
+
+flags:
+  rust:
+    paths:
+      - src-tauri/src/
+    carryforward: true
+  frontend:
+    paths:
+      - src/
+    carryforward: true
+
+comment:
+  layout: "condensed_header, flags, files"
+  require_changes: true
+
+ignore:
+  - "dist/**"
+  - "docs/**"
+  - "src-tauri/gen/**"
+  - "src-tauri/target/**"

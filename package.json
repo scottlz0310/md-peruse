@@ -12,7 +12,8 @@
     "check": "biome check",
     "check:fix": "biome check --write",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "prepare": "lefthook install"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -26,6 +27,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^6.1.1",
+    "lefthook": "^2.1.12",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

@@ -153,9 +153,25 @@ Phase 1のスケルトン配置時点で固定したバージョンを記録す�
 | @vitejs/plugin-react | 6.1.1 | `package.json` |
 | TypeScript | 7.0.2 | `package.json` |
 | Biome | 2.5.11 | `package.json` |
+| Lefthook | 2.1.12 | `package.json` |
 | winapp CLI | 未決 | Phase 1のMSIXスパイクで確定する |
 
 Rustのeditionは2024を採用する。新規プロジェクトであり、既存コードとの互換性制約がないため。MSRVは edition 2024 が要求する1.85とする。
+
+### 4.11 CIの構成
+
+| 判断 | 内容 | 理由 |
+| --- | --- | --- |
+| ジョブ分割 | `Frontend` と `Rust` の2ジョブ | 失敗箇所を切り分けやすく、required status checkとして個別に指定できる |
+| Frontendのランナー | `ubuntu-latest` | Biome、`tsc`、Viteのビルドはプラットフォームに依存せず、Windowsランナーより高速で安価 |
+| Rustのランナー | `windows-latest` | 対象プラットフォームがWindowsのみであり、Tauriのビルドが実際に成立することを検証する必要がある |
+| Rustツールチェーンの導入 | rustupによる `rust-toolchain.toml` の自動解決 | Actionでチャネルを別途指定すると、`rust-toolchain.toml` の固定と二重管理になる |
+| Frontendビルドの先行実行 | Rustジョブでも `bun run build` を実行する | `tauri::generate_context!` が `frontendDist`（`dist/`）を埋め込むため、存在しないとコンパイルできない |
+| 依存関係の導入 | `bun install --frozen-lockfile` | `bun.lock` との不整合を検出し、CIとローカルの依存を一致させる |
+| テストの扱い | `cargo test` のみ実行し、`bun test` は組み込まない | Frontendのテスト構成が未確立で、テストファイルが存在しないと `bun test` が失敗する（4.8、Phase 2で解決する） |
+| Codecovのステータス | `informational` | アップロードを開始するまでカバレッジ未計測となるため、Pull Requestをブロックさせない |
+
+`main` へのpushでも実行する。squash mergeの結果に対して検査を通し、`main` が常に検査済みの状態であることを保証する。
 
 ## 5. アーキテクチャ
 

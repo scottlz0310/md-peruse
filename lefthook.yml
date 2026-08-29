@@ -1,0 +1,23 @@
+# Git Hooks の定義。`bun install` 時に package.json の prepare スクリプトから導入される。
+# CI（.github/workflows/ci.yml）と同じ検査をコミット前に実行し、指摘をローカルで閉じる。
+
+pre-commit:
+  parallel: true
+  jobs:
+    - name: biome
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,css,html}"
+      run: bunx biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
+
+    - name: typecheck
+      glob: "*.{ts,tsx}"
+      run: bun run typecheck
+
+    - name: rust-fmt
+      glob: "*.rs"
+      root: src-tauri/
+      run: cargo fmt --check
+
+    - name: rust-clippy
+      glob: "*.rs"
+      root: src-tauri/
+      run: cargo clippy --all-targets -- -D warnings
