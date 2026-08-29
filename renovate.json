@@ -1,8 +1,9 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "description": [
-    "automerge preset は required status check が存在しないため現時点では有効化しない。",
-    "GitHub Actions と branch protection を配置した時点で presets/options/automerge を extends へ戻す。",
+    "required status check が存在しないため、自動マージを全面的に停止している。",
+    "presets/options/automerge を extends から外し、preset 由来の automerge も下記で打ち消す。",
+    "GitHub Actions と branch protection を配置した時点で、automerge preset の復帰と下記の打ち消し解除をまとめて行う。",
     "追跡は tasks.md の Phase 2 で行う。"
   ],
   "extends": [
@@ -15,5 +16,15 @@
     "github>scottlz0310/renovate-config//presets/tools/lefthook",
     "github>scottlz0310/renovate-config//presets/options/schedule",
     "github>scottlz0310/renovate-config//presets/options/security"
+  ],
+  "vulnerabilityAlerts": {
+    "automerge": false
+  },
+  "packageRules": [
+    {
+      "description": "preset 由来の automerge を打ち消す。CI 整備後に削除する。",
+      "matchPackageNames": ["*"],
+      "automerge": false
+    }
   ]
 }
