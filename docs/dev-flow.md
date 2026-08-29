@@ -67,7 +67,7 @@ Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、
 - Windows App Certification Kit（WACK）を実行する。
 - custom URI scheme protocolを1つ登録し、WebView2上で実際に配信されるオリジンとURL形式を実測する。
 - CSPとDOMPurifyの許可URIパターンを実測値に合わせて検証する。
-- MSIX環境でアプリ設定ディレクトリがLocalStateへ解決されることを確認する。
+- MSIX環境でアプリ設定ディレクトリの解決先と、実際の格納先を確認する。
 - 起動時間とアイドル時メモリを測定し、[spec.md](./spec.md)の暫定目標を確定または改訂する。
 
 ### 完了条件
@@ -239,7 +239,8 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 | 各ツールの初期バージョン | Phase 1 |
 | ARM64のビルド方式 | Phase 1 |
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | Phase 2 |
-| custom image protocolのURL形式とresource ID | Phase 1 |
+| custom image protocolのURL形式 | Phase 1 |
+| custom image protocolのresource ID生成、無効化、キャッシュ方針 | Phase 3 |
 | CSPの最終値とcapabilityの最小集合 | Phase 1で検証、Phase 3で確定 |
 | MSIXでのフォルダー選択、監視、関連付け起動 | Phase 1 |
 | MSIXでのアプリ設定保存先 | Phase 1 |

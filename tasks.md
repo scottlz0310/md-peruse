@@ -59,7 +59,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 - [x] custom URI scheme protocolを1つ登録し、オリジンとURL形式を実測する（`http://mdperuse-img.localhost/<path>`。[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [x] CSPとDOMPurifyの許可URIパターンを実測値で検証する（[design-decisions.md](./docs/design-decisions.md) 5.5。確定はPhase 3）
 - [x] MSIX環境でフォルダー選択、読込、監視、関連付け起動を最小検証コードで確認する（[design-decisions.md](./docs/design-decisions.md) 13.4）
-- [x] MSIX環境でアプリ設定ディレクトリの解決先を確認する（LocalStateへはリダイレクトされずRoamingへ解決。[design-decisions.md](./docs/design-decisions.md) 13.4）
+- [x] MSIX環境でアプリ設定ディレクトリの解決先を確認する（パッケージ領域へリダイレクトされ、アンインストールで併せて削除される。[design-decisions.md](./docs/design-decisions.md) 13.4）
 - [x] 起動時間とアイドル時メモリを測定し、[spec.md](./docs/spec.md) の暫定目標を確定または改訂する（目標は据え置き。[design-decisions.md](./docs/design-decisions.md) 13.3）
 
 ### このフェーズで解決する未決事項
@@ -96,6 +96,7 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 ## Phase 3: 詳細設計
 
 - [ ] IPCの型、エラー契約、capabilityの最小集合を定義する
+- [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する（URL形式はPhase 1で確定。[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [ ] 永続化する状態、設定ファイルのスキーマ、`schemaVersion` を定義する
 - [ ] 描画とナビゲーションの仕様（sanitize schema、アンカー、相対リンク等）を確定する
 

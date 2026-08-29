@@ -892,17 +892,26 @@ COMの `IApplicationActivationManager::ActivateForFile` を直接呼ぶと `0x80
 
 ### P0: 実装着手前
 
-- Tauri、Rust、Bun、React、Vite、winapp CLIの初期バージョン
+Phase 1のスパイクで解決した項目は次のとおり。
+
+| 項目 | 結論 | 参照 |
+| --- | --- | --- |
+| Tauri、Rust、Bun、React、Vite、winapp CLIの初期バージョン | winapp CLI 0.6.1 を含め確定 | 4.10 |
+| ARM64のビルド方式 | x64ホストからのクロスコンパイル | 13.2 |
+| BunのみでMSIXビルドを完結できるか | Node.jsは不要 | 13.2 |
+| `runFullTrust` だけを使用するMSIXでフォルダー選択、監視、関連付け起動が動作すること | いずれも動作する。関連付け起動の引数は `argv[1]` | 13.4 |
+| MSIXでのアプリ設定保存先が期待どおりに解決されること | パッケージ領域へリダイレクトされ、アンインストールで併せて削除される | 11.1、13.4 |
+| custom image protocolのURL形式 | `http://mdperuse-img.localhost/<resource-id>` | 5.4 |
+| x64のMSIX生成、インストール、起動、WACK結果 | いずれも成立。WACKはOVERALL PASS | 13.1、13.3、13.4 |
+
+未解決の項目は次のとおり。
+
 - Tauri command/eventの型、version、request ID、cancel、error契約
-- custom image protocolのURL形式、resource ID、キャッシュ、CSP
-- CSPの最終値とTauri capabilityの最小集合
-- `runFullTrust` だけを使用するMSIXでフォルダー選択、監視、関連付け起動が動作すること
-- MSIXでのアプリ設定保存先が期待どおりに解決されること
-- ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否
-- BunのみでMSIXビルドを完結できるか
+- custom image protocolのresource ID生成、無効化、キャッシュ方針
+- CSPの最終値とTauri capabilityの最小集合（実測を反映した現時点の値は5.5）
+- ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否（イベント列は6.4で実測済み。タブ状態の設計はPhase 3）
 - `bun:test` でReactコンポーネントのDOMテストが成立するか、およびVitestへの退避条件
-- x64、ARM64のMSIX生成、インストール、起動、WACK結果
-- ARM64のビルド方式（ネイティブランナーかクロスコンパイルか）
+- ARM64のMSIXインストール、起動、WACK結果（Phase 5の提出前検証で実施する）
 
 ### P1: 初期版仕様確定前
 
