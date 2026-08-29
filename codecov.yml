@@ -1,5 +1,6 @@
 # カバレッジの集計方針。RustとFrontendをflagsで分けて追跡する。
-# テスト構成はPhase 2で確立するため、確立までCIからのアップロードは行わない。
+# FrontendのDOMテスト構成はPhase 2で確立した（design-decisions.md 14.5）。
+# アップロードのCIへの組み込みはPhase 2の残タスクであり、開始するまで実施しない。
 # アップロード開始までステータスをinformationalとし、PRをブロックしない。
 
 codecov:

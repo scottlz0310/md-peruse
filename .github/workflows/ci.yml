@@ -32,6 +32,9 @@ jobs:
       - name: 型検査
         run: bun run typecheck
 
+      - name: テスト
+        run: bun test
+
       - name: Frontend をビルド
         run: bun run build
 

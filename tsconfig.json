@@ -11,6 +11,7 @@
     "allowImportingTsExtensions": true,
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
+    "types": ["bun"],
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
@@ -22,6 +23,6 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedIndexedAccess": true
   },
-  "include": ["src"],
+  "include": ["src", "test"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }
