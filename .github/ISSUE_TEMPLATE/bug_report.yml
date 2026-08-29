@@ -6,7 +6,8 @@ body:
     attributes:
       value: |
         再現手順と環境が揃っていると調査が早く進みます。
-        セキュリティ上の問題は Issue ではなく非公開の経路で連絡してください。
+
+        セキュリティ上の問題はこのIssueではなく、[Security Advisories](https://github.com/scottlz0310/md-peruse/security/advisories/new) から非公開で報告してください。報告範囲は [SECURITY.md](https://github.com/scottlz0310/md-peruse/blob/main/SECURITY.md) を参照してください。
 
   - type: textarea
     id: summary

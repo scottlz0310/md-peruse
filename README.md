@@ -53,6 +53,7 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | [docs/uimock.html](./docs/uimock.html) | 画面構成の視覚参考（要件は定義しない） | 参考資料のため随時 |
 | [tasks.md](./tasks.md) | 進捗とタスクの**正本** | タスクの着手・完了ごとに更新する |
 | [CHANGELOG.md](./CHANGELOG.md) | 利用者から見た変更履歴 | リリースに影響する変更ごとに更新する |
+| [SECURITY.md](./SECURITY.md) | 脆弱性の報告経路と想定する脅威 | 報告経路やサポート対象が変わったときに更新する |
 
 記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、実装順序と完了条件について `dev-flow.md`、進捗について `tasks.md` を優先する。
 
