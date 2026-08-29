@@ -130,6 +130,8 @@ MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` �
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
 - 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
+- `main` は保護されており、直接pushできない。CIの `Frontend` と `Rust` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
+- マージ方式はsquashのみ。依存関係の更新はRenovateが自動マージする（CIの通過が前提）。
 
 ## ライセンス
 
