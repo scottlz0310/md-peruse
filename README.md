@@ -131,7 +131,8 @@ MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` �
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
 - 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。
 - `main` は保護されており、直接pushできない。CIの `Frontend` と `Rust` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
-- マージ方式はsquashのみ。依存関係の更新はRenovateが自動マージする（CIの通過が前提）。
+- 人が作成する変更は、CIの通過に加えてthread-owlのレビューとVerdictコメントを必須とする。マージ方式はsquashのみ。
+- Renovateによる定型依存更新は、CIの通過をもってゲートとし自動マージする（独立レビューは求めない）。範囲と根拠は [design-decisions.md](./docs/design-decisions.md) 4.12「レビューの適用範囲」を参照。
 
 ## ライセンス
 
