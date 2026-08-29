@@ -742,9 +742,9 @@ Phase 1のスパイクで次を確定した。
 
 マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `ProcessorArchitecture` と `Version` を置換して生成する。アーキテクチャごとに別のマニフェストを保守しない。
 
-visual assetは `assets/app-icon.svg` を唯一の原本とし、`tauri icon` で各サイズを生成する。手作業での差し替えは行わない。現在のアイコンは暫定であり、最終デザインへの差し替えは追跡Issueで管理する。
+visual assetは `assets/app-icon.png`（1024x1024）を唯一の原本とし、`tauri icon` で各サイズを生成する。手作業での差し替えは行わない。
 
-`uap:DefaultTile` に `Square310x310Logo` を指定する場合、`Wide310x150Logo` の同時指定がMSIXのマニフェスト検証で必須となる。暫定アイコンは横長図案を持たないため、大タイルは指定していない。最終アイコンの差し替え時に併せて追加する。
+`uap:DefaultTile` に `Square310x310Logo` を指定する場合、`Wide310x150Logo` の同時指定がMSIXのマニフェスト検証で必須となる。ワイドロゴは縦横比が `Square310x310Logo` と異なり、正方形アイコンから機械的に生成できないため、大タイルは指定していない。Store提出物を準備するPhase 5で、比率2.067の図案を用意したうえで両方を追加する。
 
 ### 13.2 ビルド時依存の境界
 
