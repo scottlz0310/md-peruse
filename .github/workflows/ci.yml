@@ -25,7 +25,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: .bun-version
 
       - name: 依存関係をインストール
         run: bun install --frozen-lockfile
@@ -58,7 +58,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version-file: package.json
+          bun-version-file: .bun-version
 
       - name: 依存関係をインストール
         run: bun install --frozen-lockfile

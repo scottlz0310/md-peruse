@@ -96,7 +96,9 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 - 引き受けるリスク: ユーザー標準（pnpm）からの逸脱。共有Renovateプリセットがpnpm前提のルールを含む場合の不整合。Windows ARM64サポートの確認が必要。
 - 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する（下記）。Phase 1でARM64上の動作を確認する。
 
-Bun本体の更新は、共有プリセット `presets/package-managers/bun` が `bun-version` マネージャを「Bun runtime」グループとして切り出すため、JavaScript依存の更新とは別のPull Requestになる。これに加えて、リポジトリローカルの `renovate.json` で `bun-version` の `automerge` を無効化する。理由は、Bunの更新が `bun install`、テスト、ビルド、MSIX生成のすべてに影響する一方、required status check（`Frontend` / `Rust` / `Coverage`）にはMSIX生成とWACKが含まれず、自動マージのゲートでは破壊を検出できないためである。この打ち消しはmd-peruse固有の事情（MSIXの同梱）に基づくため共有プリセットへは入れず、MSIX生成とWACKをCIへ載せた時点（Phase 5）で削除を判断する。
+Bunのバージョンは `.bun-version` で固定する。Renovateの `bun-version` マネージャが対象とするのは `.bun-version` であり、`package.json` の `packageManager` はBunの更新元にならない（CorepackがBunを扱わないため、共有プリセット `presets/languages/nodejs` も同じ理由で `.bun-version` の使用を求めている）。CIの `setup-bun` も `bun-version-file: .bun-version` で同じ値を読む。
+
+そのうえで、リポジトリローカルの `renovate.json` で `bun-version` を `Bun runtime` グループへ切り出し、`automerge` を無効化する。共有プリセットにも同名のグループ定義があるが、`presets/options/schedule` のグループ化が後勝ちするため、ローカルで再指定しないとBun本体が他の依存と同じ更新Pull Requestへ混ざる（`renovate --platform=local --dry-run` で確認した）。理由は、Bunの更新が `bun install`、テスト、ビルド、MSIX生成のすべてに影響する一方、required status check（`Frontend` / `Rust` / `Coverage`）にはMSIX生成とWACKが含まれず、自動マージのゲートでは破壊を検出できないためである。この打ち消しはmd-peruse固有の事情（MSIXの同梱）に基づくため共有プリセットへは入れず、MSIX生成とWACKをCIへ載せた時点（Phase 5）で削除を判断する。
 
 ### 4.5 パッケージングと配布: MSIX + Microsoft Store（winapp CLI）
 
@@ -142,7 +144,7 @@ Phase 1のスケルトン配置時点で固定したバージョンを記録す�
 | Rust toolchain | 1.98.0 | `rust-toolchain.toml` |
 | Rust edition | 2024 | `src-tauri/Cargo.toml` |
 | Rust MSRV | 1.85 | `src-tauri/Cargo.toml` の `rust-version` |
-| Bun | 1.4.0 | `package.json` の `packageManager` |
+| Bun | 1.4.0 | `.bun-version` |
 | tauri | 2.11.5 | `src-tauri/Cargo.toml` |
 | tauri-build | 2.6.3 | `src-tauri/Cargo.toml` |
 | tauri-plugin-opener | 2.5.4 | `src-tauri/Cargo.toml` |

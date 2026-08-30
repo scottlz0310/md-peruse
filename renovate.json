@@ -14,8 +14,9 @@
   ],
   "packageRules": [
     {
-      "description": "Bun本体はMSIX生成とWACKの確認を要するため自動マージしない。両者をCIへ載せたら削除する（design-decisions.md 4.4）",
+      "description": "Bun本体は他の依存と束ねず、MSIX生成とWACKを確認してから手動でマージする。両者をCIへ載せたら削除する（design-decisions.md 4.4）",
       "matchManagers": ["bun-version"],
+      "groupName": "Bun runtime",
       "automerge": false
     }
   ]
