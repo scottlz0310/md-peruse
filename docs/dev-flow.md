@@ -113,14 +113,17 @@ Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、
 
 ### 着手順
 
-Phase 3は次の4単位へ分け、この順序で着手する。単位ごとにPull Requestを分ける。
+Phase 3は次の5単位へ分け、この順序で着手する。単位ごとにPull Requestを分ける。
 
 1. IPCインターフェース
 2. 描画とナビゲーション
 3. 状態管理
 4. UIとUX
+5. Store向けテレメトリ
 
 「描画とナビゲーション」を2番目に置くのは、CSPとcapabilityの最終値が `rehype-sanitize` schemaとcustom image protocolの設計に依存するためである。この2つを早く閉じることで、P0の未決事項が長く残らない。
+
+「Store向けテレメトリ」は最後の単位とするが、そのうち送信経路の実測（5.5の段階1）だけは「描画とナビゲーション」のCSPとcapability最終値を確定する前に行う。送信経路がCSPとcapabilityの最終値を変えうるためである。
 
 ### 成果物の形式
 
@@ -185,6 +188,15 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - 単一ファイルまたは単一フォルダーのドラッグ＆ドロップ
 - 英語UIを初期版へ含めるか
 
+### 5.5 Store向けテレメトリ
+
+Microsoft Store版の初回リリースから送るカスタムイベントを要件化する（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）。本単位は2段階に分ける。
+
+- 段階1（送信経路の実測）: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を確認し、成立可否・制約・CSPとcapabilityへの影響を記録する。**5.2の「CSPとTauri capabilityの最終値」を確定する前に実施する。** 送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値が変わるためである。
+- 段階2（要件の確定）: イベント名、発火条件、同一セッション内の送信回数、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。
+
+計測定義（Usage reportの標準Sessions指標との照合、反映遅延、バージョン別フィルター）は、Partner Centerの実データを確認できるPhase 5で確定する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。
+
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている。
@@ -195,6 +207,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルが確定している。
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない。
 - [ ] CSPとcapabilityの最終値が確定している。
+- [ ] Store向けカスタムイベントの送信経路と要件が確定している（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1・2）。
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している。
 
 ## 6. Phase 4: 機能実装
@@ -243,6 +256,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - [ ] Raw HTML、危険なURL scheme、境界外画像が遮断され、セキュリティ回帰テストが通る。
 - [ ] `forced-colors` 有効時にMermaid図とコードブロックが判読できる。
 - [ ] [spec.md](./spec.md) の性能目標を満たす。
+- [ ] Store向けカスタムイベントが定義どおりの条件でのみ送信され、送信失敗がファイル・フォルダー操作へ波及しない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）。
 
 ## 7. Phase 5: 配布パイプラインとStore公開
 
@@ -260,6 +274,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - 更新版向けにMicrosoft Store Submission API連携を構築する。利用するAPIのバージョンと認証方式、MSIXパッケージフローへの対応状況を着手時点で確認する。
 - Store Submission APIの実行前に手動承認ゲートを設ける。
 - API連携が利用できない場合に備え、手動提出の手順書を維持する。
+- Store向けカスタムイベントに合わせてデータ収集申告とプライバシーポリシーを更新し、初回公開版でPartner Centerからイベントとバージョン別集計を確認する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ### 完了条件
 
@@ -268,6 +283,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - [ ] Store提出物とCIで検証した成果物が一致している。
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している。
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる。
+- [ ] 初回公開版でPartner Centerからカスタムイベントを確認できている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ## 8. 未決事項と解決フェーズの対応
 
@@ -307,3 +323,6 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 | lowlightへ登録する言語allowlist | Phase 4 |
 | 長いパスへの対応方針 | Phase 4 |
 | 大規模ツリーでの監視範囲の縮退モード | Phase 4 |
+| Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | Phase 3-5（テレメトリ） |
+| Store向けカスタムイベントの要件（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2） | Phase 3-5（テレメトリ） |
+| カスタムイベントの計測定義とSessions指標との照合（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） | Phase 5 |

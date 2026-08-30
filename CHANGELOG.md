@@ -15,6 +15,8 @@
 
 ### Added
 
+- Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装）、Phase 5（データ収集申告とPartner Centerでの確認）の4段階に分ける
+- Store向けカスタムイベントの送信経路の実測結果を [design-decisions.md](./docs/design-decisions.md) 13.5 へ追加。packaged classic appから `StoreServicesCustomEventLogger` を呼び出せること、`Microsoft.Services.Store.Engagement` と `Microsoft.VCLibs.140.00` の `PackageDependency` が必要であること、CSPとTauri capabilityの最終値には影響しないことを確認した
 - Raw HTMLをソース文字列として出力する `remark-rehype` のhandlerを `src/markdown/raw-html.ts` へ追加。block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code` で包んで改行とインデントを保持し、それ以外（`paragraph`・`heading`・`strong`・`link`・表セルなど）は素のテキストとしてタグと本文の分断を避ける。HTMLコメントも同じ扱いとし、`allowDangerousHtml` と `rehype-raw` は使わない（[design-decisions.md](./docs/design-decisions.md) 8.1）
 - unifiedパイプラインの依存（unified、remark-parse、remark-gfm、remark-math、remark-rehype、rehype-katex）を追加。schemaを実パイプラインの出力に対して検証する統合テストで使う
 - `rehype-sanitize` のschemaを `src/markdown/sanitize-schema.ts` へ追加。既定schemaを継承せず、パイプラインが生成する要素だけを全列挙する。KaTeXは `output: "mathml"` としてstyleとsvgを生成させない（[design-decisions.md](./docs/design-decisions.md) 8.2、8.5）
