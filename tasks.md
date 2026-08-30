@@ -104,7 +104,7 @@
 - [x] IPCのversion、request ID、cancelの契約を定義する（いずれもwire契約へ導入しない。[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [x] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする（`ts-rs` で生成し、`Rust` ジョブが差分を検査する）
 - [x] エラーの `code` 体系と `retryable` の判定基準を定義する（`IpcError` と `ErrorCode`。retryableはcodeから導出。[design-decisions.md](./docs/design-decisions.md) 5.3）
-- [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する
+- [x] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する（ソルト付きHMAC、文書単位で発行、ワークスペース切替で無効化。[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [x] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する（表示しない。[design-decisions.md](./docs/design-decisions.md) 6.3）
 
 ### 3-2 描画とナビゲーション
