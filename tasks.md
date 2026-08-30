@@ -16,12 +16,12 @@
 | --- | --- | --- |
 | Phase 0 | リポジトリ整備 | 完了 |
 | Phase 1 | MSIX技術スパイク | 完了 |
-| Phase 2 | 開発基盤と品質ガードレール | 一部先行 |
-| Phase 3 | 詳細設計 | 未着手 |
+| Phase 2 | 開発基盤と品質ガードレール | 完了 |
+| Phase 3 | 詳細設計 | 着手中 |
 | Phase 4 | 機能実装 | 未着手 |
 | Phase 5 | 配布パイプラインとStore公開 | 未着手 |
 
-Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
+着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」と第5章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
 
 ## Phase 0: リポジトリ整備
 
@@ -95,14 +95,45 @@ Phase 1とPhase 2は一部を先行させる。着手順は [dev-flow.md](./docs
 
 ## Phase 3: 詳細設計
 
-- [ ] IPCの型、エラー契約、capabilityの最小集合を定義する
-- [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する（URL形式はPhase 1で確定。[design-decisions.md](./docs/design-decisions.md) 5.4）
-- [ ] 永続化する状態、設定ファイルのスキーマ、`schemaVersion` を定義する
-- [ ] 描画とナビゲーションの仕様（sanitize schema、アンカー、相対リンク等）を確定する
+4単位へ分け、[dev-flow.md](./docs/dev-flow.md) 第5章「着手順」の順序で進める。単位ごとにPull Requestを分ける。型と定数は実コードとして置き、選択の理由は [design-decisions.md](./docs/design-decisions.md) へ記録する。
+
+### 3-1 IPCインターフェース
+
+- [ ] Tauri commandとeventの型（`FileNode`、走査オプション、読込結果、ファイル変更イベント、テーマ変更イベント）をTypeScriptとRustの双方で定義する
+- [ ] IPCのversion、request ID、cancelの契約を定義する
+- [ ] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする
+- [ ] エラーの `code` 体系と `retryable` の判定基準を定義する
+- [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する
+- [ ] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する
+
+### 3-2 描画とナビゲーション
+
+- [ ] `rehype-sanitize` schemaを最終定義し、既定schemaからの拡張差分を列挙する
+- [ ] Raw HTMLをテキストとして出力するhandlerの実装方針を決める
+- [ ] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する
+- [ ] YAML front matterの扱いを決める
+- [ ] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する
+- [ ] CSPとTauri capabilityの最終値を確定する
+
+### 3-3 状態管理
+
+- [ ] 永続化する状態を決め、設定ファイルのスキーマと `schemaVersion` を定義する
+- [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する
+- [ ] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する
+- [ ] 同時に開けるタブ数の上限、最近使ったフォルダーと最後のワークスペースの復元、関連付け起動でワークスペース外のファイルを開いたときの状態を決める
+
+### 3-4 UIとUX
+
+- [ ] メニューをネイティブ実装とするかWebView内実装とするかを決め、メニュー、ショートカット、パンくずの操作仕様を定義する
+- [ ] スプリッターの幅範囲、刻み、設定保存と、文字サイズの範囲、刻み、ショートカットを定義する
+- [ ] 文書内検索とリンク遷移の戻る／進む操作の採否を決める
+- [ ] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める
 
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている
+- [ ] IPCのversion、request ID、cancelの契約が定義されている
+- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
 - [ ] 永続化する状態と保存先、スキーマが確定している
 - [ ] ファイル監視のライフサイクルが確定している

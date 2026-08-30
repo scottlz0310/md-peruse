@@ -103,15 +103,32 @@ Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、
 ### 完了条件
 
 - [x] `bun:test` でReactコンポーネントのテストがCIとローカルの両方で実行できる。または退避条件に従いVitestへ切り替えている。
-- [ ] ローカルとCIで同じ品質チェックを再現できる。
-- [ ] lockfileを変更しない依存関係インストールがCIで成功する。
-- [ ] Renovateの更新単位と自動マージ条件が定義されている。
-- [ ] Bun更新が通常のJavaScript依存更新と分離されている。
+- [x] ローカルとCIで同じ品質チェックを再現できる。
+- [x] lockfileを変更しない依存関係インストールがCIで成功する。
+- [x] Renovateの更新単位と自動マージ条件が定義されている。
+- [x] Bun更新が通常のJavaScript依存更新と分離されている。
 - [x] ライセンス一覧の生成がCIへ組み込まれている。
 
 ## 5. Phase 3: 詳細設計
 
-### IPCインターフェース
+### 着手順
+
+Phase 3は次の4単位へ分け、この順序で着手する。単位ごとにPull Requestを分ける。
+
+1. IPCインターフェース
+2. 描画とナビゲーション
+3. 状態管理
+4. UIとUX
+
+「描画とナビゲーション」を2番目に置くのは、CSPとcapabilityの最終値が `rehype-sanitize` schemaとcustom image protocolの設計に依存するためである。この2つを早く閉じることで、P0の未決事項が長く残らない。
+
+### 成果物の形式
+
+型と定数は実コードとして置き、選択の理由は [design-decisions.md](./design-decisions.md) へ記録する。IPCの型はTypeScriptとRustの双方に定義する。ただし `tsc --noEmit` と `cargo check` が検査するのは各言語内の整合性だけであり、両者のwire契約（フィールド名、必須性、version、エラー `code` の集合）が一致しているかは検出しない。クロス言語の一致をどう保証するか（Rust側の型からTypeScriptの型を生成する、または双方を突き合わせる契約テストを置く）は5.1で決定し、決めた手段をCIで実行できる状態にする。
+
+Phase 3では型と定数のみを置き、振る舞いの実装はPhase 4で行う。
+
+### 5.1 IPCインターフェース
 
 RustとTypeScript間のTauri command / eventについて、次の型とエラー契約を定義する。
 
@@ -121,10 +138,24 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - ファイル変更イベント
 - テーマ変更イベント
 - custom image protocolのresource IDとエラー応答
-- CSPとTauri capabilityの最小集合
+- IPCのversion、request ID、cancelの契約
 - エラーの `code` 体系と `retryable` の判定基準
+- TypeScriptとRustの型定義を同期させる手段と、wire契約の一致をCIで検証する方法
 
-### 状態管理
+### 5.2 描画とナビゲーション
+
+- `rehype-sanitize` schemaの最終定義と、既定schemaからの拡張差分
+- Raw HTMLをテキストとして出力するhandlerの実装方針
+- 見出しアンカーのID生成規則
+- 相対リンクの解決規則と、アンカー付き相対リンクの挙動
+- ルート外Markdownリンクをloose tabで許可するか
+- YAML front matterの扱い
+- Mermaidとコードブロックの処理上限
+- KaTeXのマクロ展開と出力サイズの上限
+- 画像のピクセル寸法上限
+- CSPとTauri capabilityの最終値
+
+### 5.3 状態管理
 
 次の状態について、メモリ上だけで保持するか、アプリ設定として永続化するかを決定し、設定ファイルのスキーマと `schemaVersion` を定義する。
 
@@ -136,23 +167,29 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - 文字サイズ
 - ウィンドウ位置とサイズ
 
-### 描画とナビゲーションの仕様確定
+あわせて次を確定する。
 
-- `rehype-sanitize` schemaの最終定義と、既定schemaからの拡張差分
-- Raw HTMLをテキストとして出力するhandlerの実装方針
-- 見出しアンカーのID生成規則
-- 相対リンクの解決規則と、アンカー付き相対リンクの挙動
-- YAML front matterの扱い
+- ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクル
+- 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否
+- 同時に開けるタブ数の上限
+- 関連付け起動でワークスペース外のファイルを開いたときの状態
+
+### 5.4 UIとUX
+
+- メニューをネイティブ実装とするかWebView内実装とするか
+- メニュー、ショートカット、パンくずの操作仕様
+- スプリッターの幅範囲、刻み、設定保存
+- 文字サイズの範囲、刻み、ショートカット
 - 文書内検索の採否
 - リンク遷移の戻る／進む操作の採否
-- Mermaidとコードブロックの処理上限
-- KaTeXのマクロ展開と出力サイズの上限
-- 画像のピクセル寸法上限
-- 削除、rename、atomic replace後のタブ状態
+- 単一ファイルまたは単一フォルダーのドラッグ＆ドロップ
+- 英語UIを初期版へ含めるか
 
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている。
+- [ ] IPCのversion、request ID、cancelの契約が定義されている。
+- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる。
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる。
 - [ ] 永続化する状態と保存先、スキーマが確定している。
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルが確定している。
@@ -240,31 +277,31 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 | ARM64のビルド方式 | Phase 1 |
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | Phase 2 |
 | custom image protocolのURL形式 | Phase 1 |
-| custom image protocolのresource ID生成、無効化、キャッシュ方針 | Phase 3 |
-| CSPの最終値とcapabilityの最小集合 | Phase 1で検証、Phase 3で確定 |
+| custom image protocolのresource ID生成、無効化、キャッシュ方針 | Phase 3-1（IPC） |
+| CSPの最終値とcapabilityの最小集合 | Phase 1で検証、Phase 3-2（描画・ナビ）で確定 |
 | MSIXでのフォルダー選択、監視、関連付け起動 | Phase 1 |
 | MSIXでのアプリ設定保存先 | Phase 1 |
 | BunのみでのMSIXビルド可否 | Phase 1 |
 | ライセンス一覧の生成手段 | Phase 2 |
-| IPCの型、version、request ID、cancel、error契約 | Phase 3 |
-| `rehype-sanitize` schemaの最終定義 | Phase 3 |
-| Raw HTMLをテキスト出力するhandlerの実装方針 | Phase 3 |
-| 削除、rename、atomic replace後のタブ状態 | Phase 3 |
-| 見出しアンカーと相対リンクの規則 | Phase 3 |
-| YAML front matterの扱い | Phase 3 |
-| 文書内検索と履歴操作の採否 | Phase 3 |
-| Mermaidとコードブロックの処理上限 | Phase 3 |
-| KaTeXのマクロ展開と出力サイズの上限 | Phase 3 |
-| 画像のピクセル寸法上限 | Phase 3 |
-| 非Markdownファイルのツリー表示 | Phase 3 |
-| タブ数の上限 | Phase 3 |
-| メニューの実装方式 | Phase 3 |
-| スプリッターと文字サイズの操作仕様 | Phase 3 |
-| ルート外Markdownリンクとloose tab | Phase 3 |
-| 関連付け起動でのワークスペース外ファイル | Phase 3 |
-| 最近使ったフォルダーと最後のワークスペース復元 | Phase 3 |
-| ドラッグ＆ドロップ | Phase 3 |
-| 英語UIの採否 | Phase 3 |
+| IPCの型、version、request ID、cancel、error契約 | Phase 3-1（IPC） |
+| `rehype-sanitize` schemaの最終定義 | Phase 3-2（描画・ナビ） |
+| Raw HTMLをテキスト出力するhandlerの実装方針 | Phase 3-2（描画・ナビ） |
+| 削除、rename、atomic replace後のタブ状態 | Phase 3-3（状態管理） |
+| 見出しアンカーと相対リンクの規則 | Phase 3-2（描画・ナビ） |
+| YAML front matterの扱い | Phase 3-2（描画・ナビ） |
+| 文書内検索と履歴操作の採否 | Phase 3-4（UI・UX） |
+| Mermaidとコードブロックの処理上限 | Phase 3-2（描画・ナビ） |
+| KaTeXのマクロ展開と出力サイズの上限 | Phase 3-2（描画・ナビ） |
+| 画像のピクセル寸法上限 | Phase 3-2（描画・ナビ） |
+| 非Markdownファイルのツリー表示 | Phase 3-1（IPC） |
+| タブ数の上限 | Phase 3-3（状態管理） |
+| メニューの実装方式 | Phase 3-4（UI・UX） |
+| スプリッターと文字サイズの操作仕様 | Phase 3-4（UI・UX） |
+| ルート外Markdownリンクとloose tab | Phase 3-2（描画・ナビ） |
+| 関連付け起動でのワークスペース外ファイル | Phase 3-3（状態管理） |
+| 最近使ったフォルダーと最後のワークスペース復元 | Phase 3-3（状態管理） |
+| ドラッグ＆ドロップ | Phase 3-4（UI・UX） |
+| 英語UIの採否 | Phase 3-4（UI・UX） |
 | lowlightへ登録する言語allowlist | Phase 4 |
 | 長いパスへの対応方針 | Phase 4 |
 | 大規模ツリーでの監視範囲の縮退モード | Phase 4 |
