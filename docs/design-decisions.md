@@ -132,8 +132,8 @@ Bunのバージョンは `.bun-version` で固定する。Renovateの `bun-versi
 
 - 選定理由: 描画が同期的で高速。`remark-math` と `rehype-katex` でunifiedパイプラインへ自然に組み込める。数式を含む文書を開いたときだけロードすれば、アイドル時のコストはゼロになる。
 - 却下理由: 非対応はスコープが最小だが、数式を含む設計書で表示が崩れる。MathJaxはカバレッジが最大だが明確に重く、軽量というコアバリューと衝突する。
-- 引き受けるリスク: フォントの同梱が必要。対応構文がLaTeXの部分集合にとどまる。マクロ展開による処理時間の増大。
-- 緩和策: フォントをローカル同梱しCDNを使わない。`trust` を無効にして `\href` などを禁止する。マクロ展開と出力サイズに上限を設ける。sanitize schemaをKaTeX出力に合わせて拡張する。
+- 引き受けるリスク: 対応構文がLaTeXの部分集合にとどまる。マクロ展開による処理時間の増大。MathML出力とした場合、描画品質がWebView2のMathML Core実装に依存する。
+- 緩和策: 出力を `mathml` に限定する（8.5）。`trust` を無効にして `\href` などを禁止する。マクロ展開と出力サイズに上限を設ける。sanitize schemaをKaTeX出力に合わせて定義する。
 
 ### 4.10 初期バージョン
 
@@ -601,23 +601,50 @@ mermaid fence
 
 ### 8.2 sanitize schemaの拡張
 
-`rehype-sanitize` の既定schema（GitHub相当）を出発点とし、必要な範囲だけを拡張する。拡張は差分として明示し、暗黙の許可を作らない。最終定義はPhase 3で確定する。
+`rehype-sanitize` のschemaは、パイプラインが実際に生成する要素だけを全列挙する。既定schema（GitHub相当）を出発点とした差分定義は採らない。定義は `src/markdown/sanitize-schema.ts` を正本とし、許可・拒否の振る舞いは同ディレクトリのテストで固定する。
 
-| 拡張対象 | 目的 |
+全列挙とした理由は次のとおり。
+
+- 既定schemaは53タグと66個のグローバル属性を許可し、`action`、`method`、`encType` のようにRaw HTMLを前提とした項目を含む。本アプリはRaw HTMLをテキストとして出力するため（8.1）、これらは到達しない許可として残るだけである。
+- 既定schemaの `href` プロトコルには `irc`、`ircs`、`xmpp` が含まれる。7.2で許可すると決めたのは `http` と `https`、および相対リンクとアンカーだけである。
+- 差分定義では、既定schemaが将来広がったときに許可範囲が自動的に広がる。全列挙であれば、許可範囲はこのファイルを読めば分かる。
+
+`hast-util-sanitize` はschemaを `{...defaultSchema, ...options}` として浅くマージする。指定しないキーには既定値が入るため、`tagNames`、`attributes`、`protocols`、`ancestors`、`required`、`clobber`、`clobberPrefix`、`strip`、`allowComments`、`allowDoctypes` をすべて明示する。
+
+許可する要素は、remark-gfm、remark-math、rehype-katexを通した実測と、KaTeXが生成しうるMathMLノードの列挙に基づく。
+
+schemaの検証は2段構えで行う。要素と属性を手で組む単体テストに加えて、remark-gfm・remark-math・rehype-katexを通した結果をsanitizeへ流す統合テストを置く。単体テストだけでは、上流のプラグインが実際に何を生成するかを検証できない。許可し忘れた属性やIDの二重前置は統合テストで捕まえる。
+
+| 分類 | 要素 |
 | --- | --- |
-| 見出しの `id` | アンカー移動 |
-| `code` の `className`（`language-*`） | ハイライト対象言語の伝達 |
-| タスクリストの `input[type=checkbox][disabled]` | GFMタスクリスト |
-| `img` の `src` プロトコルへ画像用custom protocolを追加 | ワークスペース内画像の表示 |
-| KaTeX出力（`span` のclassとMathML要素） | 数式表示 |
+| 見出しと段落 | `h1`〜`h6`、`p`、`br`、`hr` |
+| インライン | `strong`、`em`、`del`、`code`、`span`、`sup` |
+| リンクと画像 | `a`、`img` |
+| リスト | `ul`、`ol`、`li`、`input` |
+| 引用とコード | `blockquote`、`pre` |
+| 表 | `table`、`thead`、`tbody`、`tr`、`th`、`td` |
+| 脚注 | `section` |
+| MathML | `math`、`semantics`、`annotation`、`mrow`、`mi`、`mn`、`mo`、`ms`、`mtext`、`mspace`、`mfrac`、`msqrt`、`mroot`、`msub`、`msup`、`msubsup`、`munder`、`mover`、`munderover`、`mstyle`、`mpadded`、`mphantom`、`menclose`、`mtable`、`mtr`、`mtd` |
 
-- `href` の許可プロトコルは `http`、`https`、および同一文書内アンカーに限定する。
-- `on*` 属性、`style` 属性、`srcset`、`ping`、`formaction` を許可しない。
+属性の要点は次のとおり。
+
+- `img` の `src` は画像用custom protocolのURLに一致する正規表現でのみ許可する。`hast-util-sanitize` は属性値を正規表現で制限できるため、プロトコルではなくオリジンとresource IDの形まで固定する。これによりリモート画像と `data:` 画像を遮断する（7.3）。
+- `code` の `className` は `language-*` に一致するものだけを残す。
+- `input` は `required` により常に `type="checkbox"` かつ `disabled` へ揃える。任意の入力要素が操作可能な状態で残ることはない。
+- `th` と `td` の `align` は `left`、`center`、`right` に限る。
+- `on*` 属性、`style` 属性、`srcset`、`ping`、`formaction` は列挙しないため除去される。
+- 表の構成要素は `ancestors` で祖先に `table` を要求し、単独で現れた場合に除去する。
+
+`id` への前置（`clobber` と `clobberPrefix`）はsanitizeで行わない。`mdast-util-to-hast` は脚注の `id` と `href` の双方へ既に `user-content-` を付けており、sanitizeで再度前置すると `id` だけが `user-content-user-content-fn-1` となる。sanitizeは `href` を書き換えないため、参照先が存在しなくなる。前置の担当は上流へ一本化し、見出しのIDにも同じ規則を適用する（規則の確定は「見出しアンカーのID生成規則」で行う）。
+
+MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるものから `style`、`href`、`src`、`d`、`alt`、`title` を除いて列挙する。`style` は上記の方針により許可せず、`href` は `trust` 無効化により生成されず（8.5）、`src` と `alt` は `mglyph` 専用でその要素自体を許可しない。色（`mathcolor`、`mathbackground`）と長さ（`width`、`height` ほか）は値のパターンで制限する。利用者はLaTeXへ任意の文字列を書けるため、属性名の許可だけでは値を絞れない。
+
+
+`href` の許可プロトコルは `http` と `https` に限定する。相対リンクと同一文書内アンカーはプロトコルを持たないため、列挙せずに通る。`javascript:`、`data:`、`file:`、`ms-*` は列挙にないため除去される。
+
 - `target="_blank"` を出力する場合は `rel="noopener noreferrer"` を強制する。
 - unifiedパイプライン内では `rehype-sanitize` を最後に置き、sanitize後にプラグインで要素を追加しない。
 - ハイライトだけは例外として、sanitize後にコンポーネント側で適用する。入力がテキストのみであり、lowlightの出力が `span` とclass名に限られるため、信頼できないmarkupは混入しない。この根拠が崩れる変更（言語定義の外部読込など）を行わない。
-
-`rehype-sanitize` の既定schemaは既知でないプロトコルを除去する。画像用custom protocolはそのままでは通らないため、実測したオリジンに固定した最小限のパターンとして明示的に追加する。任意のプロトコルを通す一般化を行わない。
 
 本文用schemaとMermaid生成SVG用のDOMPurify設定は分け、本文側では `foreignObject` を許可しない。
 
@@ -659,7 +686,7 @@ mermaid fence
 
 - `remark-math` と `rehype-katex` でパイプラインへ組み込む。
 - 数式を含む文書を開いたときだけKaTeXをlazy importする。MathJaxは採用しない。
-- KaTeXのフォントはローカル同梱とし、CDNから取得しない。
+- 出力は `output: "mathml"` としてMathMLだけを生成する。既定の `htmlAndMathml` は `span` へインラインの `style` を付け、`\sqrt` などで `svg` と `path` も生成するため、「`style` 属性を許可しない」という8.2の方針と両立しない。MathMLだけであれば追加の許可が要らず、KaTeXのフォント同梱も不要になる。描画品質はWebView2のMathML Core実装に依存する。
 - `trust` を無効にし、`\href` や `\includegraphics` を禁止する。
 - マクロ展開の上限（`maxExpand`）と出力サイズの上限（`maxSize`）を設定する。値はPhase 3で確定する。
 - 構文エラーは本文全体を壊さず、該当箇所に原因を表示する。`throwOnError` を無効にし、エラー表示を自前の要素で行う。
@@ -1070,7 +1097,6 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 
 ### P1: 初期版仕様確定前
 
-- `rehype-sanitize` schemaの最終定義
 - Raw HTMLをテキストとして出力するhandlerの実装方針
 - 見出しID生成の実装方法（`rehype-slug` の採否）
 - KaTeXのマクロ展開と出力サイズの上限
