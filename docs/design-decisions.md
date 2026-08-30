@@ -678,6 +678,7 @@ mermaid fence
 | 対象 | 手段 |
 | --- | --- |
 | JavaScript | `scripts/generate-licenses.ts`（Bunで実行）が `package.json` の `dependencies` から推移閉包を辿り、`node_modules` のメタデータとライセンスファイルを収集する |
+| 条文を同梱しないパッケージ | `licenses/overrides/<パッケージ名>/` へ上流の条文を配置し、それも無ければ生成を失敗させる |
 | Rust | `cargo-about` が `src-tauri/about.toml` の設定で依存crateのライセンス本文を収集する |
 | 出力 | `src/generated/third-party-licenses.json`。リポジトリへコミットする |
 | 検査 | CIの `Licenses` ジョブが再生成し、`git diff --exit-code` で生成物が最新であることを検査する |
@@ -685,6 +686,8 @@ mermaid fence
 判断の理由は次のとおり。
 
 - ライセンス本文まで収集する。MITやBSDは著作権表示とライセンス文の同梱を条件とするため、SPDX識別子の一覧では要件を満たさない。`cargo-license` を採らなかったのはこのため。
+- SPDXのtag-valueファイル（`LICENSE.spdx` 等）は本文として扱わない。`PackageLicenseDeclared` などのメタデータだけで条文を含まないため、本文として数えると条文の欠落を見逃す。実際に `@tauri-apps/plugin-opener` は `LICENSE.spdx` しか同梱していない。
+- 条文を取得できないパッケージは生成を失敗させる。配布物へ含める条件を満たせないまま出荷しないため。上流が同梱しない場合は `licenses/overrides/` へ本文を配置して解消する。
 - 対象を配布物に含まれる依存へ限る。JavaScript側は `dependencies` とその推移閉包のみを辿り、Rust側は `about.toml` でbuild依存とdev依存を除外する。
 - 許容ライセンスを `about.toml` の `accepted` へ列挙する。未列挙のライセンスを持つcrateが増えると生成が失敗するため、依存追加時にライセンスを確認する強制力を持つ。
 - 生成物をリポジトリへコミットする。「最新でない場合にCIを失敗させる」には比較対象が必要であり、Pull Requestの差分でライセンスの増減が見える利点もある。

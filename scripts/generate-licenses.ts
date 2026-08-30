@@ -24,8 +24,15 @@ const outputPath = join(
   "third-party-licenses.json",
 );
 
+// 上流が条文を同梱していないパッケージのために、手動配置した本文を置く場所。
+const overridesRoot = join(repositoryRoot, "licenses", "overrides");
+
 // SPDX表記のゆれを避けるため、収集対象のライセンス本文はファイル名で判定する。
 const licenseFilePattern = /^(LICENSE|LICENCE|COPYING|NOTICE)([._-].*)?$/i;
+
+// SPDXのtag-valueファイル（LICENSE.spdx等）は PackageLicenseDeclared などの
+// メタデータだけで条文を含まない。本文として数えると条文の欠落を見逃す。
+const spdxMetadataPattern = /\.spdx$/i;
 
 type LicenseSource = {
   // JavaScriptはファイル名、Rustは cargo-about が判定したSPDX識別子。
@@ -66,14 +73,41 @@ function resolveLicense(manifest: PackageManifest): string {
   throw new Error(`${manifest.name} はライセンスを宣言していません`);
 }
 
-function collectLicenseFiles(packageDir: string): LicenseSource[] {
-  return readdirSync(packageDir)
-    .filter((entry) => licenseFilePattern.test(entry))
+function readLicenseFiles(directory: string): LicenseSource[] {
+  return readdirSync(directory)
+    .filter(
+      (entry) =>
+        licenseFilePattern.test(entry) && !spdxMetadataPattern.test(entry),
+    )
     .sort()
     .map((entry) => ({
       label: entry,
-      text: readFileSync(join(packageDir, entry), "utf-8").trimEnd(),
+      text: readFileSync(join(directory, entry), "utf-8").trimEnd(),
     }));
+}
+
+// MITやBSDは著作権表示とライセンス文の同梱を条件とするため、条文を取得できない
+// パッケージは配布物へ含められない。上流が同梱しない場合は本文を手動で配置する。
+function collectLicenseSources(
+  name: string,
+  packageDir: string,
+): LicenseSource[] {
+  const fromPackage = readLicenseFiles(packageDir);
+  if (fromPackage.length > 0) {
+    return fromPackage;
+  }
+
+  const overrideDir = join(overridesRoot, name);
+  if (existsSync(overrideDir)) {
+    const fromOverride = readLicenseFiles(overrideDir);
+    if (fromOverride.length > 0) {
+      return fromOverride;
+    }
+  }
+
+  throw new Error(
+    `${name} のライセンス本文が見つかりません。上流の条文を licenses/overrides/${name}/ へ配置してください`,
+  );
 }
 
 // 配布物へ入るのは dependencies とその推移閉包に限られる。devDependencies は対象外。
@@ -104,7 +138,7 @@ function collectJavaScriptPackages(): CollectedPackage[] {
       name,
       version: manifest.version ?? "",
       license: resolveLicense(manifest),
-      sources: collectLicenseFiles(packageDir),
+      sources: collectLicenseSources(name, packageDir),
     });
     pending.push(...Object.keys(manifest.dependencies ?? {}));
   }
@@ -169,7 +203,17 @@ function collectRustPackages(): CollectedPackage[] {
     }
   }
 
-  return [...byCrate.values()];
+  const packages = [...byCrate.values()];
+  const withoutText = packages.filter((pkg) =>
+    pkg.sources.every((source) => source.text.length === 0),
+  );
+  if (withoutText.length > 0) {
+    throw new Error(
+      `ライセンス本文を取得できないcrateがあります: ${withoutText.map((pkg) => pkg.name).join(", ")}`,
+    );
+  }
+
+  return packages;
 }
 
 type EmittedPackage = {

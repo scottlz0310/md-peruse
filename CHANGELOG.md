@@ -27,7 +27,7 @@
 - `codecov.yml` を追加し、RustとFrontendをflagsで分けて集計する方針を定義。テスト構成の確立までアップロードは行わない
 - `main` ブランチの保護を設定し、CIの `Frontend` / `Rust` を required status check とした
 - MSIXパッケージングを追加。`packaging/Package.appxmanifest.template` と `scripts/build-msix.ps1` により、x64とARM64のMSIXを生成・署名できる
-- サードパーティライセンス一覧の生成を追加。JavaScript側は `scripts/generate-licenses.ts` が `dependencies` の推移閉包を辿り、Rust側は `cargo-about` が収集する。生成物 `src/generated/third-party-licenses.json` はコミットし、CIの `Licenses` ジョブが未更新を検出する
+- サードパーティライセンス一覧の生成を追加。JavaScript側は `scripts/generate-licenses.ts` が `dependencies` の推移閉包を辿り、Rust側は `cargo-about` が収集する。SPDXメタデータは条文として扱わず、上流が条文を同梱しない場合は `licenses/overrides/` の本文を使う。生成物 `src/generated/third-party-licenses.json` はコミットし、CIの `Licenses` ジョブが未更新を検出する
 - FrontendのDOMテスト構成を追加。`bun:test` に happy-dom と Testing Library を組み合わせ、`bunfig.toml` のpreloadで初期化する。CIとpre-commitで `bun test` を実行する
 - CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する。RustのlcovはWindowsのジョブがartifactへ保存し、`Coverage` ジョブ（ubuntu）がアップロードする
 

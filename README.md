@@ -186,6 +186,8 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 ライセンス一覧は `Licenses` ジョブが `bun run generate:licenses` で再生成し、`git diff --exit-code` で `src/generated/third-party-licenses.json` が最新であることを検査する。依存を追加・更新したら、生成物も併せてコミットする（[design-decisions.md](./docs/design-decisions.md) 11.3）。
 
+上流が条文を同梱していないパッケージは `licenses/overrides/<パッケージ名>/` に本文を配置する。配置がない場合は生成が失敗する。
+
 カバレッジはFrontendとRustの両方でlcovを生成し、`codecov/codecov-action` でCodecovへアップロードする。認証はGitHub ActionsのOIDCを使い、upload tokenをリポジトリのsecretへ置かない。RustのlcovはWindowsのRustジョブがartifactとして保存し、`Coverage` ジョブ（ubuntu）がアップロードする（理由は [design-decisions.md](./docs/design-decisions.md) 4.11）。集計方針は `codecov.yml` に定義し、flagsを `frontend` と `rust` に分ける。Rustのテストは Phase 4 のコア実装と併せて追加するため、それまではステータスを `informational` としてPull Requestをブロックしない。
 
 ## 貢献
