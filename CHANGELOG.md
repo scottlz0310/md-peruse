@@ -15,6 +15,7 @@
 
 ### Added
 
+- Raw HTMLをソース文字列として出力する `remark-rehype` のhandlerを `src/markdown/raw-html.ts` へ追加。block（`root`・`blockquote`・`listItem` 直下）は `pre/code` で包んで改行とインデントを保持し、inline（`paragraph` 直下）は素のテキストとする。HTMLコメントも同じ扱いとし、`allowDangerousHtml` と `rehype-raw` は使わない（[design-decisions.md](./docs/design-decisions.md) 8.1）
 - unifiedパイプラインの依存（unified、remark-parse、remark-gfm、remark-math、remark-rehype、rehype-katex）を追加。schemaを実パイプラインの出力に対して検証する統合テストで使う
 - `rehype-sanitize` のschemaを `src/markdown/sanitize-schema.ts` へ追加。既定schemaを継承せず、パイプラインが生成する要素だけを全列挙する。KaTeXは `output: "mathml"` としてstyleとsvgを生成させない（[design-decisions.md](./docs/design-decisions.md) 8.2、8.5）
 - custom image protocolのresource ID契約を追加。ワークスペース単位のソルトと、相対パス・変更世代のHMACをIDとし、文書単位で一括発行する。監視が変更を検知すればIDが変わるため長期キャッシュを返せる。画像固有のエラーcodeも追加（[design-decisions.md](./docs/design-decisions.md) 5.4）
