@@ -10,7 +10,7 @@ export type ScanResult = {
  *
  * どのディレクトリの結果かを示す情報であり、陳腐化した応答の判定には使えない。
  * 同一パスの再走査とワークスペース切替では新旧の `path` が一致するため、
- * 破棄はFrontendの世代カウンタで行う（design-decisions.md 5.3）。
+ * 破棄はFrontendが持つワークスペース世代とパス世代で行う（design-decisions.md 5.3）。
  */
 path: string, 
 /**

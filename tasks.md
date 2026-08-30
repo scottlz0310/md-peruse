@@ -147,7 +147,7 @@
 - [ ] Rust Core（走査、読込、監視、パス検証、custom protocol）
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
-- [ ] 走査応答の世代管理を実装し、同一パスの再走査とワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
+- [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 
 ### 完了条件
 
@@ -156,7 +156,7 @@
 - [ ] キーボードだけで主要操作を完了できる
 - [ ] 不正なMarkdownやMermaid入力でアプリが停止しない
 - [ ] セキュリティ回帰テストが通る
-- [ ] 陳腐化した走査応答が新しいツリーを上書きしない
+- [ ] 陳腐化した走査応答が新しいツリーを上書きせず、別パスの同時走査が相互に無効化されない
 - [ ] `forced-colors` 有効時にMermaid図とコードブロックが判読できる
 - [ ] [spec.md](./docs/spec.md) の性能目標を満たす
 
