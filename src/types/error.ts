@@ -9,6 +9,7 @@ import type { ErrorCode } from "./generated/ErrorCode";
 const RETRYABLE: Record<ErrorCode, boolean> = {
   // 権限やロックは、ユーザーが状況を変えてから再実行できる。
   workspaceAccessDenied: true,
+  directoryAccessDenied: true,
   fileAccessDenied: true,
   fileLocked: true,
   // 取りこぼしや監視停止は、再取得で回復しうる。
@@ -16,6 +17,7 @@ const RETRYABLE: Record<ErrorCode, boolean> = {
   watcherStopped: true,
   // 対象そのものが要件を満たさないため、同じ操作を繰り返しても結果は変わらない。
   workspaceNotFound: false,
+  directoryNotFound: false,
   pathOutsideWorkspace: false,
   pathRejected: false,
   fileNotFound: false,

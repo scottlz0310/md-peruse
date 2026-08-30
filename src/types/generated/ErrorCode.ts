@@ -10,4 +10,4 @@
  * IPCが成立しないためここに含めない。画像の失敗はcustom image protocolの
  * 応答で表す。Mermaid、lowlight、KaTeXの失敗はFrontend内で完結する。
  */
-export type ErrorCode = "workspaceAccessDenied" | "workspaceNotFound" | "pathOutsideWorkspace" | "pathRejected" | "fileNotFound" | "fileAccessDenied" | "fileLocked" | "fileTooLarge" | "decodeFailed" | "watcherOverflow" | "watcherStopped" | "settingsCorrupted";
+export type ErrorCode = "workspaceAccessDenied" | "workspaceNotFound" | "pathOutsideWorkspace" | "pathRejected" | "directoryAccessDenied" | "directoryNotFound" | "fileNotFound" | "fileAccessDenied" | "fileLocked" | "fileTooLarge" | "decodeFailed" | "watcherOverflow" | "watcherStopped" | "settingsCorrupted";

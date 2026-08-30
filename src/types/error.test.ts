@@ -5,11 +5,13 @@ import type { ErrorCode } from "./generated/ErrorCode";
 describe("isRetryable", () => {
   test.each<[ErrorCode, boolean]>([
     ["workspaceAccessDenied", true],
+    ["directoryAccessDenied", true],
     ["fileAccessDenied", true],
     ["fileLocked", true],
     ["watcherOverflow", true],
     ["watcherStopped", true],
     ["workspaceNotFound", false],
+    ["directoryNotFound", false],
     ["pathOutsideWorkspace", false],
     ["pathRejected", false],
     ["fileNotFound", false],

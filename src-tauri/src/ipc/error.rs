@@ -22,6 +22,13 @@ pub enum ErrorCode {
     /// パスの形式を受け付けられない。代替データストリーム表記、
     /// 末尾のドットや空白、device pathなどが該当する。
     PathRejected,
+    /// 展開しようとしたディレクトリへアクセスできない。
+    ///
+    /// ツリー全体の失敗とせず、該当項目へ表示する（design-decisions.md 6.2）。
+    /// ファイル読込の拒否とは対象も表示先も異なるため、`FileAccessDenied` と分ける。
+    DirectoryAccessDenied,
+    /// 展開しようとしたディレクトリが存在しない。走査後に削除された場合を含む。
+    DirectoryNotFound,
     /// 対象のファイルが存在しない。
     FileNotFound,
     /// ファイルへのアクセスが拒否された。
