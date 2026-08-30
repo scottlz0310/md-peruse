@@ -7,8 +7,11 @@ use ts_rs::TS;
 /// （design-decisions.md 5.3）。再試行可否は各codeから導出する。
 ///
 /// アプリ起動前の失敗（WebView2 Runtimeの欠落、MSIXのPackage Identity）は
-/// IPCが成立しないためここに含めない。画像の失敗はcustom image protocolの
-/// 応答で表す。Mermaid、lowlight、KaTeXの失敗はFrontend内で完結する。
+/// IPCが成立しないためここに含めない。Mermaid、lowlight、KaTeXの失敗は
+/// Frontend内で完結するため含めない。
+///
+/// 画像の失敗は、resource IDの発行時（IPC command）はここに含む `image*` のcodeで表し、
+/// 配信時はcustom image protocolの応答で表す。区分は両者で一致させる（design-decisions.md 5.4）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
