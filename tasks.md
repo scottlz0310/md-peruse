@@ -100,7 +100,8 @@
 ### 3-1 IPCインターフェース
 
 - [ ] Tauri commandとeventの型（`FileNode`、走査オプション、読込結果、ファイル変更イベント、テーマ変更イベント）をTypeScriptとRustの双方で定義する
-- [ ] TypeScriptとRustの型定義を同期させる手段を決める（手書きの二重定義か生成か）
+- [ ] IPCのversion、request ID、cancelの契約を定義する
+- [ ] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする
 - [ ] エラーの `code` 体系と `retryable` の判定基準を定義する
 - [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する
 - [ ] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する
@@ -131,6 +132,8 @@
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている
+- [ ] IPCのversion、request ID、cancelの契約が定義されている
+- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
 - [ ] 永続化する状態と保存先、スキーマが確定している
 - [ ] ファイル監視のライフサイクルが確定している

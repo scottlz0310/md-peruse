@@ -124,7 +124,9 @@ Phase 3は次の4単位へ分け、この順序で着手する。単位ごとに
 
 ### 成果物の形式
 
-型と定数は実コードとして置き、選択の理由は [design-decisions.md](./design-decisions.md) へ記録する。IPCの型はTypeScriptとRustの双方に定義し、`tsc --noEmit` と `cargo check` が整合性を検査できる状態にする。Phase 3では型と定数のみを置き、振る舞いの実装はPhase 4で行う。
+型と定数は実コードとして置き、選択の理由は [design-decisions.md](./design-decisions.md) へ記録する。IPCの型はTypeScriptとRustの双方に定義する。ただし `tsc --noEmit` と `cargo check` が検査するのは各言語内の整合性だけであり、両者のwire契約（フィールド名、必須性、version、エラー `code` の集合）が一致しているかは検出しない。クロス言語の一致をどう保証するか（Rust側の型からTypeScriptの型を生成する、または双方を突き合わせる契約テストを置く）は5.1で決定し、決めた手段をCIで実行できる状態にする。
+
+Phase 3では型と定数のみを置き、振る舞いの実装はPhase 4で行う。
 
 ### 5.1 IPCインターフェース
 
@@ -136,8 +138,9 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - ファイル変更イベント
 - テーマ変更イベント
 - custom image protocolのresource IDとエラー応答
+- IPCのversion、request ID、cancelの契約
 - エラーの `code` 体系と `retryable` の判定基準
-- TypeScriptとRustの型定義を同期させる手段
+- TypeScriptとRustの型定義を同期させる手段と、wire契約の一致をCIで検証する方法
 
 ### 5.2 描画とナビゲーション
 
@@ -185,6 +188,8 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている。
+- [ ] IPCのversion、request ID、cancelの契約が定義されている。
+- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる。
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる。
 - [ ] 永続化する状態と保存先、スキーマが確定している。
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルが確定している。
