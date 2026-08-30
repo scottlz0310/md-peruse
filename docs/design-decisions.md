@@ -162,7 +162,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 | 判断 | 内容 | 理由 |
 | --- | --- | --- |
-| ジョブ分割 | `Frontend`、`Rust`、`Coverage` の3ジョブ | 失敗箇所を切り分けやすく、required status checkとして個別に指定できる |
+| ジョブ分割 | `Frontend`、`Rust`、`Coverage`、`Licenses` の4ジョブ | 失敗箇所を切り分けやすく、required status checkとして個別に指定できる |
 | Frontendのランナー | `ubuntu-latest` | Biome、`tsc`、Viteのビルドはプラットフォームに依存せず、Windowsランナーより高速で安価 |
 | Rustのランナー | `windows-latest` | 対象プラットフォームがWindowsのみであり、Tauriのビルドが実際に成立することを検証する必要がある |
 | Rustツールチェーンの導入 | rustupによる `rust-toolchain.toml` の自動解決 | Actionでチャネルを別途指定すると、`rust-toolchain.toml` の固定と二重管理になる |
@@ -182,7 +182,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 | 設定 | 値 | 理由 |
 | --- | --- | --- |
-| required status check | `Frontend`、`Rust`、`Coverage` | CIを通過していない変更を `main` へ入れない。カバレッジのアップロード失敗も検出する |
+| required status check | `Frontend`、`Rust`、`Coverage`、`Licenses` | CIを通過していない変更を `main` へ入れない。カバレッジのアップロード失敗と、ライセンス一覧の未更新も検出する |
 | `strict`（マージ前に最新化を要求） | 無効 | Renovateが複数のPull Requestを同時に開くため、有効にすると相互に古くなり続けてマージが進まない。CIは `main` へのpushでも実行するため、結合後の検証は担保される |
 | 必須の承認レビュー | 設定しない | GitHubでは自分のPull Requestを自分でapproveできず、thread-owlはformal reviewではなくVerdictコメントでレビュー結果を返すため、要求すると恒久的にマージ不能になる。レビューの担保は運用規約（thread-owlのVerdictコメントとreviewed-side cycle）で行う。適用範囲は下記「レビューの適用範囲」を参照する |
 | 会話の解決を必須 | 有効 | 未解決のレビュースレッドを残したままマージできないようにする |
@@ -196,7 +196,7 @@ required status checkが揃ったため、Renovateの `presets/options/automerge
 
 #### レビューの適用範囲
 
-ブランチ保護が強制するのは `Frontend` / `Rust` / `Coverage` の通過と会話の解決のみで、thread-owlのVerdictは required status check ではない。したがってRenovateの更新Pull Requestは、Verdictを待たずにCI通過だけで自動マージされる。これは意図した動作であり、レビューの必須範囲を次のとおり分ける。
+ブランチ保護が強制するのは `Frontend` / `Rust` / `Coverage` / `Licenses` の通過と会話の解決のみで、thread-owlのVerdictは required status check ではない。したがってRenovateの更新Pull Requestは、Verdictを待たずにCI通過だけで自動マージされる。これは意図した動作であり、レビューの必須範囲を次のとおり分ける。
 
 | 対象 | ゲート |
 | --- | --- |
@@ -670,10 +670,31 @@ mermaid fence
 
 ### 11.3 ライセンス表記
 
-- 同梱するJavaScript依存関係とRust crateのライセンス一覧を、ビルド時に生成してアプリへ同梱する。
-- 生成手段はPhase 2で確定する。Rust側は依存ライセンス集約ツール、JavaScript側はBunの依存情報からの生成を候補とする。
+- 同梱するJavaScript依存関係とRust crateのライセンス一覧を生成し、アプリから参照できる形で同梱する。
 - KaTeXの同梱フォントを含む再配布アセットのライセンス表記を漏らさない。
-- 生成物が最新でない場合にCIを失敗させる。
+
+生成手段はPhase 2で次のとおり確定した。
+
+| 対象 | 手段 |
+| --- | --- |
+| JavaScript | `scripts/generate-licenses.ts`（Bunで実行）が `package.json` の `dependencies` から推移閉包を辿り、`node_modules` のメタデータとライセンスファイルを収集する |
+| 条文を同梱しないパッケージ | `licenses/overrides/<パッケージ名>/` へ上流の条文を配置し、それも無ければ生成を失敗させる |
+| Rust | `cargo-about` が `src-tauri/about.toml` の設定で依存crateのライセンス本文を収集する |
+| 出力 | `src/generated/third-party-licenses.json`。リポジトリへコミットする |
+| 検査 | CIの `Licenses` ジョブが再生成し、`git diff --exit-code` で生成物が最新であることを検査する |
+
+判断の理由は次のとおり。
+
+- ライセンス本文まで収集する。MITやBSDは著作権表示とライセンス文の同梱を条件とするため、SPDX識別子の一覧では要件を満たさない。`cargo-license` を採らなかったのはこのため。
+- SPDXのtag-valueファイル（`LICENSE.spdx` 等）は本文として扱わない。`PackageLicenseDeclared` などのメタデータだけで条文を含まないため、本文として数えると条文の欠落を見逃す。実際に `@tauri-apps/plugin-opener` は `LICENSE.spdx` しか同梱していない。
+- 条文を取得できないパッケージは生成を失敗させる。配布物へ含める条件を満たせないまま出荷しないため。上流が同梱しない場合は `licenses/overrides/` へ本文を配置して解消する。
+- 対象を配布物に含まれる依存へ限る。JavaScript側は `dependencies` とその推移閉包のみを辿り、Rust側は `about.toml` でbuild依存とdev依存を除外する。
+- 許容ライセンスを `about.toml` の `accepted` へ列挙する。未列挙のライセンスを持つcrateが増えると生成が失敗するため、依存追加時にライセンスを確認する強制力を持つ。
+- 生成物をリポジトリへコミットする。「最新でない場合にCIを失敗させる」には比較対象が必要であり、Pull Requestの差分でライセンスの増減が見える利点もある。
+- JavaScript側に既製ツールを使わない。主要なツールはnpmのnode_modulesレイアウトとCLIに依存し、Bunでの動作保証がない。走査するのは `package.json` とライセンスファイルだけで、実装は小さい。
+- ライセンス本文を `licenseTexts` へ集約し、各パッケージはインデックスで参照する。同じ本文を多数のcrateが共有するため、パッケージごとに本文を持たせると生成物が数MBに達し、バンドルサイズと依存更新時の差分の両方を悪化させる。
+
+アプリ内での表示はPhase 4のUI実装で行う。
 
 ## 12. エラー方針
 
