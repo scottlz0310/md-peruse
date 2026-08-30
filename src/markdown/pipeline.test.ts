@@ -8,6 +8,7 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
 /**
@@ -23,7 +24,7 @@ async function render(markdown: string): Promise<Root> {
     .use(remarkMath)
     .parse(markdown);
   const hast = await unified()
-    .use(remarkRehype)
+    .use(remarkRehype, { handlers: rawHtmlHandlers })
     .use(rehypeKatex, { output: "mathml" })
     .run(mdast);
   return sanitize(hast as Root, sanitizeSchema) as Root;

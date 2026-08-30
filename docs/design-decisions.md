@@ -599,6 +599,14 @@ mermaid fence
 - `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。
 - unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
 
+Raw HTMLのhandlerは `src/markdown/raw-html.ts` を正本とし、次の規則で出力する。振る舞いは同ディレクトリのテストで固定する。
+
+- blockとinlineの判別はhandlerの第3引数 `parent` で行う。mdastは双方を同じ `html` ノードで表すため、flow contentを子に持つ `root`、`blockquote`、`listItem`、`footnoteDefinition` の直下だけをblockとし、それ以外はinlineとする（実測に基づく列挙）。`heading`、`strong`、`emphasis`、`delete`、`link`、`tableCell` の直下にも `html` ノードは現れ、そこで `pre` を返すとタグと本文が分断される。未知の親はinline側へ倒し、要素の構造を壊さない。
+- blockは `pre > code` で包む。素のテキストを返すと `root` 直下に裸のテキストノードが並び、ブロック要素にならないため前後の段落と行が繋がる。`pre` であれば改行とインデントがそのまま残り、ソースを見せていることが体裁からも分かる。コードブロックと同じ見た目になるが、区別のためのclassは付けない。sanitize schemaが `code` へ許すclassは `language-*` だけであり（8.2）、印のために許可範囲を広げない。
+- inlineは素のテキストとする。`code` で包むと開きタグと閉じタグが別々のコードスパンとなり、段落が分断される。
+- HTMLコメントも同じ扱いとし、破棄しない。GitHubのプレビューは非表示とするが、本アプリの方針は「書かれた文字列をそのまま見せる」であり、`<!-- prettier-ignore -->` のように文書へ実在する記述を隠さない。handlerへ内容による例外判定を持ち込まないことにもなる。
+- handlerを置かない場合の既定動作は実測で確認した。blockの `html` ノードは出力から消え、inlineは前後のタグだけが消えて中身のテキストが残る。いずれもソースの表示にはならない。
+
 ### 8.2 sanitize schemaの拡張
 
 `rehype-sanitize` のschemaは、パイプラインが実際に生成する要素だけを全列挙する。既定schema（GitHub相当）を出発点とした差分定義は採らない。定義は `src/markdown/sanitize-schema.ts` を正本とし、許可・拒否の振る舞いは同ディレクトリのテストで固定する。
@@ -1097,7 +1105,6 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 
 ### P1: 初期版仕様確定前
 
-- Raw HTMLをテキストとして出力するhandlerの実装方針
 - 見出しID生成の実装方法（`rehype-slug` の採否）
 - KaTeXのマクロ展開と出力サイズの上限
 - YAML front matterの扱い
