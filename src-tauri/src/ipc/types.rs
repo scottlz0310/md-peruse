@@ -151,14 +151,25 @@ pub struct ImageResourceRequest {
 ///
 /// 一部の画像が失敗しても他の画像は表示するため、成功と失敗を要素ごとに表す。
 /// 失敗した画像は本文全体を壊さず、その位置に原因を表示する（design-decisions.md 7.3）。
+///
+/// 成功と失敗の排他をtagged unionで表す。両方が入った状態や、どちらも欠けた状態を
+/// 型として表現できないようにするためである。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "status", rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
-pub struct ImageResource {
-    /// 要求に含まれていた参照文字列。要求と応答の対応付けに使う。
-    pub reference: String,
-    /// 発行したresource ID。失敗した場合は `None`。
-    pub resource_id: Option<String>,
-    /// 発行できなかった理由。成功した場合は `None`。
-    pub error: Option<super::error::IpcError>,
+pub enum ImageResource {
+    #[serde(rename_all = "camelCase")]
+    Issued {
+        /// 要求に含まれていた参照文字列。要求と応答の対応付けに使う。
+        reference: String,
+        /// 発行したresource ID。
+        resource_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Failed {
+        /// 要求に含まれていた参照文字列。
+        reference: String,
+        /// 発行できなかった理由。
+        error: super::error::IpcError,
+    },
 }

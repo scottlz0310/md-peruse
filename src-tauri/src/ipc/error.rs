@@ -39,6 +39,16 @@ pub enum ErrorCode {
     FileTooLarge,
     /// 未対応または不正な文字コードでデコードできない。推測変換は行わない。
     DecodeFailed,
+    /// 画像が許可形式（PNG、JPEG、GIF、WebP、AVIF、BMP、SVG）ではない。
+    ///
+    /// 判定は拡張子ではなく内容に基づく（design-decisions.md 7.3）。
+    ImageUnsupportedFormat,
+    /// 画像が上限（32 MiB）を超えている。Markdownの上限とは別の値のため `FileTooLarge` と分ける。
+    ImageTooLarge,
+    /// 画像のピクセル寸法が上限を超えている。デコード後のメモリを保護する（design-decisions.md 7.3）。
+    ImagePixelLimitExceeded,
+    /// 画像を読み込めない、またはデコードに失敗した。
+    ImageDecodeFailed,
     /// 監視のバッファがあふれ、個別のイベントを取りこぼした。
     WatcherOverflow,
     /// 監視が停止した。ワークスペースの再選択が必要になる場合がある。

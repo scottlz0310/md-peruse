@@ -6,17 +6,24 @@ import type { IpcError } from "./IpcError";
  *
  * 一部の画像が失敗しても他の画像は表示するため、成功と失敗を要素ごとに表す。
  * 失敗した画像は本文全体を壊さず、その位置に原因を表示する（design-decisions.md 7.3）。
+ *
+ * 成功と失敗の排他をtagged unionで表す。両方が入った状態や、どちらも欠けた状態を
+ * 型として表現できないようにするためである。
  */
-export type ImageResource = { 
+export type ImageResource = { "status": "issued", 
 /**
  * 要求に含まれていた参照文字列。要求と応答の対応付けに使う。
  */
 reference: string, 
 /**
- * 発行したresource ID。失敗した場合は `None`。
+ * 発行したresource ID。
  */
-resourceId: string | null, 
+resourceId: string, } | { "status": "failed", 
 /**
- * 発行できなかった理由。成功した場合は `None`。
+ * 要求に含まれていた参照文字列。
  */
-error: IpcError | null, };
+reference: string, 
+/**
+ * 発行できなかった理由。
+ */
+error: IpcError, };

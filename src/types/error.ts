@@ -16,6 +16,10 @@ const RETRYABLE: Record<ErrorCode, boolean> = {
   watcherOverflow: true,
   watcherStopped: true,
   // 対象そのものが要件を満たさないため、同じ操作を繰り返しても結果は変わらない。
+  imageUnsupportedFormat: false,
+  imageTooLarge: false,
+  imagePixelLimitExceeded: false,
+  imageDecodeFailed: false,
   workspaceNotFound: false,
   directoryNotFound: false,
   pathOutsideWorkspace: false,
