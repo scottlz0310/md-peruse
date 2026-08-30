@@ -144,7 +144,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 
 ### 5.2 描画とナビゲーション
 
-- `rehype-sanitize` schemaの最終定義と、既定schemaからの拡張差分
+- `rehype-sanitize` schemaの最終定義
 - Raw HTMLをテキストとして出力するhandlerの実装方針
 - 見出しアンカーのID生成規則
 - 相対リンクの解決規則と、アンカー付き相対リンクの挙動
@@ -193,7 +193,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる。
 - [ ] 永続化する状態と保存先、スキーマが確定している。
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルが確定している。
-- [ ] sanitize schemaの拡張差分が列挙され、暗黙の許可が存在しない。
+- [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない。
 - [ ] CSPとcapabilityの最終値が確定している。
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している。
 

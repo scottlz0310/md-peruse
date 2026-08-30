@@ -109,7 +109,7 @@
 
 ### 3-2 描画とナビゲーション
 
-- [ ] `rehype-sanitize` schemaを最終定義し、既定schemaからの拡張差分を列挙する
+- [x] `rehype-sanitize` schemaを最終定義する（既定schemaを継承せず全列挙。`src/markdown/sanitize-schema.ts`。[design-decisions.md](./docs/design-decisions.md) 8.2）
 - [ ] Raw HTMLをテキストとして出力するhandlerの実装方針を決める
 - [ ] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する
 - [ ] YAML front matterの扱いを決める
@@ -138,7 +138,7 @@
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
 - [ ] 永続化する状態と保存先、スキーマが確定している
 - [ ] ファイル監視のライフサイクルが確定している
-- [ ] sanitize schemaの拡張差分が列挙され、暗黙の許可が存在しない
+- [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
 - [ ] CSPとcapabilityの最終値が確定している
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している
 
