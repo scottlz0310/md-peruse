@@ -90,6 +90,7 @@ bun install
 | `bun test` | Frontendのテストを実行する |
 | `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
 | `bun run generate:licenses` | サードパーティライセンス一覧を生成する（`cargo-about` が必要） |
+| `bun run check:icons` | `src-tauri/icons` が原本 `assets/app-icon.png` と一致するか検査する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -155,6 +156,8 @@ bun run tauri icon assets/app-icon.png
 
 Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）は使用しないため削除する。
 
+コミットしたアイコンが原本と一致することは `bun run check:icons` が検査する。CIの `Frontend` ジョブとpre-commitで自動実行されるため、原本を差し替えて生成を忘れた場合は検出される（[design-decisions.md](./docs/design-decisions.md) 13.1）。
+
 横長タイル（`Wide310x150Logo`）は `tauri icon` が生成しないため、`scripts/generate-wide-logo.ps1` で生成する。原本は `assets/wide-logo.png`（3100x1500、比率2.0667）とする。
 
 このスクリプトは `build-msix.ps1` がパッケージレイアウトへ直接出力するために呼ぶ。生成物をリポジトリへ置かないため、原本を更新したあとに生成を忘れて古いロゴを梱包することがない。原本の比率が2.0667から外れている場合、スクリプトは生成せず失敗する。
@@ -168,6 +171,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `biome` | ステージした JS/TS/JSON/CSS/HTML | `biome check` |
 | `typecheck` | ステージした TS/TSX | `tsc --noEmit` |
 | `frontend-test` | ステージした TS/TSX | `bun test` |
+| `icons` | ステージした `assets/app-icon.png` と `src-tauri/icons` | `bun run check:icons` |
 | `rust-fmt` | ステージした Rust | `cargo fmt --check` |
 | `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |
 
@@ -177,7 +181,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 | ジョブ | ランナー | 内容 |
 | --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build` |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
 | `Licenses` | `ubuntu-latest` | ライセンス一覧を再生成し、生成物が最新であることを検査する |

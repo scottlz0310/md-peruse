@@ -16,6 +16,11 @@ pre-commit:
       glob: "*.{ts,tsx}"
       run: bun test
 
+    # 原本またはコミット済みアイコンを触ったときだけ実行する（6秒程度かかる）。
+    - name: icons
+      glob: "{assets/app-icon.png,src-tauri/icons/*}"
+      run: bun run check:icons
+
     - name: rust-fmt
       glob: "*.rs"
       root: src-tauri/

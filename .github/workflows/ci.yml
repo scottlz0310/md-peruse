@@ -50,6 +50,11 @@ jobs:
       - name: Frontend をビルド
         run: bun run build
 
+      # アイコンは生成物を src-tauri/icons へコミットするため、原本との乖離を検出する。
+      # tauri icon は @tauri-apps/cli で動きRustのビルドを伴わないため、このジョブで実行する。
+      - name: アイコンが原本と一致するか検査
+        run: bun run check:icons
+
   rust:
     name: Rust
     runs-on: windows-latest
@@ -151,3 +156,4 @@ jobs:
 
       - name: 生成物が最新か検査
         run: git diff --exit-code -- src/generated/third-party-licenses.json
+
