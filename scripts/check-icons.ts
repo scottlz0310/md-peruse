@@ -13,9 +13,30 @@ const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const sourcePath = join(repositoryRoot, "assets", "app-icon.png");
 const committedDir = join(repositoryRoot, "src-tauri", "icons");
 
-// 比較対象はコミット済みのファイルに限る。tauri icon はmacOSとAndroid、iOS向けの
-// 生成物も出すが、対象プラットフォームがWindowsのみのためコミットしていない。
-// なおmacOS向けの icon.icns は同一入力でも出力が変わり、バイト比較に使えない。
+// 比較対象はGit管理対象のファイルに限る。作業ツリーを列挙すると、README の手順で
+// tauri icon を実行した直後に残る未追跡の生成物（icon.icns、android、ios）を
+// 巻き込む。とくに icon.icns は同一入力でも出力が変わるため、比較すると必ず失敗する。
+function listTrackedFiles(): string[] {
+  const result = spawnSync("git", ["ls-files", "--", "src-tauri/icons"], {
+    cwd: repositoryRoot,
+    encoding: "utf-8",
+  });
+  if (result.status !== 0) {
+    throw new Error(`git ls-files の実行に失敗しました: ${result.stderr}`);
+  }
+
+  return (
+    result.stdout
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => line.slice("src-tauri/icons/".length))
+      // サブディレクトリの生成物は対象プラットフォームがWindowsのみのためコミットしていない。
+      .filter((name) => !name.includes("/"))
+      .sort()
+  );
+}
+
 function listFiles(directory: string): string[] {
   return readdirSync(directory, { withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -38,7 +59,7 @@ try {
   const mismatched: string[] = [];
   const missing: string[] = [];
 
-  for (const name of listFiles(committedDir)) {
+  for (const name of listTrackedFiles()) {
     if (!generated.has(name)) {
       missing.push(name);
       continue;
@@ -66,7 +87,7 @@ try {
   }
 
   console.log(
-    `src-tauri/icons は assets/app-icon.png と一致しています（${listFiles(committedDir).length} ファイル）`,
+    `src-tauri/icons は assets/app-icon.png と一致しています（${listTrackedFiles().length} ファイル）`,
   );
 } finally {
   rmSync(generatedDir, { recursive: true, force: true });
