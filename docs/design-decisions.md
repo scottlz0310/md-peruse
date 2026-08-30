@@ -1003,6 +1003,38 @@ argv[1] = <選択したファイルの絶対パス>
 
 COMの `IApplicationActivationManager::ActivateForFile` を直接呼ぶと `0x80270254`（コントラクト未サポート）で失敗する。これは同じ理由によるものであり、関連付けの登録が不正なわけではない。検証にこのAPIを使わない。
 
+### 13.5 Store向けカスタムイベントの送信経路（x64、Windows 11 26200）
+
+Microsoft Store版の初回リリースから送るカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）について、送信経路が成立するかを実測した。ここで扱うのは経路の可否と制約だけであり、イベント名・発火条件・データ最小化の要件は段階2で定義する。[spec.md](./spec.md) 5.5「使用状況テレメトリとクラッシュレポートの外部送信を行わない」の更新も段階2で行う。
+
+Partner CenterのUsage reportが集計するカスタムイベントは、Microsoft Store Services SDKの `Microsoft.Services.Store.Engagement.StoreServicesCustomEventLogger` を経由したものに限られる。このSDKは公式にはUWP向けであり（`SDKManifest.xml` の `AppliesTo` は `WindowsAppContainer`）、packaged classic appでの利用を明記した文書はない。実体はWinRTのframework packageであるため、packaged classic appから呼べるかを実機で確認した。
+
+検証は最小のRust実行ファイル（`windows-bindgen` でwinmdからバインディングを生成し、`GetDefault()` と `Log()` を呼ぶだけのもの）を、md-peruse本体と同じ構成のMSIX（`EntryPoint="Windows.FullTrustApplication"`、`uap10:RuntimeBehavior="packagedClassicApp"`、`uap10:TrustLevel="mediumIL"`、`runFullTrust`）へ入れて行った。
+
+| 実行条件 | `GetDefault()` の結果 |
+| --- | --- |
+| パッケージ外（素の実行ファイル） | `0x80040154` クラスが登録されていない |
+| MSIX、`PackageDependency` なし | `0x80040154` クラスが登録されていない |
+| MSIX、`Microsoft.Services.Store.Engagement` のみ宣言 | `0x8007007E` モジュールが見つからない |
+| MSIX、Engagement と `Microsoft.VCLibs.140.00` の両方を宣言 | 成功。`Log()` も成功 |
+
+確定した事項は次のとおり。
+
+- packaged classic appからカスタムイベントを送信できる。追加のcapabilityは不要で、`runFullTrust` だけで成立した。
+- マニフェストの `<Dependencies>` へ2つの `<PackageDependency>` が必要である。`Microsoft.Services.Store.Engagement`（MinVersion 10.0.23012.0、Publisher `CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US`）と `Microsoft.VCLibs.140.00`（MinVersion 14.0）である。後者は `Microsoft.Services.Store.Engagement.dll` が `vccorlib140_app.dll`、`MSVCP140_APP.dll`、`CONCRT140_APP.dll`、`VCRUNTIME140_APP.dll` を必要とするためで、宣言を欠くとクラスは解決されてもDLLのロードで失敗する。
+- **CSPとTauri capabilityの最終値には影響しない。** 送信はWinRTのin-process activationであり、WebViewからのHTTPS通信を伴わない。`connect-src` を広げる必要がなく、capabilityの追加も不要である。
+- パッケージIDを持たない実行（`bun run tauri dev` を含む）では `0x80040154` で失敗する。「開発版・テスト環境で本番イベントを送信しない」という要件は、呼び出し側が失敗を無視するだけで自然に満たされる。
+- 失敗はHRESULTとして返るだけで、例外やプロセス終了にはならない。「テレメトリの送信失敗でファイル・フォルダー操作を失敗させない」という要件は呼び出し側で担保できる。
+
+未確認の事項は次のとおり。
+
+- ARM64での成立。framework packageはARM64版も配布されているが、ARM64実機がないためPhase 5の提出前検証で確認する（[#8](https://github.com/scottlz0310/md-peruse/issues/8)と同じ扱い）。
+- Store提出時にframework packageの依存をStoreが解決するか。ローカル検証では `Add-AppxPackage` で事前に導入した。
+- Partner CenterのUsage reportへイベントが実際に反映されること。Store公開後にしか確認できないため、段階4で行う。
+- SDKがpackaged classic appを公式サポートすると明記した文書はない。動作は実測できたが、将来のSDK更新で崩れうる前提として扱い、段階2では送信経路が失われても機能へ影響しない設計とする。
+
+[#21](https://github.com/scottlz0310/md-peruse/issues/21) の追加要件1は、公式API経路が使えなかった場合の分岐（イベントなしで初回提出する、提出を遅らせて実装する、別経路を採る）を確認作業の前に決めることを求めていた。実測で経路が成立したため、この分岐を選ぶ必要はなくなった。将来SDK側の変更で経路が失われた場合は「イベントなしで提出する」を既定とし、このIssueがStore提出をブロックしない。
+
 
 ## 14. テスト方針
 
@@ -1096,15 +1128,17 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | happy-domとTesting Libraryの組合せで成立。退避条件を明文化 | 4.8、14.5 |
 | Tauri command/eventの型、version、request ID、cancel、error契約 | 型はRust側を正本に `ts-rs` で生成。version・request ID・cancelは導入せず、エラーは `IpcError` と `ErrorCode` で表す | 5.3 |
 | custom image protocolのresource ID生成、無効化、キャッシュ方針 | ワークスペース単位のソルトと変更世代のHMAC。文書単位で発行し、ワークスペース切替で無効化 | 5.4 |
+| Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | packaged classic appから `StoreServicesCustomEventLogger` を呼べる。Engagement と VCLibs の `PackageDependency` が必要で、CSPとcapabilityへは影響しない | 13.5 |
 
 未解決の項目は次のとおり。
 
-- CSPの最終値とTauri capabilityの最小集合（実測を反映した現時点の値は5.5）
+- CSPの最終値とTauri capabilityの最小集合（実測を反映した現時点の値は5.5。Store向けカスタムイベントの送信経路は影響しないことを13.5で確認済み）
 - ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否（イベント列は6.4で実測済み。タブ状態の設計はPhase 3）
 - ARM64のMSIXインストール、起動、WACK結果（Phase 5の提出前検証で実施する）
 
 ### P1: 初期版仕様確定前
 
+- Store向けカスタムイベントの要件（イベント名、発火条件、同一セッション内の送信回数、データ最小化、送信失敗時の挙動。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2）
 - 見出しID生成の実装方法（`rehype-slug` の採否）
 - KaTeXのマクロ展開と出力サイズの上限
 - YAML front matterの扱い

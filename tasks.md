@@ -96,7 +96,7 @@
 
 ## Phase 3: 詳細設計
 
-4単位へ分け、[dev-flow.md](./docs/dev-flow.md) 第5章「着手順」の順序で進める。単位ごとにPull Requestを分ける。型と定数は実コードとして置き、選択の理由は [design-decisions.md](./docs/design-decisions.md) へ記録する。
+5単位へ分け、[dev-flow.md](./docs/dev-flow.md) 第5章「着手順」の順序で進める。単位ごとにPull Requestを分ける。型と定数は実コードとして置き、選択の理由は [design-decisions.md](./docs/design-decisions.md) へ記録する。
 
 ### 3-1 IPCインターフェース
 
@@ -130,6 +130,13 @@
 - [ ] 文書内検索とリンク遷移の戻る／進む操作の採否を決める
 - [ ] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める
 
+### 3-5 Store向けテレメトリ（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）
+
+Microsoft Store版の初回リリースから送るカスタムイベントを要件化する。段階1は3-2の「CSPとTauri capabilityの最終値を確定する」より前に実施する。送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値へ影響するためである。
+
+- [x] 段階1: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を実測し、成立可否・制約・CSPとcapabilityへの影響を [design-decisions.md](./docs/design-decisions.md) へ記録する（`StoreServicesCustomEventLogger` を呼べる。Engagement と VCLibs の `PackageDependency` が必要。CSPとcapabilityへは影響しない。[design-decisions.md](./docs/design-decisions.md) 13.5）
+- [ ] 段階2: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./docs/spec.md) のテレメトリ方針とIssueテンプレートの「テレメトリはスコープ外」の記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）
+
 ### 完了条件
 
 - [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている
@@ -141,6 +148,7 @@
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
 - [ ] CSPとcapabilityの最終値が確定している
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している
+- [ ] Store向けカスタムイベントの送信経路と要件が確定している
 
 ## Phase 4: 機能実装
 
@@ -149,6 +157,8 @@
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
+- [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、開発版で本番イベントを送らないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
+- [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 
 ### 完了条件
 
@@ -169,6 +179,9 @@
 - [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
 - [ ] GitHub Actionsでx64版とARM64版をビルドし、MSIXとWACK結果をartifactとして保存する
 - [ ] プライバシーポリシーとデータ収集申告を準備する
+- [ ] Store向けカスタムイベントのデータ収集申告とプライバシーポリシーを、送信するイベントの内容に合わせて更新する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
+- [ ] 初回Store公開版でPartner Centerからカスタムイベントとパッケージバージョン別の集計を確認し、標準Sessions指標との照合方法を確定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
+- [ ] 使用状況とカスタムイベントの計測母集団（診断データをオプトインした端末に限られること）を実データで確認し、率は読めてもインストール数へ接続できない制約を、反映遅延と並べて計測定義へ明記する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [ ] Store掲載情報を準備する
 - [ ] Partner Centerで初回登録と審査申請を行う
 - [ ] Store Submission API連携を構築し、実行前に手動承認ゲートを設ける
