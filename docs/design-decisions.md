@@ -613,6 +613,8 @@ mermaid fence
 
 許可する要素は、remark-gfm、remark-math、rehype-katexを通した実測と、KaTeXが生成しうるMathMLノードの列挙に基づく。
 
+schemaの検証は2段構えで行う。要素と属性を手で組む単体テストに加えて、remark-gfm・remark-math・rehype-katexを通した結果をsanitizeへ流す統合テストを置く。単体テストだけでは、上流のプラグインが実際に何を生成するかを検証できない。許可し忘れた属性やIDの二重前置は統合テストで捕まえる。
+
 | 分類 | 要素 |
 | --- | --- |
 | 見出しと段落 | `h1`〜`h6`、`p`、`br`、`hr` |
@@ -633,7 +635,10 @@ mermaid fence
 - `on*` 属性、`style` 属性、`srcset`、`ping`、`formaction` は列挙しないため除去される。
 - 表の構成要素は `ancestors` で祖先に `table` を要求し、単独で現れた場合に除去する。
 
-`clobberPrefix` は既定の `user-content-` を使う。したがって見出しの `id` は `user-content-<slug>` として出力される。アンカー移動はこの前置を踏まえて解決する。
+`id` への前置（`clobber` と `clobberPrefix`）はsanitizeで行わない。`mdast-util-to-hast` は脚注の `id` と `href` の双方へ既に `user-content-` を付けており、sanitizeで再度前置すると `id` だけが `user-content-user-content-fn-1` となる。sanitizeは `href` を書き換えないため、参照先が存在しなくなる。前置の担当は上流へ一本化し、見出しのIDにも同じ規則を適用する（規則の確定は「見出しアンカーのID生成規則」で行う）。
+
+MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるものから `style`、`href`、`src`、`d`、`alt`、`title` を除いて列挙する。`style` は上記の方針により許可せず、`href` は `trust` 無効化により生成されず（8.5）、`src` と `alt` は `mglyph` 専用でその要素自体を許可しない。色（`mathcolor`、`mathbackground`）と長さ（`width`、`height` ほか）は値のパターンで制限する。利用者はLaTeXへ任意の文字列を書けるため、属性名の許可だけでは値を絞れない。
+
 
 `href` の許可プロトコルは `http` と `https` に限定する。相対リンクと同一文書内アンカーはプロトコルを持たないため、列挙せずに通る。`javascript:`、`data:`、`file:`、`ms-*` は列挙にないため除去される。
 

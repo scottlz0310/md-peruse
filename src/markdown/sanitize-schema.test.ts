@@ -187,11 +187,11 @@ describe("属性", () => {
     ).toBeUndefined();
   });
 
-  test("見出しのidにはclobberPrefixが付く", () => {
-    // DOM clobbering対策として `user-content-` が前置される。
-    // アンカー移動はこの前置を踏まえて解決する（design-decisions.md 8.2）。
+  test("idは前置されずそのまま残る", () => {
+    // 前置の担当は上流へ一本化する。sanitizeが前置すると、`href` は書き換えない
+    // ため参照先と食い違う（design-decisions.md 8.2）。
     expect(
       sanitizeElement(element("h2", { id: "section" }))?.properties?.id,
-    ).toBe("user-content-section");
+    ).toBe("section");
   });
 });

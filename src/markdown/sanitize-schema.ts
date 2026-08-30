@@ -9,6 +9,96 @@ const IMAGE_RESOURCE_URL = /^http:\/\/mdperuse-img\.localhost\/[A-Za-z0-9_-]+$/;
 /** コードブロックの言語クラス。lowlightへ渡す言語名を伝える。 */
 const LANGUAGE_CLASS = /^language-[a-z0-9+#-]+$/;
 
+/** MathMLの色。LaTeXの `\color` などで指定された値が入る。 */
+const MATHML_COLOR = /^(#[0-9a-fA-F]{3,8}|[a-zA-Z]+)$/;
+
+/** MathMLの長さ。LaTeXの `\hspace` などで指定された値が入る。 */
+const MATHML_LENGTH = /^[+-]?[0-9]*\.?[0-9]+(em|ex|px|pt|pc|cm|mm|in|%)?$/;
+
+/**
+ * MathML要素へ共通で許可する属性。
+ *
+ * KaTeX 0.16 が `setAttribute` で設定しうる属性から、`style`、`href`、`src`、`d`、
+ * `alt`、`title` を除いて列挙する。`style` は8.2の方針で許可せず、`href` は `trust`
+ * 無効化により生成されず（8.5）、`src` と `alt` は `mglyph` 専用でその要素自体を
+ * 許可しない。`d` はSVGの `path` 用で、MathML出力では現れない。
+ *
+ * 色と長さは値のパターンで制限する。利用者はLaTeXへ任意の文字列を書けるため、
+ * 属性名を許可するだけでは値を絞れない。
+ */
+const MATHML_ATTRIBUTES: Array<string | [string, RegExp]> = [
+  "accent",
+  "accentunder",
+  "columnalign",
+  "columnlines",
+  "columnspacing",
+  ["depth", MATHML_LENGTH],
+  "display",
+  "displaystyle",
+  "encoding",
+  "fence",
+  ["height", MATHML_LENGTH],
+  "largeop",
+  "linebreak",
+  ["linethickness", MATHML_LENGTH],
+  ["lspace", MATHML_LENGTH],
+  ["mathbackground", MATHML_COLOR],
+  ["mathcolor", MATHML_COLOR],
+  "mathsize",
+  "mathvariant",
+  ["maxsize", MATHML_LENGTH],
+  ["minsize", MATHML_LENGTH],
+  "notation",
+  "rowlines",
+  "rowspacing",
+  ["rspace", MATHML_LENGTH],
+  "scriptlevel",
+  "separator",
+  "stretchy",
+  "valign",
+  ["voffset", MATHML_LENGTH],
+  ["width", MATHML_LENGTH],
+  "xmlns",
+];
+
+/** `rehype-katex` の `output: "mathml"` が生成しうる要素。 */
+const MATHML_TAGS = [
+  "math",
+  "semantics",
+  "annotation",
+  "mrow",
+  "mi",
+  "mn",
+  "mo",
+  "ms",
+  "mtext",
+  "mspace",
+  "mfrac",
+  "msqrt",
+  "mroot",
+  "msub",
+  "msup",
+  "msubsup",
+  "munder",
+  "mover",
+  "munderover",
+  "mstyle",
+  "mpadded",
+  "mphantom",
+  "menclose",
+  "mtable",
+  "mtr",
+  "mtd",
+];
+
+/** 表の桁揃え。`remark-gfm` が生成する値に限る。 */
+const TABLE_ALIGN: [string, string, string, string] = [
+  "align",
+  "left",
+  "center",
+  "right",
+];
+
 /**
  * 本文描画に使う `rehype-sanitize` のschema。
  *
@@ -19,10 +109,10 @@ const LANGUAGE_CLASS = /^language-[a-z0-9+#-]+$/;
  * 沿って全列挙する。
  *
  * 列挙はremark-gfm、remark-math、rehype-katex（`output: "mathml"`）を通した実測と、
- * KaTeXが生成しうるMathMLノードの列挙に基づく。
+ * KaTeXが生成しうるMathMLノードおよび属性の列挙に基づく。
  *
- * `hast-util-sanitize` はschemaを `{...defaultSchema, ...options}` として浅くマージするため、
- * 指定しないキーには既定値が入る。暗黙の継承を残さないよう全キーを明示する。
+ * `hast-util-sanitize` はschemaを `{...defaultSchema, ...options}` として浅くマージ
+ * するため、指定しないキーには既定値が入る。暗黙の継承を残さないよう全キーを明示する。
  */
 export const sanitizeSchema: SanitizeSchema = {
   // 明示した要素以外はすべて除去される。
@@ -64,33 +154,7 @@ export const sanitizeSchema: SanitizeSchema = {
     "td",
     // 脚注（remark-gfm）
     "section",
-    // MathML（rehype-katexのmathml出力）
-    "math",
-    "semantics",
-    "annotation",
-    "mrow",
-    "mi",
-    "mn",
-    "mo",
-    "ms",
-    "mtext",
-    "mspace",
-    "mfrac",
-    "msqrt",
-    "mroot",
-    "msub",
-    "msup",
-    "msubsup",
-    "munder",
-    "mover",
-    "munderover",
-    "mstyle",
-    "mpadded",
-    "mphantom",
-    "menclose",
-    "mtable",
-    "mtr",
-    "mtd",
+    ...MATHML_TAGS,
   ],
   attributes: {
     a: [
@@ -123,26 +187,15 @@ export const sanitizeSchema: SanitizeSchema = {
     // KaTeXのMathMLラッパ
     span: ["className"],
     // 表の桁揃え
-    th: [["align", "left", "center", "right"]],
-    td: [["align", "left", "center", "right"]],
-    // MathML
-    math: ["display", "xmlns"],
-    annotation: ["encoding"],
-    mi: ["mathvariant"],
-    mo: ["stretchy"],
-    mover: ["accent"],
-    munder: ["accentunder"],
-    mstyle: ["displaystyle", "scriptlevel"],
-    mtable: ["columnalign", "columnspacing", "rowspacing"],
+    th: [TABLE_ALIGN],
+    td: [TABLE_ALIGN],
+    ...Object.fromEntries(MATHML_TAGS.map((tag) => [tag, MATHML_ATTRIBUTES])),
   },
   // 相対リンクとアンカーはプロトコルを持たないため、ここへ書かずに通る。
   // `javascript:`、`data:`、`file:`、`ms-*` は列挙にないため除去される（7.2）。
   protocols: {
     href: ["http", "https"],
   },
-  // 既定のclobber対策を明示する。`id` と `name` の衝突でDOM APIを汚染させない。
-  clobber: ["ariaDescribedBy", "ariaLabelledBy", "id", "name"],
-  clobberPrefix: "user-content-",
   // 祖先を要求する要素。表の構成要素が単独で現れた場合に除去する。
   ancestors: {
     tbody: ["table"],
@@ -156,6 +209,12 @@ export const sanitizeSchema: SanitizeSchema = {
   required: {
     input: { type: "checkbox", disabled: true },
   },
+  // idへの前置は行わない。`mdast-util-to-hast` が脚注の `id` と `href` の双方へ
+  // 既に `user-content-` を付けており、ここで再度前置すると `id` だけが
+  // `user-content-user-content-fn-1` となって参照が壊れる。sanitizeは `href` を
+  // 書き換えないため、前置の担当は上流へ一本化する（design-decisions.md 8.2）。
+  clobber: [],
+  clobberPrefix: "",
   // 列挙外の要素は中身ごと落とす。
   strip: ["script", "style"],
   allowComments: false,
