@@ -15,6 +15,7 @@
 
 ### Added
 
+- IPCのエラー契約を追加。原因ごとに列挙した `ErrorCode`（14種）と `IpcError` をRust側で定義し、再試行可否は `src/types/error.ts` の `RETRYABLE` からcodeで導出する。表示場所はFrontendが呼び出しの文脈から決める
 - IPCの契約としてプロトコルバージョン・request ID・キャンセルを導入しないことを確定し、根拠を [design-decisions.md](./docs/design-decisions.md) 5.3 へ記録。陳腐化した走査応答の破棄はFrontendが持つワークスペース世代とパス世代で行い、走査の応答は対象ディレクトリを示す `ScanResult` として返す
 - IPCの型定義を追加。Rust側を正本とし、`ts-rs` で `src/types/generated/` へTypeScriptの定義を生成する。生成物はコミットし、CIの `Rust` ジョブが乖離を検出する
 - 概略要件定義書、設計判断、開発フローの設計文書を追加
