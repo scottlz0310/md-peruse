@@ -193,9 +193,9 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 Microsoft Store版の初回リリースから送るカスタムイベントを要件化する（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）。本単位は2段階に分ける。
 
 - 段階1（送信経路の実測）: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を確認し、成立可否・制約・CSPとcapabilityへの影響を記録する。**5.2の「CSPとTauri capabilityの最終値」を確定する前に実施する。** 送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値が変わるためである。
-- 段階2（要件の確定）: イベント名、発火条件、同一セッション内の送信回数、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。
+- 段階2（要件の確定）: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）。全イベントの分母を `session_start` へ揃えることで、タブ起動時に `launch_by_association / session_start` が100%を超える読み違いを避ける。
 
-計測定義（Usage reportの標準Sessions指標との照合、反映遅延、バージョン別フィルター）は、Partner Centerの実データを確認できるPhase 5で確定する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。
+計測定義（Usage reportの標準Sessions指標との照合、反映遅延、バージョン別フィルター、診断データのオプトインによる母集団の偏り）は、Partner Centerの実データを確認できるPhase 5で確定する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。あわせて「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。シングルインスタンス化に伴う同一構造の遷移で、別プロダクトのクラッシュ回帰の実績があるためである。
 
 ### 完了条件
 
@@ -257,6 +257,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] `forced-colors` 有効時にMermaid図とコードブロックが判読できる。
 - [ ] [spec.md](./spec.md) の性能目標を満たす。
 - [ ] Store向けカスタムイベントが定義どおりの条件でのみ送信され、送信失敗がファイル・フォルダー操作へ波及しない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）。
+- [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路がE2E回帰項目として固定され、既存ウィンドウへのタブ追加でセッション単位のイベントが重複送信されない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）。
 
 ## 7. Phase 5: 配布パイプラインとStore公開
 
@@ -275,6 +276,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - Store Submission APIの実行前に手動承認ゲートを設ける。
 - API連携が利用できない場合に備え、手動提出の手順書を維持する。
 - Store向けカスタムイベントに合わせてデータ収集申告とプライバシーポリシーを更新し、初回公開版でPartner Centerからイベントとバージョン別集計を確認する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- 使用状況とカスタムイベントの計測母集団が診断データのオプトイン端末に限られることを実データで確認し、率は読めてもインストール数へ接続できない制約を計測定義へ明記する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ### 完了条件
 
@@ -284,6 +286,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している。
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる。
 - [ ] 初回公開版でPartner Centerからカスタムイベントを確認できている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- [ ] 計測母集団が診断データのオプトイン端末に限られる制約が、反映遅延と並べて計測定義へ記載されている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ## 8. 未決事項と解決フェーズの対応
 

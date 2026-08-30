@@ -14,7 +14,7 @@
 ## [Unreleased]
 
 ### Added
-
+- Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装と「起動中に2つ目の `.md` を関連付けから開く」経路のE2E回帰）、Phase 5（データ収集申告、Partner Centerでの確認、計測母集団の制約の明記）の4段階に分ける。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する
 - Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装）、Phase 5（データ収集申告とPartner Centerでの確認）の4段階に分ける
 - Store向けカスタムイベントの送信経路の実測結果を [design-decisions.md](./docs/design-decisions.md) 13.5 へ追加。packaged classic appから `StoreServicesCustomEventLogger` を呼び出せること、`Microsoft.Services.Store.Engagement` と `Microsoft.VCLibs.140.00` の `PackageDependency` が必要であること、CSPとTauri capabilityの最終値には影響しないことを確認した
 - Raw HTMLをソース文字列として出力する `remark-rehype` のhandlerを `src/markdown/raw-html.ts` へ追加。block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code` で包んで改行とインデントを保持し、それ以外（`paragraph`・`heading`・`strong`・`link`・表セルなど）は素のテキストとしてタグと本文の分断を避ける。HTMLコメントも同じ扱いとし、`allowDangerousHtml` と `rehype-raw` は使わない（[design-decisions.md](./docs/design-decisions.md) 8.1）
