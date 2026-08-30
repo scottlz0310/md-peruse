@@ -1844,6 +1844,17 @@
       ]
     },
     {
+      "name": "termcolor",
+      "version": "1.4.1",
+      "license": "MIT",
+      "texts": [
+        {
+          "label": "MIT",
+          "index": 4
+        }
+      ]
+    },
+    {
       "name": "thiserror",
       "version": "1.0.69",
       "license": "Apache-2.0",
@@ -2009,6 +2020,28 @@
         {
           "label": "MIT",
           "index": 52
+        }
+      ]
+    },
+    {
+      "name": "ts-rs",
+      "version": "12.0.1",
+      "license": "MIT",
+      "texts": [
+        {
+          "label": "MIT",
+          "index": 23
+        }
+      ]
+    },
+    {
+      "name": "ts-rs-macros",
+      "version": "12.0.1",
+      "license": "MIT",
+      "texts": [
+        {
+          "label": "MIT",
+          "index": 23
         }
       ]
     },

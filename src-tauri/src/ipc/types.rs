@@ -67,7 +67,11 @@ pub struct FileContent {
     /// 判定した文字コード。BOMは `text` から除去済み。
     pub encoding: TextEncoding,
     /// 読み込んだバイト数。上限（10 MiB）の判定はRust側で行う。
-    pub byte_size: u64,
+    ///
+    /// TauriのJSON IPCは `serde_json` を通るため、Frontendが受け取るのはJavaScriptの
+    /// `number` である。`u64` は `ts-rs` が `bigint` へ写像し実値と乖離するため、
+    /// 上限が10 MiBであることを踏まえて `u32` とする。
+    pub byte_size: u32,
 }
 
 /// ファイル監視から届く変更の種別。
