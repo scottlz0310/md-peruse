@@ -101,6 +101,11 @@ jobs:
         run: cargo llvm-cov --lcov --output-path lcov.info
         working-directory: src-tauri
 
+      # 型定義はRust側を正本とし、ts-rs が上のテスト実行時に生成する。
+      # 生成物はコミットするため、Rust側との乖離をここで検出する。
+      - name: 生成した型定義が最新か検査
+        run: git diff --exit-code -- src/types/generated
+
       # Codecov CLI は設定ファイルをシステムのANSIコードページで読むため、Windows上では
       # 非ASCIIを含む codecov.yml でデコードに失敗する。アップロードは Coverage ジョブ
       # （ubuntu）へ委ね、このジョブでは計測結果の受け渡しだけを行う。

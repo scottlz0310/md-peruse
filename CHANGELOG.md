@@ -15,6 +15,7 @@
 
 ### Added
 
+- IPCの型定義を追加。Rust側を正本とし、`ts-rs` で `src/types/generated/` へTypeScriptの定義を生成する。生成物はコミットし、CIの `Rust` ジョブが乖離を検出する
 - 概略要件定義書、設計判断、開発フローの設計文書を追加
 - `README.md`、`CHANGELOG.md`、`tasks.md` を追加
 - `.gitattributes` と `.editorconfig` を追加し、改行コードとインデント規則を統一
@@ -34,6 +35,7 @@
 
 ### Changed
 
+- 非Markdownファイルをツリーへ表示しないことを確定（[design-decisions.md](./docs/design-decisions.md) 6.3）。あわせて `tasks.md` の運用ルールへ、フェーズ最後のPull Requestで進捗サマリと完了条件も更新する旨を追加した
 - Phase 3を4単位（IPC、描画とナビゲーション、状態管理、UIとUX）へ詳細化し、着手順と成果物の形式を [dev-flow.md](./docs/dev-flow.md) 第5章に定義。P1未決事項の解決先を単位まで細分した
 - Bunのバージョン固定を `package.json` の `packageManager` から `.bun-version` へ移行。Renovateの `bun-version` マネージャは `.bun-version` を対象とし、`packageManager` からはBun本体を更新できないため（[design-decisions.md](./docs/design-decisions.md) 4.4）
 - Bun本体（`bun-version`）を `Bun runtime` グループへ切り出し、自動マージを無効化。MSIX生成とWACKがrequired status checkに含まれず、自動マージのゲートで破壊を検出できないため手動でマージする
