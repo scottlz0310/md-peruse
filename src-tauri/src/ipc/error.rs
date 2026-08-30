@@ -7,8 +7,11 @@ use ts_rs::TS;
 /// （design-decisions.md 5.3）。再試行可否は各codeから導出する。
 ///
 /// アプリ起動前の失敗（WebView2 Runtimeの欠落、MSIXのPackage Identity）は
-/// IPCが成立しないためここに含めない。画像の失敗はcustom image protocolの
-/// 応答で表す。Mermaid、lowlight、KaTeXの失敗はFrontend内で完結する。
+/// IPCが成立しないためここに含めない。Mermaid、lowlight、KaTeXの失敗は
+/// Frontend内で完結するため含めない。
+///
+/// 画像の失敗は、resource IDの発行時（IPC command）はここに含む `image*` のcodeで表し、
+/// 配信時はcustom image protocolの応答で表す。区分は両者で一致させる（design-decisions.md 5.4）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
@@ -39,6 +42,16 @@ pub enum ErrorCode {
     FileTooLarge,
     /// 未対応または不正な文字コードでデコードできない。推測変換は行わない。
     DecodeFailed,
+    /// 画像が許可形式（PNG、JPEG、GIF、WebP、AVIF、BMP、SVG）ではない。
+    ///
+    /// 判定は拡張子ではなく内容に基づく（design-decisions.md 7.3）。
+    ImageUnsupportedFormat,
+    /// 画像が上限（32 MiB）を超えている。Markdownの上限とは別の値のため `FileTooLarge` と分ける。
+    ImageTooLarge,
+    /// 画像のピクセル寸法が上限を超えている。デコード後のメモリを保護する（design-decisions.md 7.3）。
+    ImagePixelLimitExceeded,
+    /// 画像を読み込めない、またはデコードに失敗した。
+    ImageDecodeFailed,
     /// 監視のバッファがあふれ、個別のイベントを取りこぼした。
     WatcherOverflow,
     /// 監視が停止した。ワークスペースの再選択が必要になる場合がある。

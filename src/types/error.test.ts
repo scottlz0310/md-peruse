@@ -17,6 +17,10 @@ describe("isRetryable", () => {
     ["fileNotFound", false],
     ["fileTooLarge", false],
     ["decodeFailed", false],
+    ["imageUnsupportedFormat", false],
+    ["imageTooLarge", false],
+    ["imagePixelLimitExceeded", false],
+    ["imageDecodeFailed", false],
     ["settingsCorrupted", false],
   ])("%s は %s", (code, expected) => {
     expect(isRetryable(code)).toBe(expected);

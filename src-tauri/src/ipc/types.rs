@@ -131,3 +131,45 @@ pub struct ScanResult {
     /// 直下の要素。サブディレクトリの中身は含まない。
     pub entries: Vec<FileNode>,
 }
+
+/// 文書内の画像参照に対するresource IDの発行要求。
+///
+/// 画像はワークスペース走査の対象外のため、描画時にまとめて発行する
+/// （design-decisions.md 5.4、6.2）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct ImageResourceRequest {
+    /// 画像を参照している文書のワークスペース相対パス。
+    /// 相対リンクの基点として使う。
+    pub document_path: String,
+    /// 文書内に現れた画像参照。Markdownに書かれた文字列をそのまま渡す。
+    pub references: Vec<String>,
+}
+
+/// 1件の画像参照に対する発行結果。
+///
+/// 一部の画像が失敗しても他の画像は表示するため、成功と失敗を要素ごとに表す。
+/// 失敗した画像は本文全体を壊さず、その位置に原因を表示する（design-decisions.md 7.3）。
+///
+/// 成功と失敗の排他をtagged unionで表す。両方が入った状態や、どちらも欠けた状態を
+/// 型として表現できないようにするためである。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(tag = "status", rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum ImageResource {
+    #[serde(rename_all = "camelCase")]
+    Issued {
+        /// 要求に含まれていた参照文字列。要求と応答の対応付けに使う。
+        reference: String,
+        /// 発行したresource ID。
+        resource_id: String,
+    },
+    #[serde(rename_all = "camelCase")]
+    Failed {
+        /// 要求に含まれていた参照文字列。
+        reference: String,
+        /// 発行できなかった理由。
+        error: super::error::IpcError,
+    },
+}

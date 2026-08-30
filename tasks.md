@@ -104,7 +104,7 @@
 - [x] IPCのversion、request ID、cancelの契約を定義する（いずれもwire契約へ導入しない。[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [x] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする（`ts-rs` で生成し、`Rust` ジョブが差分を検査する）
 - [x] エラーの `code` 体系と `retryable` の判定基準を定義する（`IpcError` と `ErrorCode`。retryableはcodeから導出。[design-decisions.md](./docs/design-decisions.md) 5.3）
-- [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する
+- [x] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する（ソルトと変更世代のHMAC、文書単位で発行、ワークスペース切替で無効化。[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [x] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する（表示しない。[design-decisions.md](./docs/design-decisions.md) 6.3）
 
 ### 3-2 描画とナビゲーション
@@ -148,6 +148,7 @@
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
+- [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
 
 ### 完了条件
 
@@ -157,6 +158,7 @@
 - [ ] 不正なMarkdownやMermaid入力でアプリが停止しない
 - [ ] セキュリティ回帰テストが通る
 - [ ] 陳腐化した走査応答が新しいツリーを上書きせず、別パスの同時走査が相互に無効化されない
+- [ ] 画像の更新と監視のバッファあふれの後に、古い画像がキャッシュから表示されない
 - [ ] `forced-colors` 有効時にMermaid図とコードブロックが判読できる
 - [ ] [spec.md](./docs/spec.md) の性能目標を満たす
 
