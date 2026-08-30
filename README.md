@@ -171,6 +171,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `biome` | ステージした JS/TS/JSON/CSS/HTML | `biome check` |
 | `typecheck` | ステージした TS/TSX | `tsc --noEmit` |
 | `frontend-test` | ステージした TS/TSX | `bun test` |
+| `rust-types` | ステージした Rust | `cargo test` の後に `src/types/generated` の差分を検査 |
 | `icons` | ステージした `assets/app-icon.png` と `src-tauri/icons` | `bun run check:icons` |
 | `rust-fmt` | ステージした Rust | `cargo fmt --check` |
 | `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |

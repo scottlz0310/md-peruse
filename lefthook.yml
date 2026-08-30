@@ -16,6 +16,12 @@ pre-commit:
       glob: "*.{ts,tsx}"
       run: bun test
 
+    # 生成物はBiomeの対象外のため、Rustを変更したときは再生成して差分を検査する。
+    # CIの Rust ジョブと同じ検査をローカルで先に閉じる。
+    - name: rust-types
+      glob: "src-tauri/**/*.rs"
+      run: cargo test --manifest-path src-tauri/Cargo.toml && git diff --exit-code -- src/types/generated
+
     # 原本またはコミット済みアイコンを触ったときだけ実行する（6秒程度かかる）。
     - name: icons
       glob: "{assets/app-icon.png,src-tauri/icons/*}"

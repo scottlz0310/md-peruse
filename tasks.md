@@ -7,8 +7,9 @@
 - チェックボックスは未完了 `[ ]` と完了 `[x]` の2状態で運用する。GFMのタスクリストが解釈できない独自記法は使わない。
 - 着手中のフェーズは「進捗サマリ」の状態列で示す。
 - Pull Requestを作成するときに、対象タスクの状態と `CHANGELOG.md` を併せて更新する。
+- フェーズ最後のタスクを閉じるPull Requestでは、「進捗サマリ」の状態と [dev-flow.md](./docs/dev-flow.md) のフェーズ完了条件も併せて更新する。
 - 未決事項を解決したら、結論を `docs/design-decisions.md` へ記載し、本書のチェックを閉じる。
-- Phase 3以降のタスクは、着手時にフェーズ内で詳細化する。現時点では完了条件の粒度で保持する。
+- Phase 4以降のタスクは、着手時にフェーズ内で詳細化する。現時点では完了条件の粒度で保持する。
 
 ## 進捗サマリ
 
@@ -99,12 +100,12 @@
 
 ### 3-1 IPCインターフェース
 
-- [ ] Tauri commandとeventの型（`FileNode`、走査オプション、読込結果、ファイル変更イベント、テーマ変更イベント）をTypeScriptとRustの双方で定義する
+- [x] Tauri commandとeventの型（`FileNode`、走査オプション、読込結果、ファイル変更イベント、テーマ変更イベント）をTypeScriptとRustの双方で定義する（Rust側を正本に `ts-rs` で生成。[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] IPCのversion、request ID、cancelの契約を定義する
-- [ ] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする
+- [x] TypeScriptとRustの型定義を同期させる手段を決め（手書きの二重定義か生成か）、wire契約の一致をCIで検証できるようにする（`ts-rs` で生成し、`Rust` ジョブが差分を検査する）
 - [ ] エラーの `code` 体系と `retryable` の判定基準を定義する
 - [ ] custom image protocolのresource ID生成、無効化、キャッシュ方針を定義する
-- [ ] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する
+- [x] 非Markdownファイルをツリーへ表示するかを決め、走査オプションへ反映する（表示しない。[design-decisions.md](./docs/design-decisions.md) 6.3）
 
 ### 3-2 描画とナビゲーション
 
