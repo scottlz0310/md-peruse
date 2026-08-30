@@ -15,6 +15,7 @@
 
 ### Added
 
+- IPCの契約としてプロトコルバージョン・request ID・キャンセルを導入しないことを確定し、根拠を [design-decisions.md](./docs/design-decisions.md) 5.3 へ記録。走査の応答は陳腐化判定のために `ScanResult` として `path` を返す
 - IPCの型定義を追加。Rust側を正本とし、`ts-rs` で `src/types/generated/` へTypeScriptの定義を生成する。生成物はコミットし、CIの `Rust` ジョブが乖離を検出する
 - 概略要件定義書、設計判断、開発フローの設計文書を追加
 - `README.md`、`CHANGELOG.md`、`tasks.md` を追加

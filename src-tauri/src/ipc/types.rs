@@ -116,3 +116,17 @@ pub enum Theme {
 pub struct ThemeChangedEvent {
     pub theme: Theme,
 }
+
+/// ディレクトリ1階層の走査結果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct ScanResult {
+    /// 走査したディレクトリのワークスペース相対パス。要求の `path` と同じ値を返す。
+    ///
+    /// request IDを持たないため、Frontendはこの値を現在の文脈と照合して、
+    /// 陳腐化した応答を破棄する（design-decisions.md 5.3）。
+    pub path: String,
+    /// 直下の要素。サブディレクトリの中身は含まない。
+    pub entries: Vec<FileNode>,
+}
