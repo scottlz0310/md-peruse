@@ -601,7 +601,7 @@ mermaid fence
 
 Raw HTMLのhandlerは `src/markdown/raw-html.ts` を正本とし、次の規則で出力する。振る舞いは同ディレクトリのテストで固定する。
 
-- blockとinlineの判別はhandlerの第3引数 `parent` で行う。mdastは双方を同じ `html` ノードで表すが、blockは `root`、`blockquote`、`listItem` の直下に、inlineは `paragraph` の直下に現れる（実測）。
+- blockとinlineの判別はhandlerの第3引数 `parent` で行う。mdastは双方を同じ `html` ノードで表すため、flow contentを子に持つ `root`、`blockquote`、`listItem`、`footnoteDefinition` の直下だけをblockとし、それ以外はinlineとする（実測に基づく列挙）。`heading`、`strong`、`emphasis`、`delete`、`link`、`tableCell` の直下にも `html` ノードは現れ、そこで `pre` を返すとタグと本文が分断される。未知の親はinline側へ倒し、要素の構造を壊さない。
 - blockは `pre > code` で包む。素のテキストを返すと `root` 直下に裸のテキストノードが並び、ブロック要素にならないため前後の段落と行が繋がる。`pre` であれば改行とインデントがそのまま残り、ソースを見せていることが体裁からも分かる。コードブロックと同じ見た目になるが、区別のためのclassは付けない。sanitize schemaが `code` へ許すclassは `language-*` だけであり（8.2）、印のために許可範囲を広げない。
 - inlineは素のテキストとする。`code` で包むと開きタグと閉じタグが別々のコードスパンとなり、段落が分断される。
 - HTMLコメントも同じ扱いとし、破棄しない。GitHubのプレビューは非表示とするが、本アプリの方針は「書かれた文字列をそのまま見せる」であり、`<!-- prettier-ignore -->` のように文書へ実在する記述を隠さない。handlerへ内容による例外判定を持ち込まないことにもなる。

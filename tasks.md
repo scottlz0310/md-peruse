@@ -110,7 +110,7 @@
 ### 3-2 描画とナビゲーション
 
 - [x] `rehype-sanitize` schemaを最終定義する（既定schemaを継承せず全列挙。`src/markdown/sanitize-schema.ts`。[design-decisions.md](./docs/design-decisions.md) 8.2）
-- [x] Raw HTMLをテキストとして出力するhandlerの実装方針を決める（blockは `pre/code`、inlineは素のテキスト。コメントも同じ扱い。`src/markdown/raw-html.ts`。[design-decisions.md](./docs/design-decisions.md) 8.1）
+- [x] Raw HTMLをテキストとして出力するhandlerの実装方針を決める（block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code`、それ以外は素のテキスト。コメントも同じ扱い。`src/markdown/raw-html.ts`。[design-decisions.md](./docs/design-decisions.md) 8.1）
 - [ ] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する
 - [ ] YAML front matterの扱いを決める
 - [ ] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する

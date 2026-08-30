@@ -21,15 +21,33 @@ function isElement(node: RootContent, tagName: string): node is Element {
   return node.type === "element" && node.tagName === tagName;
 }
 
+function collect(nodes: RootContent[], tagName: string): Element[] {
+  const found: Element[] = [];
+  for (const node of nodes) {
+    if (node.type !== "element") continue;
+    if (node.tagName === tagName) found.push(node);
+    found.push(...collect(node.children, tagName));
+  }
+  return found;
+}
+
+/** ツリー全体のテキストを出現順に連結する。 */
+function textOf(nodes: RootContent[]): string {
+  return nodes
+    .map((node) => {
+      if (node.type === "text") return (node as Text).value;
+      if (node.type === "element") return textOf(node.children);
+      return "";
+    })
+    .join("");
+}
+
 /** `pre > code` の中身を取り出す。 */
-function preSource(node: RootContent | undefined): string | undefined {
-  if (!node || !isElement(node, "pre")) return undefined;
+function preSource(node: Element | undefined): string | undefined {
+  if (!node) return undefined;
   const [code] = node.children;
   if (!code || !isElement(code, "code")) return undefined;
-  return code.children
-    .filter((child): child is Text => child.type === "text")
-    .map((child) => child.value)
-    .join("");
+  return textOf(code.children);
 }
 
 describe("blockのRaw HTMLはpre/codeになる", () => {
@@ -43,52 +61,54 @@ describe("blockのRaw HTMLはpre/codeになる", () => {
     ],
     ["script", "<script>alert(1)</script>\n", "<script>alert(1)</script>"],
     ["コメント", "<!-- secret -->\n", "<!-- secret -->"],
+    ["blockquote直下", "> <div>a</div>\n", "<div>a</div>"],
+    ["listItem直下", "- <div>a</div>\n", "<div>a</div>"],
+    [
+      "footnoteDefinition直下",
+      "本文[^1]\n\n[^1]: <div>a</div>\n",
+      "<div>a</div>",
+    ],
   ])("%s", async (_name, markdown, expected) => {
-    const tree = await toHast(markdown);
-    expect(preSource(tree.children[0])).toBe(expected);
-  });
-
-  test.each([
-    // 名前, Markdown
-    ["blockquote直下", "> <div>a</div>\n"],
-    ["listItem直下", "- <div>a</div>\n"],
-  ])("%s", async (_name, markdown) => {
-    const tree = await toHast(markdown);
-    const found: Element[] = [];
-    const walk = (nodes: RootContent[]): void => {
-      for (const node of nodes) {
-        if (node.type !== "element") continue;
-        if (node.tagName === "pre") found.push(node);
-        walk(node.children);
-      }
-    };
-    walk(tree.children);
-    expect(found).toHaveLength(1);
-    expect(preSource(found[0])).toBe("<div>a</div>");
+    const pres = collect((await toHast(markdown)).children, "pre");
+    expect(pres).toHaveLength(1);
+    expect(preSource(pres[0])).toBe(expected);
   });
 });
 
-describe("inlineのRaw HTMLは段落内のテキストになる", () => {
+describe("phrasing content内のRaw HTMLはテキストになる", () => {
   test.each([
-    // 名前, Markdown, 期待する段落のテキスト
-    ["開きタグと閉じタグ", "text a <b>bold</b> c\n", "text a <b>bold</b> c"],
+    // 名前, Markdown, 期待する連結テキスト
+    ["paragraph", "text a <b>bold</b> c\n", "text a <b>bold</b> c"],
+    ["heading", "# hi <b>x</b>\n", "hi <b>x</b>"],
+    ["strong", "**a <b>x</b>**\n", "a <b>x</b>"],
+    ["emphasis", "*a <b>x</b>*\n", "a <b>x</b>"],
+    ["delete", "~~a <b>x</b>~~\n", "a <b>x</b>"],
+    ["link", "[a <b>x</b>](http://example.com)\n", "a <b>x</b>"],
+    ["tableCell", "| a |\n| --- |\n| <b>x</b> |\n", "<b>x</b>"],
     [
       "自己終了タグ",
       'a <img src=x onerror="alert(1)"> b\n',
       'a <img src=x onerror="alert(1)"> b',
     ],
-    ["コメント", "a <!-- memo --> b\n", "a <!-- memo --> b"],
-  ])("%s", async (_name, markdown, expected) => {
-    const [paragraph] = (await toHast(markdown)).children;
-    expect(paragraph && isElement(paragraph, "p")).toBe(true);
-    const element = paragraph as Element;
-    expect(element.children.every((child) => child.type === "text")).toBe(true);
-    expect(
-      element.children
-        .filter((child): child is Text => child.type === "text")
-        .map((child) => child.value)
-        .join(""),
-    ).toBe(expected);
+    ["インラインのコメント", "a <!-- memo --> b\n", "a <!-- memo --> b"],
+  ])("%s では分断されない", async (_name, markdown, expected) => {
+    const tree = await toHast(markdown);
+    expect(collect(tree.children, "pre")).toHaveLength(0);
+    expect(textOf(tree.children)).toContain(expected);
+  });
+
+  test.each([
+    // 名前, Markdown, 分断されてはいけない要素
+    ["heading", "# hi <b>x</b>\n", "h1"],
+    ["strong", "**a <b>x</b>**\n", "strong"],
+    ["link", "[a <b>x</b>](http://example.com)\n", "a"],
+    ["tableCell", "| a |\n| --- |\n| <b>x</b> |\n", "td"],
+  ])("%s の子はテキストだけになる", async (_name, markdown, tagName) => {
+    const [element] = collect((await toHast(markdown)).children, tagName);
+    expect(element).toBeDefined();
+    expect(element?.children.every((child) => child.type === "text")).toBe(
+      true,
+    );
   });
 });
 
@@ -101,7 +121,20 @@ describe("sanitize後もソース表示が残る", () => {
     "%s は要素にならずテキストとして残る",
     async (_name, markdown, expected) => {
       const tree = sanitize(await toHast(markdown), sanitizeSchema) as Root;
-      expect(preSource(tree.children[0])).toBe(expected);
+      const pres = collect(tree.children, "pre");
+      expect(pres).toHaveLength(1);
+      expect(preSource(pres[0])).toBe(expected);
     },
   );
+
+  test("見出し内のinline HTMLはsanitize後もh1のまま残る", async () => {
+    const tree = sanitize(
+      await toHast("# hi <b>x</b>\n"),
+      sanitizeSchema,
+    ) as Root;
+    const [heading] = collect(tree.children, "h1");
+    expect(heading).toBeDefined();
+    expect(textOf(tree.children)).toContain("hi <b>x</b>");
+    expect(collect(tree.children, "pre")).toHaveLength(0);
+  });
 });
