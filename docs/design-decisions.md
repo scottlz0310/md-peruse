@@ -575,9 +575,9 @@ sanitizeを通過してFrontendへ届く `href` は次のとおり（実測）�
 
 `rehype-slug` を使わず自前のプラグインとするのは、同プラグインが既存のIDを重複回避の対象へ含めないためである。脚注は `mdast-util-to-hast` が `user-content-fn-1`、`user-content-fnref-1`、`footnote-label` を先に付けており、`# fn-1` という見出しが同じ文書にあると `user-content-fn-1` が2つ生成される。文書順で先にある見出しが `getElementById` に拾われ、脚注参照が脚注へ到達できない（実測）。前置を揃えても分けても、名前空間が1つである限りこの衝突は残る。
 
-`rehypeHeadingIds` は木を2度走査する。1度目で既存のIDを `GithubSlugger` へ占有済みとして登録し、2度目で見出しへ付与する。これにより `# fn-1` は `user-content-fn-1-1` となり、脚注の `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの `footnote-label`）は上書きしない。上書きすると `aria-describedby` の参照先が失われる。
+`rehypeHeadingIds` は木を2度走査する。1度目で既存のIDをそのまま使用済みとして集め、2度目で見出しへ付与する。これにより `# fn-1` は `user-content-fn-1-1` となり、脚注の `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの `footnote-label`）は上書きしない。上書きすると `aria-describedby` の参照先が失われる。
 
-占有登録の対象は `user-content-` を持つ既存IDに限る。見出しのIDは前置付きで生成するため、衝突しうるのは同じ名前空間のIDだけである。前置のない `footnote-label` まで占有すると、`# footnote-label` が `user-content-footnote-label-1` へ逃げる一方、`#footnote-label` は `user-content-footnote-label` へ解決されるため、リンクが見出しへ到達しない。生成規則とリンクの解決規則は同じ名前空間で一致させる。
+既存のIDはslug化せず、生成した候補IDと完全一致で比較する。IDの一部をslug化して比べると、実在しないIDを占有してしまう。`[^a.b]` の脚注は `user-content-fn-a.b` というIDを持つが、`fn-a.b` をslug化すると `fn-ab` になる。これを占有すると `# fn-ab` の見出しが `user-content-fn-ab-1` へずれる一方、`#fn-ab` は `user-content-fn-ab` へ解決されるため、リンクが見出しへ到達しない。完全一致で比べれば、前置のない `footnote-label` も候補ID `user-content-footnote-label` とは一致せず、名前空間の区別が自然に保たれる。見出し同士の重複も同じ集合で回避し、採番を1か所に閉じる。
 
 同じ名前空間で実際に衝突した場合、`#fn-1` は脚注を指し、見出しへは到達しない。名前空間が1つである以上どちらか一方しか指せず、脚注が先にIDを取る。DOMのID重複（脚注参照が文書順で先の見出しへ吸われ、脚注へ到達できなくなる）を防ぐことを優先した結果であり、この非対称は残る。
 

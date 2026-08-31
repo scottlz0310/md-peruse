@@ -178,32 +178,38 @@ describe("見出しアンカー", () => {
   });
 
   test.each([
-    // 見出し, リンク先の断片
-    ["# footnote-label", "footnote-label"],
-    ["# はじめに", "%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB"],
-  ])("%s は脚注が共存しても #%s から到達できる", async (heading, fragment) => {
-    // 前置のない `footnote-label` は見出しのIDと別の名前空間にあり、占有登録の
-    // 対象ではない。占有すると見出しが連番へ逃げ、`anchorElementId` の解決先と
-    // 食い違う（design-decisions.md 7.2）。
-    const tree = await render(
-      `${heading}\n\n[移動](#${fragment})\n\n本文[^1]\n\n[^1]: 脚注\n`,
-    );
+    // 見出し, リンク先の断片, 脚注のラベル
+    ["# footnote-label", "footnote-label", "1"],
+    ["# はじめに", "%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB", "1"],
+    // 記号を含むラベルの実IDは `user-content-fn-a.b`。slug化して比べると `fn-ab` を
+    // 占有し、実在しないIDのせいで見出しがずれる（design-decisions.md 7.2）。
+    ["# fn-ab", "fn-ab", "a.b"],
+  ])(
+    "%s は脚注[^%s]が共存しても #%s から到達できる",
+    async (heading, fragment, label) => {
+      // 脚注のIDと見出しの候補IDは完全一致でのみ衝突する。一部をslug化して比べると
+      // 実在しないIDを占有し、見出しが連番へ逃げて `anchorElementId` の解決先と
+      // 食い違う（design-decisions.md 7.2）。
+      const tree = await render(
+        `${heading}\n\n[移動](#${fragment})\n\n本文[^${label}]\n\n[^${label}]: 脚注\n`,
+      );
 
-    const [link] = collect(tree, "a").filter(
-      (anchor) =>
-        anchor.properties?.dataFootnoteRef === undefined &&
-        anchor.properties?.dataFootnoteBackref === undefined,
-    );
-    const target = anchorElementId(String(link?.properties?.href).slice(1));
-    expect(collect(tree, "h1")[0]?.properties?.id).toBe(String(target));
+      const [link] = collect(tree, "a").filter(
+        (anchor) =>
+          anchor.properties?.dataFootnoteRef === undefined &&
+          anchor.properties?.dataFootnoteBackref === undefined,
+      );
+      const target = anchorElementId(String(link?.properties?.href).slice(1));
+      expect(collect(tree, "h1")[0]?.properties?.id).toBe(String(target));
 
-    const ids: string[] = [];
-    visit(tree, "element", (node: Element) => {
-      const id = node.properties?.id;
-      if (typeof id === "string") ids.push(id);
-    });
-    expect(new Set(ids).size).toBe(ids.length);
-  });
+      const ids: string[] = [];
+      visit(tree, "element", (node: Element) => {
+        const id = node.properties?.id;
+        if (typeof id === "string") ids.push(id);
+      });
+      expect(new Set(ids).size).toBe(ids.length);
+    },
+  );
 
   test("脚注ラベルのIDは前置されない", async () => {
     // `mdast-util-to-hast` が付けた `id` は上書きしない。

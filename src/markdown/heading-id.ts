@@ -1,4 +1,4 @@
-import GithubSlugger from "github-slugger";
+import { slug } from "github-slugger";
 import type { Root } from "hast";
 import { headingRank } from "hast-util-heading-rank";
 import { toString as textContent } from "hast-util-to-string";
@@ -22,36 +22,51 @@ export const HEADING_ID_PREFIX = "user-content-";
  * 文書順で先にある見出しが `getElementById` に拾われ、脚注参照が脚注へ到達できない
  * （design-decisions.md 7.2）。
  *
- * 木を2度走査し、1度目で既存のIDを `GithubSlugger` へ占有済みとして登録してから、
- * 2度目で見出しへ付与する。これにより `# fn-1` は `user-content-fn-1-1` となり、
- * 脚注の `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの
- * `footnote-label`）は上書きしない。
+ * 木を2度走査し、1度目で既存のIDをそのまま使用済みとして集め、2度目で見出しへ
+ * 付与する。これにより `# fn-1` は `user-content-fn-1-1` となり、脚注の
+ * `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの
+ * `footnote-label`）は上書きしない。上書きすると `aria-describedby` の参照先が
+ * 失われる。
  *
- * 占有登録の対象は前置を持つ既存IDに限る。見出しのIDは前置付きで生成するため、
- * 衝突しうるのは同じ名前空間のIDだけである。前置のない `footnote-label` まで
- * 占有すると `# footnote-label` が `user-content-footnote-label-1` へ逃げ、
- * `#footnote-label` を `user-content-footnote-label` へ解決する `anchorElementId`
- * と食い違って見出しへ到達できない（design-decisions.md 7.2）。
+ * 既存のIDはslug化せず、生成した候補IDと完全一致で比較する。IDの一部をslug化して
+ * 比べると、実在しないIDを占有してしまう。`[^a.b]` の脚注は `user-content-fn-a.b`
+ * というIDを持つが、`fn-a.b` をslug化すると `fn-ab` になる。これを占有すると
+ * `# fn-ab` の見出しが `user-content-fn-ab-1` へずれる一方、`#fn-ab` は
+ * `user-content-fn-ab` へ解決されるため、リンクが見出しへ到達しない
+ * （design-decisions.md 7.2）。
  *
- * slug規則はGitHub互換（`github-slugger`）であり、日本語の文字は保持され、半角空白は
- * ハイフンへ、重複は連番で回避される。
+ * 見出し同士の重複も同じ集合で回避するため、採番は1か所に閉じる。slug規則は
+ * GitHub互換（`github-slugger`）であり、日本語の文字は保持され、半角空白はハイフンへ、
+ * 重複は連番で回避される。
  */
 export function rehypeHeadingIds() {
   return (tree: Root): undefined => {
-    const slugger = new GithubSlugger();
+    const used = new Set<string>();
 
     visit(tree, "element", (node) => {
       const id = node.properties.id;
-      if (typeof id !== "string" || !id.startsWith(HEADING_ID_PREFIX)) return;
-      slugger.slug(id.slice(HEADING_ID_PREFIX.length));
+      if (typeof id === "string") used.add(id);
     });
 
     visit(tree, "element", (node) => {
       if (headingRank(node) === undefined) return;
       if (node.properties.id !== undefined) return;
-      node.properties.id = HEADING_ID_PREFIX + slugger.slug(textContent(node));
+      node.properties.id = uniqueId(
+        HEADING_ID_PREFIX + slug(textContent(node)),
+        used,
+      );
     });
   };
+}
+
+/** 使用済みのIDと重ならない候補を返し、その候補を使用済みへ加える。 */
+function uniqueId(base: string, used: Set<string>): string {
+  let candidate = base;
+  for (let counter = 1; used.has(candidate); counter += 1) {
+    candidate = `${base}-${counter}`;
+  }
+  used.add(candidate);
+  return candidate;
 }
 
 /**
