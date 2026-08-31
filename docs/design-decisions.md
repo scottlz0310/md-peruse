@@ -336,7 +336,7 @@ Bunはユーザー標準のパッケージマネージャー（pnpm）と異な�
 - `assetProtocol.scope` をホームディレクトリ全体へ広げない。
 - ユーザー画像は、Rust側で検証したresource IDをキーとする専用の非同期custom URI scheme protocolから提供する。
 - custom protocolは読込完了後にファイルハンドルを閉じ、正しいContent-Type、CSP、`X-Content-Type-Options: nosniff` を返す。
-- KaTeXのフォントを含む静的アセットも組み込みアプリプロトコルから提供し、外部取得を行わない。
+- 静的アセットは組み込みアプリプロトコルから提供し、外部取得を行わない。KaTeXは `output: "mathml"` としフォントを同梱しないため、フォントの提供経路は持たない（8.5）。CSPの `font-src` も `'none'` とする（5.5）。
 
 Tauri v2には非同期custom URI scheme protocolがあるため、画像I/OでUIスレッドをブロックせず、ワークスペース全体をWebViewへ公開しない構成を採れる。
 
@@ -382,39 +382,48 @@ Phase 1のスパイクで実測した結果は次のとおり（13.4）。
 
 `img` 要素からの読込みは成功し、`fetch` は同じURLでも失敗する。custom protocolのオリジンはWebView本体と別オリジンであり、`fetch` にはCORSの許可が要る。画像は `img` 要素で読み込むため、レスポンスへ `Access-Control-Allow-Origin` を付けない。付けないことで、Frontendのスクリプトが画像バイト列そのものを読み取る経路を与えない。
 
-### 5.5 CSPとcapabilityの初期案
+### 5.5 CSPとcapability
 
-次を出発点とし、Phase 1の実測を経て確定する。確定値はTauri設定と本書の双方へ記録する。
+正本は `src-tauri/tauri.conf.json` と `src-tauri/capabilities/default.json` とし、本節は値と理由を記録する。
 
 ```text
 default-src 'none';
 script-src 'self';
-style-src 'self' 'unsafe-inline';
-img-src 'self' <image-protocol-origin>;
-font-src 'self';
-connect-src <tauri-ipc-origin>;
+style-src-elem 'self' 'unsafe-inline';
+style-src-attr 'none';
+img-src 'self' http://mdperuse-img.localhost;
+font-src 'none';
+connect-src 'self' ipc: http://ipc.localhost;
 frame-src 'none';
 object-src 'none';
 base-uri 'none';
 form-action 'none';
 ```
 
-- `style-src` の `'unsafe-inline'` は、Mermaidが生成SVGへ `style` 要素とインライン `style` 属性を出力するために必要となる見込みである。必要性をPhase 1で検証し、不要であれば削除する。残す場合は、sanitizeでイベントハンドラー属性と外部参照を除去することを緩和策とする。
-- `font-src` はKaTeXの同梱フォントのために必要となる。
-- Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る。
-- capabilityは、ダイアログ、ウィンドウ操作、単一インスタンス、独自commandに限定する。ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。
-- `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突するため、必要な `core:*` 権限を個別に列挙する。同様に `core:tray:default` はトレイアイコンを使わないため付与しない。
+各ディレクティブの理由は次のとおり。
 
-Phase 1の実測を反映した現時点の値は次のとおり。確定はPhase 3で行う。
+- `img-src` と `connect-src` の値はPhase 1のスパイクの実測に基づく（13.4）。custom protocolのオリジンは `http://mdperuse-img.localhost` である。
+- `connect-src` へ画像用オリジンを加えない。画像は `img` 要素で読み込み、`fetch` からは到達させない。`fetch` を許可すると、Frontendのスクリプトが画像バイト列を直接読める経路になる。実測でも `img` からの読込みは成功し、`fetch` はCORSで失敗する（13.4）。
+- `style-src` を `style-src-elem` と `style-src-attr` へ分ける。MermaidはテーマCSSを生成SVG内の `style` 要素として埋め込むため要素側には `'unsafe-inline'` が要るが、インラインの `style` 属性は本文でもMermaid出力でも許可しない。sanitize schemaが `style` 属性を許可していないこと（8.2）とCSPが一致し、DOMPurifyの設定漏れをCSPが二重に受け止める。WebView2はChromiumでありCSP Level 3のこの2つを解釈する。
+- この分割により、レイアウトの動的な値をReactの `style` prop（インライン `style` 属性）で渡せない。スプリッターの幅（10.2）や文字サイズ（10.3）のように実行時に変わる値は、`style` 要素へCSSカスタムプロパティを書き込む形で反映する。Phase 4のUI実装はこの制約の下で行う。
+- `font-src` を `'none'` とする。KaTeXは `output: "mathml"` としフォントを同梱しない（8.5）。アプリのCSSもシステムフォントだけを指定し、`@font-face` と `url()` を持たない。将来Webフォントを同梱する場合はここを `'self'` へ変える。
+- `worker-src`、`media-src`、`manifest-src` は指定しない。`default-src 'none'` が適用され、いずれも使わない。
+- Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る（8.4）。
 
-```text
-img-src 'self' http://mdperuse-img.localhost;
-connect-src 'self' ipc: http://ipc.localhost;
-```
+Mermaidが生成SVGへインラインの `style` 属性を出力するかは、実機のWebView2でなければ確認できない。happy-dom上では `mermaid.render` の戻り値が空文字列となり、出力を測定できなかった。Phase 4の実装時に実機で確認し、`style` 属性に依存していた場合は、DOMPurifyで落としたうえで不足する見た目を自前CSSで補う。CSPを緩める方向では対応しない。
 
-`connect-src` へ画像用オリジンを加えない。画像は `img` 要素で読み込み、`fetch` からは到達させない。`fetch` を許可すると、Frontendのスクリプトが画像バイト列を直接読める経路になる。
+capabilityは `src-tauri/capabilities/default.json` に次の3つだけを置く。
 
-`rehype-sanitize` のschemaが許可するプロトコルと、Frontendが組み立てる画像URLも `http://mdperuse-img.localhost/<resource-id>` の形へ揃える。`http:` を無条件に許可せず、このオリジンに限定する。
+| 権限 | 用途 |
+| --- | --- |
+| `core:event:allow-listen` | Rustから送るファイル変更イベントとテーマ変更イベントの受信（5.3） |
+| `core:event:allow-unlisten` | 上記の解除 |
+| `opener:allow-open-url`（`http://*`、`https://*` へ限定） | 外部リンクをOS既定ブラウザーで開く（7.2） |
+
+- `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突する。`core:tray:default` はトレイアイコンを使わないため付与しない。
+- `core:window:default`、`core:webview:default`、`core:app:default` も付与しない。参照系が中心とはいえ、`core:webview:default` には `allow-internal-toggle-devtools` が含まれ、`core:app:default` はアプリ識別子やバンドル種別をFrontendへ公開する。現時点で呼ぶ予定がなく、必要になった時点で個別の権限を足す。
+- `core:event:allow-emit` は付与しない。FrontendからRustへの通信はcommandで行い、Frontend発のイベントを使わない（5.3）。
+- ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。フォルダー選択と読込はRust側のcommandで行う。
 
 ## 6. ワークスペースとファイルツリー
 
@@ -866,7 +875,7 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 ### 11.3 ライセンス表記
 
 - 同梱するJavaScript依存関係とRust crateのライセンス一覧を生成し、アプリから参照できる形で同梱する。
-- KaTeXの同梱フォントを含む再配布アセットのライセンス表記を漏らさない。
+- 再配布するアセットのライセンス表記を漏らさない。KaTeXはMathML出力としフォントを同梱しないため、フォントは対象に含まれない（8.5）。
 
 生成手段はPhase 2で次のとおり確定した。
 
@@ -1206,11 +1215,11 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | happy-domとTesting Libraryの組合せで成立。退避条件を明文化 | 4.8、14.5 |
 | Tauri command/eventの型、version、request ID、cancel、error契約 | 型はRust側を正本に `ts-rs` で生成。version・request ID・cancelは導入せず、エラーは `IpcError` と `ErrorCode` で表す | 5.3 |
 | custom image protocolのresource ID生成、無効化、キャッシュ方針 | ワークスペース単位のソルトと変更世代のHMAC。文書単位で発行し、ワークスペース切替で無効化 | 5.4 |
+| CSPの最終値とTauri capabilityの最小集合 | `style-src` を elem と attr へ分け、`font-src` は `'none'`。capabilityは `core:event` の listen / unlisten と `opener:allow-open-url` の3つだけ | 5.5 |
 | Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | packaged classic appから `StoreServicesCustomEventLogger` を呼べる。Engagement と VCLibs の `PackageDependency` が必要で、CSPとcapabilityへは影響しない | 13.5 |
 
 未解決の項目は次のとおり。
 
-- CSPの最終値とTauri capabilityの最小集合（実測を反映した現時点の値は5.5。Store向けカスタムイベントの送信経路は影響しないことを13.5で確認済み）
 - ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否（イベント列は6.4で実測済み。タブ状態の設計はPhase 3）
 - ARM64のMSIXインストール、起動、WACK結果（Phase 5の提出前検証で実施する）
 

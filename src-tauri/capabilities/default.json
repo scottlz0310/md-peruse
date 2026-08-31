@@ -1,13 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "メインウィンドウへ付与する最小権限。core:default は使わず、必要な core 権限だけを列挙する",
+  "description": "メインウィンドウへ付与する最小権限。core:default は使わず、実際に呼ぶ権限だけを個別に列挙する（design-decisions.md 5.5）",
   "windows": ["main"],
   "permissions": [
-    "core:app:default",
-    "core:event:default",
-    "core:webview:default",
-    "core:window:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     {
       "identifier": "opener:allow-open-url",
       "allow": [{ "url": "http://*" }, { "url": "https://*" }]
