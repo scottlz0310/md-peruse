@@ -336,7 +336,7 @@ Bunはユーザー標準のパッケージマネージャー（pnpm）と異な�
 - `assetProtocol.scope` をホームディレクトリ全体へ広げない。
 - ユーザー画像は、Rust側で検証したresource IDをキーとする専用の非同期custom URI scheme protocolから提供する。
 - custom protocolは読込完了後にファイルハンドルを閉じ、正しいContent-Type、CSP、`X-Content-Type-Options: nosniff` を返す。
-- KaTeXのフォントを含む静的アセットも組み込みアプリプロトコルから提供し、外部取得を行わない。
+- 静的アセットは組み込みアプリプロトコルから提供し、外部取得を行わない。KaTeXは `output: "mathml"` としフォントを同梱しないため、フォントの提供経路は持たない（8.5）。CSPの `font-src` も `'none'` とする（5.5）。
 
 Tauri v2には非同期custom URI scheme protocolがあるため、画像I/OでUIスレッドをブロックせず、ワークスペース全体をWebViewへ公開しない構成を採れる。
 
@@ -875,7 +875,7 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 ### 11.3 ライセンス表記
 
 - 同梱するJavaScript依存関係とRust crateのライセンス一覧を生成し、アプリから参照できる形で同梱する。
-- KaTeXの同梱フォントを含む再配布アセットのライセンス表記を漏らさない。
+- 再配布するアセットのライセンス表記を漏らさない。KaTeXはMathML出力としフォントを同梱しないため、フォントは対象に含まれない（8.5）。
 
 生成手段はPhase 2で次のとおり確定した。
 
