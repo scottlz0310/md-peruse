@@ -73,7 +73,7 @@ AIが生成したMermaidのシーケンス図、クラス図、フローチャ�
 | 入力上限 | Markdown、画像、Mermaidに上限を設ける。上限値は「9. 制約と上限」に示す |
 | 部分的失敗の分離 | 画像、Mermaid、ハイライトの個別の失敗が本文全体の描画を壊さない |
 
-YAML front matterの扱い、および文書内検索は未決とする。
+YAML front matterは文書先頭のYAMLブロックとして解析し、本文からは除く（[design-decisions.md](./design-decisions.md) 8.1）。文書内検索は未決とする。
 
 ### 4.3 表示とアプリケーション制御
 
@@ -102,7 +102,6 @@ YAML front matterの扱い、および文書内検索は未決とする。
 - 単一Markdownまたは単一フォルダーのドラッグ＆ドロップ
 - 文書内検索（`Ctrl+F`）
 - リンク遷移とアンカー遷移に対する戻る／進む操作
-- YAML front matterのメタ情報表示
 - 英語UIの併記
 
 判断は [design-decisions.md](./design-decisions.md) の未決事項で管理する。

@@ -14,6 +14,8 @@
 ## [Unreleased]
 
 ### Added
+- YAML front matterの扱いを追加。`remark-frontmatter` で文書先頭のYAMLブロックを解析し、本文からは除く。解析しないと `---` が水平線、続く行がsetext見出しとして描画され、見出しIDまで付く（実測）。対象はYAMLに限り、TOML（`+++`）・文書途中のブロック・閉じられていないブロック・前に空行があるブロックは本文として残す（[design-decisions.md](./docs/design-decisions.md) 8.1）
+- `remark-frontmatter` の推移依存 `format@0.2.2` が条文を同梱しないため、`licenses/overrides/format/LICENSE` へ上流の著作権表示を伴うMIT条文を配置（[design-decisions.md](./docs/design-decisions.md) 11.3）
 - 見出しアンカーのID生成規則を `src/markdown/heading-id.ts` へ追加。`rehypeHeadingIds` が木を2度走査し、1度目で既存のID（脚注の `user-content-fn-1` など）をそのまま使用済みとして集めてから、2度目で見出しへ `user-content-` 前置のIDを付ける。既存のIDはslug化せず候補IDと完全一致で比べる。一部をslug化して比べると、`[^a.b]`（実IDは `user-content-fn-a.b`）が実在しない `fn-ab` を占有して `# fn-ab` をずらすなど、リンクから到達できない見出しが生じる。`rehype-slug` は既存のIDを重複回避の対象へ含めないため使わない。同プラグインでは `# fn-1` と `[^1]` が同じ文書にあると `user-content-fn-1` が2つ生成され、脚注参照が見出しへ移動してしまう。`rehype-katex` より前に置く。後ろに置くとKaTeXが生成するMathMLのテキストと `annotation` のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。脚注の相互参照リンクは前置済みのIDと対応するため、`data-footnote-ref` と `data-footnote-backref` で経路を分ける（[design-decisions.md](./docs/design-decisions.md) 7.2、8.2）
 - 相対リンクの解決規則を `src/markdown/link-target.ts` へ追加。sanitizeを通過する `href` を実測で列挙し、同一文書内アンカー・ワークスペース内Markdown・外部URL・拒否のいずれかへ解決する。ルート絶対リンクはワークスペースルート基準とし、ルート外・非Markdown・スキーム相対URL・`%5C` によるUNC表記・代替データストリーム表記は遷移せず理由を示す（[design-decisions.md](./docs/design-decisions.md) 7.2）
 - Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装と「起動中に2つ目の `.md` を関連付けから開く」経路のE2E回帰）、Phase 5（データ収集申告、Partner Centerでの確認、計測母集団の制約の明記）の4段階に分ける。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する

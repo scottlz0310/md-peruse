@@ -617,6 +617,7 @@ Markdown source
   → remark-parse
   → remark-gfm
   → remark-math
+  → remark-frontmatter（先頭の YAML ブロックを本文から除く）
   → remark-rehype（Raw HTML はテキストとして出力）
   → rehypeHeadingIds（見出しへ user-content- 前置のIDを付与。KaTeX より前）
   → rehype-katex
@@ -632,8 +633,17 @@ mermaid fence
 
 - CommonMarkを基礎とし、`remark-gfm` で表、タスクリスト、取り消し線、autolinkを有効にする。
 - `remark-rehype` は既定でRaw HTMLを破棄する。本方針は「Raw HTMLをソース文字列として表示する」であり、破棄でも実行でもない第三の扱いを要する。mdastの `html` ノードをテキストとして出力するhandlerを定義し、`allowDangerousHtml` と `rehype-raw` を使用しない。
+- `remark-frontmatter` で文書先頭のYAML front matterを解析し、本文からは除く。`yaml` ノードは `mdast-util-to-hast` にhandlerがなく破棄されるため、非表示は既定の動作で成立する。
 - `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。
 - unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
+
+YAML front matterを非表示とする理由と範囲は次のとおり。振る舞いは `src/markdown/pipeline.test.ts` で固定する。
+
+- 解析しないと誤描画される。`---` が水平線に、続く行がsetext見出しになり、見出しIDまで付いてアウトラインへ入る（実測）。`remark-frontmatter` の導入は表示方針によらず必要である。
+- front matterは本文ではなく文書のメタデータであり、隠しても本文の意味は変わらない。Raw HTMLをソース文字列として表示する方針（上記）と異なる扱いにするのはこのためである。Raw HTMLは本文中に書かれた記述であり、隠すと文書の意味が変わる。
+- 対象はYAML（`---`）に限る。TOML（`+++`）を対象に加えると、`+++` を含む本文が消える副作用が生じる。TOML front matterを使う文書は本文として表示する。
+- front matterとして扱うのは文書先頭のブロックだけである。文書の途中にある `---` で囲まれたブロック、閉じられていないブロック、前に空行があるブロックは本文として残す。対象外のブロックを黙って消すと、本文の記述が失われる。
+- front matterの値をタブ名やヘッダーへ表示することは初期版では行わない（15章 P2）。YAMLパーサの追加と、型が不定な値の表示規則を要するためである。
 
 Raw HTMLのhandlerは `src/markdown/raw-html.ts` を正本とし、次の規則で出力する。振る舞いは同ディレクトリのテストで固定する。
 
@@ -1178,7 +1188,6 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 
 - Store向けカスタムイベントの要件（イベント名、発火条件、同一セッション内の送信回数、データ最小化、送信失敗時の挙動。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2）
 - KaTeXのマクロ展開と出力サイズの上限
-- YAML front matterの扱い
 - 文書内検索を初期版へ含めるか
 - リンク遷移の戻る／進む操作を初期版へ含めるか
 - Mermaidとコードブロックの処理上限
@@ -1203,6 +1212,7 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 - 除外リストのユーザー設定
 - 印刷、PDF、エクスポート
 - 高度なアウトラインと目次ペイン
+- YAML front matterの値（`title` など）をタブ名やヘッダーへ表示すること
 - 支援技術別の完全なアクセシビリティE2E
 
 ## 16. 参考資料
