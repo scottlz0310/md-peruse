@@ -151,7 +151,7 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - Raw HTMLをテキストとして出力するhandlerの実装方針
 - 見出しアンカーのID生成規則
 - 相対リンクの解決規則と、アンカー付き相対リンクの挙動
-- ルート外Markdownリンクをloose tabで許可するか
+- ルート外Markdownリンクをloose tabで許可するか、および関連付け起動でワークスペース外のファイルを開いたときの状態
 - YAML front matterの扱い
 - Mermaidとコードブロックの処理上限
 - KaTeXのマクロ展開と出力サイズの上限
@@ -175,7 +175,6 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 - ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクル
 - 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否
 - 同時に開けるタブ数の上限
-- 関連付け起動でワークスペース外のファイルを開いたときの状態
 
 ### 5.4 UIとUX
 
@@ -319,7 +318,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 | メニューの実装方式 | Phase 3-4（UI・UX） |
 | スプリッターと文字サイズの操作仕様 | Phase 3-4（UI・UX） |
 | ルート外Markdownリンクとloose tab | Phase 3-2（描画・ナビ） |
-| 関連付け起動でのワークスペース外ファイル | Phase 3-3（状態管理） |
+| 関連付け起動でのワークスペース外ファイル | Phase 3-2（描画・ナビ） |
 | 最近使ったフォルダーと最後のワークスペース復元 | Phase 3-3（状態管理） |
 | ドラッグ＆ドロップ | Phase 3-4（UI・UX） |
 | 英語UIの採否 | Phase 3-4（UI・UX） |

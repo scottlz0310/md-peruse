@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type { Element, Root } from "hast";
 import { sanitize } from "hast-util-sanitize";
 import rehypeKatex from "rehype-katex";
+import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
+import { anchorElementId, headingSlugOptions } from "./heading-id";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -25,6 +27,9 @@ async function render(markdown: string): Promise<Root> {
     .parse(markdown);
   const hast = await unified()
     .use(remarkRehype, { handlers: rawHtmlHandlers })
+    // `rehype-katex` より前に置く。後ろだとMathMLのテキストと `annotation` の
+    // LaTeXを二重に拾う（design-decisions.md 8.2）。
+    .use(rehypeSlug, headingSlugOptions)
     .use(rehypeKatex, { output: "mathml" })
     .run(mdast);
   return sanitize(hast as Root, sanitizeSchema) as Root;
@@ -82,6 +87,54 @@ describe("脚注のidとhrefが一致する", () => {
     for (const href of hrefs) {
       expect(ids).toContain(href.slice(1));
     }
+  });
+});
+
+describe("見出しアンカー", () => {
+  async function headingIds(markdown: string): Promise<string[]> {
+    const tree = await render(markdown);
+    return ["h1", "h2", "h3", "h4", "h5", "h6"]
+      .flatMap((tagName) => collect(tree, tagName))
+      .map((heading) => String(heading.properties?.id));
+  }
+
+  test.each([
+    // Markdown, 期待するID
+    ["# Getting Started", "user-content-getting-started"],
+    ["# はじめに", "user-content-はじめに"],
+    ["# API リファレンス (v2)", "user-content-api-リファレンス-v2"],
+    // `rehype-slug` を `rehype-katex` の前に置いた効果。後ろだと `x2x2` になる
+    ["# 数式 $x^2$ を含む", "user-content-数式-x2-を含む"],
+    ["# `code` を含む", "user-content-code-を含む"],
+  ])("%s のIDは %s", async (markdown, expected) => {
+    expect(await headingIds(markdown)).toEqual([expected]);
+  });
+
+  test("重複する見出しへ連番が付く", async () => {
+    expect(await headingIds("# 概要\n\n# 概要\n\n# 概要\n")).toEqual([
+      "user-content-概要",
+      "user-content-概要-1",
+      "user-content-概要-2",
+    ]);
+  });
+
+  test("同一文書アンカーの遷移先が存在する", async () => {
+    // remarkは断片をパーセントエンコードして出力するため、解決には復号が要る。
+    const tree = await render("# はじめに\n\n[移動](#はじめに)\n");
+    const [anchor] = collect(tree, "a");
+    const href = String(anchor?.properties?.href);
+    expect(href).toBe("#%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB");
+
+    const target = anchorElementId(href.slice(1));
+    expect(await headingIds("# はじめに\n")).toContain(String(target));
+  });
+
+  test("脚注ラベルのIDは前置されない", async () => {
+    // `mdast-util-to-hast` が付けた `id` を `rehype-slug` は上書きしない。
+    // 上書きすると `aria-describedby` の参照先が失われる。
+    const tree = await render("本文[^1]\n\n[^1]: 脚注\n");
+    const [label] = collect(tree, "h2");
+    expect(label?.properties?.id).toBe("footnote-label");
   });
 });
 
