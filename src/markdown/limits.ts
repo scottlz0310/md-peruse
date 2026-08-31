@@ -22,6 +22,14 @@ export const HIGHLIGHT_LIMITS = {
   perBlockBytes: 64 * KIB,
   /** 1文書でハイライトする合計の上限。約100 msに相当する。 */
   perDocumentBytes: 256 * KIB,
+  /**
+   * 1ブロックあたりの最小コスト。
+   *
+   * 入力サイズだけで数えると、極端に短いブロックが固定コストごと上限を迂回する。
+   * 1文字のブロックでも2ノードを生み、20000個で25 msかかる（実測）。この値により
+   * ブロック数は8192個までに収まる。
+   */
+  minBlockCostBytes: 32,
 } as const;
 
 /**
@@ -67,8 +75,17 @@ export const KATEX_LIMITS = {
   maxSize: 50,
   /** 1つの数式の入力サイズ。16 msで出力176 KiBに相当する。 */
   perFormulaBytes: 16 * KIB,
-  /** 1文書で描画する数式の入力の合計。約35 msで出力704 KiBに相当する。 */
+  /** 1文書で描画する数式のコストの合計。約35 msで出力704 KiBに相当する。 */
   perDocumentBytes: 64 * KIB,
+  /**
+   * 1数式あたりの最小コスト。
+   *
+   * 入力サイズだけで数えると、短い数式が固定コストごと上限を迂回する。`$x$` は本文が
+   * 1バイトでも6要素を生み、5000個で138 msかかる（実測）。本文の合計だけで数えると
+   * 65536個が上限内となり、39万要素・数秒に達する。この値により数式は2048個までに
+   * 収まり、12000要素・約57 msで頭打ちになる。
+   */
+  minFormulaCostBytes: 32,
 } as const;
 
 /**
@@ -81,19 +98,38 @@ export const KATEX_LIMITS = {
 export const KATEX_OUTPUT_EXPANSION_RATIO = 12;
 
 /**
+ * このコードブロックが文書の予算から消費する量を返す。
+ *
+ * 呼び出し側はこの値を積み上げ、`shouldHighlight` の `spentBudget` へ渡す。
+ * 入力サイズをそのまま積むと、短いブロックの固定コストが数えられない。
+ */
+export function highlightCost(blockBytes: number): number {
+  return Math.max(blockBytes, HIGHLIGHT_LIMITS.minBlockCostBytes);
+}
+
+/**
+ * この数式が文書の予算から消費する量を返す。
+ *
+ * 呼び出し側はこの値を積み上げ、`shouldRenderMath` の `spentBudget` へ渡す。
+ */
+export function mathRenderCost(formulaBytes: number): number {
+  return Math.max(formulaBytes, KATEX_LIMITS.minFormulaCostBytes);
+}
+
+/**
  * このコードブロックをハイライトしてよいかを返す。
  *
  * 超過したブロックはハイライトせず、プレーンな `pre/code` として表示する
- * （design-decisions.md 8.3）。`highlightedBytes` には、その文書で既にハイライトした
- * ブロックの入力サイズの合計を渡す。
+ * （design-decisions.md 8.3）。`spentBudget` には、その文書で既にハイライトした
+ * ブロックの `highlightCost` の合計を渡す。
  */
 export function shouldHighlight(
   blockBytes: number,
-  highlightedBytes: number,
+  spentBudget: number,
 ): boolean {
   return (
     blockBytes <= HIGHLIGHT_LIMITS.perBlockBytes &&
-    highlightedBytes + blockBytes <= HIGHLIGHT_LIMITS.perDocumentBytes
+    spentBudget + highlightCost(blockBytes) <= HIGHLIGHT_LIMITS.perDocumentBytes
   );
 }
 
@@ -101,14 +137,14 @@ export function shouldHighlight(
  * この数式を描画してよいかを返す。
  *
  * 超過した数式は描画せず、ソースをそのまま表示する（design-decisions.md 8.5）。
- * `renderedBytes` には、その文書で既に描画した数式の入力サイズの合計を渡す。
+ * `spentBudget` には、その文書で既に描画した数式の `mathRenderCost` の合計を渡す。
  */
 export function shouldRenderMath(
   formulaBytes: number,
-  renderedBytes: number,
+  spentBudget: number,
 ): boolean {
   return (
     formulaBytes <= KATEX_LIMITS.perFormulaBytes &&
-    renderedBytes + formulaBytes <= KATEX_LIMITS.perDocumentBytes
+    spentBudget + mathRenderCost(formulaBytes) <= KATEX_LIMITS.perDocumentBytes
   );
 }
