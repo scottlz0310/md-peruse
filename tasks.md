@@ -115,7 +115,7 @@
 - [x] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する（見出しIDは自前の `rehypeHeadingIds` が既存IDを占有済みとして登録してから `user-content-` 前置で生成し、`rehype-katex` より前に置く。リンク解決はセグメント単位の復号でルート外を拒否、loose tabは関連付け起動のみ。`src/markdown/heading-id.ts`、`src/markdown/link-target.ts`。[design-decisions.md](./docs/design-decisions.md) 7.2、9.1、9.2）
 - [x] YAML front matterの扱いを決める（`remark-frontmatter` でYAMLのみ解析し、本文からは除く。TOMLと先頭以外のブロックは本文として残す。[design-decisions.md](./docs/design-decisions.md) 8.1）
 - [x] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する（Frontendの上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs`。[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）
-- [ ] CSPとTauri capabilityの最終値を確定する
+- [x] CSPとTauri capabilityの最終値を確定する（`style-src` をelemとattrへ分け、`font-src` は `'none'`。capabilityは `core:event:allow-listen` / `allow-unlisten` / `opener:allow-open-url` の3つ。正本は `src-tauri/tauri.conf.json` と `src-tauri/capabilities/default.json`。[design-decisions.md](./docs/design-decisions.md) 5.5）
 
 ### 3-3 状態管理
 
@@ -147,7 +147,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 永続化する状態と保存先、スキーマが確定している
 - [ ] ファイル監視のライフサイクルが確定している
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
-- [ ] CSPとcapabilityの最終値が確定している
+- [x] CSPとcapabilityの最終値が確定している
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している
 - [ ] Store向けカスタムイベントの送信経路と要件が確定している
 

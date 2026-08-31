@@ -14,6 +14,8 @@
 ## [Unreleased]
 
 ### Added
+- CSPとTauri capabilityの最終値を確定（[design-decisions.md](./docs/design-decisions.md) 5.5）。`style-src` を `style-src-elem 'self' 'unsafe-inline'` と `style-src-attr 'none'` へ分け、Mermaidが生成SVGへ埋め込む `style` 要素は通しつつインラインの `style` 属性を全面的に禁止する。sanitize schemaが `style` 属性を許可していないことと一致させ、DOMPurifyの設定漏れをCSPが二重に受け止める。`img-src` へ実測した画像protocolのオリジンを追加し、`font-src` はKaTeXのMathML出力とシステムフォント指定により `'none'` とした
+- capabilityを `core:event:allow-listen` / `core:event:allow-unlisten` / `opener:allow-open-url`（`http://*`、`https://*` へ限定）の3つへ絞り込み。`core:window:default`・`core:webview:default`・`core:app:default` は現時点で呼ぶ予定がなく、`core:webview:default` には `allow-internal-toggle-devtools` が含まれるため付与しない
 - Mermaid・コードブロック・KaTeX・画像の処理上限を追加。Frontendが行う処理の上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs` を正本とする。いずれも実測に基づく（[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）
   - コードブロックのハイライトは1ブロック64 KiB、1文書の合計256 KiB。超過分はハイライトせずプレーンな `pre/code` として表示する。lowlightは488 KiBで198 ms・18万hastノードを生み、ブロック単位の制限だけでは1 MiBの文書が「500 ms以内」の目標を超えるため二段で抑える
   - Mermaidは1図50 KiB・エッジ500・タイムアウト3秒・同時2図・1文書50図。`maxEdges` はMermaidの既定値と同じだが既定に依存せず明示する
