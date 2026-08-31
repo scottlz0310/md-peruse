@@ -1,0 +1,150 @@
+/**
+ * Frontendで行う処理の上限。
+ *
+ * 値の根拠は design-decisions.md 8.3〜8.5 を正本とする。ここに置くのは、
+ * ハイライト・Mermaid・数式のいずれもFrontendが処理を行うためである。画像と
+ * Markdownの上限はRust側が検証するため `src-tauri/src/limits.rs` に置く（7.1、7.3）。
+ */
+
+const KIB = 1024;
+
+/**
+ * コードブロックのハイライト上限。超過したブロックはハイライトせず、プレーンな
+ * `pre/code` として表示する。選択とコピーは変わらず行える。
+ *
+ * lowlightの処理時間は入力サイズにほぼ比例し、49 KiBで28 ms、488 KiBで198 msだった
+ * （実測）。時間よりhastノード数が効き、488 KiBは18万ノードを生む。「1 MiBの文書を
+ * 500 ms以内に描画する」目標（spec.md 5.1）をハイライトだけで使い切らないよう、
+ * ブロック単位と文書単位の二段で抑える。
+ */
+export const HIGHLIGHT_LIMITS = {
+  /** 1ブロックの上限。約1300行、約35 msに相当する。 */
+  perBlockBytes: 64 * KIB,
+  /** 1文書でハイライトする合計の上限。約100 msに相当する。 */
+  perDocumentBytes: 256 * KIB,
+  /**
+   * 1ブロックあたりの最小コスト。
+   *
+   * 入力サイズだけで数えると、極端に短いブロックが固定コストごと上限を迂回する。
+   * 1文字のブロックでも2ノードを生み、20000個で25 msかかる（実測）。この値により
+   * ブロック数は8192個までに収まる。
+   */
+  minBlockCostBytes: 32,
+} as const;
+
+/**
+ * Mermaidの処理上限。
+ *
+ * `maxEdges` はMermaidの既定値と同じ500だが、既定に依存せず明示する。1000ノードの
+ * flowchartは描画に入る前に `Edge limit exceeded` で拒否される（実測）。
+ */
+export const MERMAID_LIMITS = {
+  /** 1図の入力サイズ。 */
+  perDiagramBytes: 50 * KIB,
+  /** 1図のエッジ数。Mermaidへ渡す `maxEdges`。 */
+  maxEdges: 500,
+  /** 1図の描画タイムアウト。超過したら中断して理由を表示する。 */
+  renderTimeoutMs: 3_000,
+  /** 同時に描画する図の数。超過分は順次描画する。 */
+  concurrentRenders: 2,
+  /** 1文書あたりの図の数。超過分はプレースホルダーを表示する。 */
+  perDocumentDiagrams: 50,
+} as const;
+
+/**
+ * KaTeXへ渡す上限。
+ *
+ * いずれもKaTeXの既定値に依存せず明示する。`maxExpand` は既定と同じ1000で、
+ * `\def\a{\a}\a` の無限再帰と4段のマクロ展開爆発はこの値で停止する（実測）。
+ *
+ * `maxSize` はユーザーが指定できる寸法の上限（em）であり、出力サイズの上限ではない。
+ * `\rule`、`\hspace`、`\kern` の値を制限する。`\raisebox` の `voffset` は対象外で、
+ * `\raisebox{500em}{x}` は500emのまま出力される（実測）。この抜けはKaTeX側の制限で
+ * あり、本アプリでは塞げない。
+ *
+ * 入力サイズの上限は、Markdownの10 MiB上限とは別に設ける。KaTeXの出力は入力の約11倍
+ * へ膨張し、1 MiBの単一数式は468 ms・出力10.7 MiBとなる（実測）。「1 MiBの文書を
+ * 500 ms以内に描画する」目標（spec.md 5.1）をKaTeX単体で超えるため、Markdownの
+ * 上限では律速できない。膨張率が高いぶん、閾値はコードブロック（64 KiB / 256 KiB）
+ * より厳しくする。
+ */
+export const KATEX_LIMITS = {
+  /** マクロ展開の回数。 */
+  maxExpand: 1_000,
+  /** ユーザー指定寸法の上限（em）。 */
+  maxSize: 50,
+  /** 1つの数式の入力サイズ。16 msで出力176 KiBに相当する。 */
+  perFormulaBytes: 16 * KIB,
+  /** 1文書で描画する数式のコストの合計。約35 msで出力704 KiBに相当する。 */
+  perDocumentBytes: 64 * KIB,
+  /**
+   * 1数式あたりの最小コスト。
+   *
+   * 入力サイズだけで数えると、短い数式が固定コストごと上限を迂回する。`$x$` は本文が
+   * 1バイトでも6要素を生み、5000個で138 msかかる（実測）。本文の合計だけで数えると
+   * 65536個が上限内となり、39万要素・数秒に達する。この値により数式は2048個までに
+   * 収まり、12000要素・約57 msで頭打ちになる。
+   */
+  minFormulaCostBytes: 32,
+} as const;
+
+/**
+ * KaTeXの出力が入力に対して膨らむ倍率の上限。
+ *
+ * `x+` の繰り返しを1 KiBから977 KiBまで変えても11.0〜11.2倍で一定だった（実測）。
+ * 入力サイズの上限から出力サイズを見積もるために使う。上限値を見直すときは、
+ * この倍率を掛けた出力サイズがDOMへ流れることを踏まえる。
+ */
+export const KATEX_OUTPUT_EXPANSION_RATIO = 12;
+
+/**
+ * このコードブロックが文書の予算から消費する量を返す。
+ *
+ * 呼び出し側はこの値を積み上げ、`shouldHighlight` の `spentBudget` へ渡す。
+ * 入力サイズをそのまま積むと、短いブロックの固定コストが数えられない。
+ */
+export function highlightCost(blockBytes: number): number {
+  return Math.max(blockBytes, HIGHLIGHT_LIMITS.minBlockCostBytes);
+}
+
+/**
+ * この数式が文書の予算から消費する量を返す。
+ *
+ * 呼び出し側はこの値を積み上げ、`shouldRenderMath` の `spentBudget` へ渡す。
+ */
+export function mathRenderCost(formulaBytes: number): number {
+  return Math.max(formulaBytes, KATEX_LIMITS.minFormulaCostBytes);
+}
+
+/**
+ * このコードブロックをハイライトしてよいかを返す。
+ *
+ * 超過したブロックはハイライトせず、プレーンな `pre/code` として表示する
+ * （design-decisions.md 8.3）。`spentBudget` には、その文書で既にハイライトした
+ * ブロックの `highlightCost` の合計を渡す。
+ */
+export function shouldHighlight(
+  blockBytes: number,
+  spentBudget: number,
+): boolean {
+  return (
+    blockBytes <= HIGHLIGHT_LIMITS.perBlockBytes &&
+    spentBudget + highlightCost(blockBytes) <= HIGHLIGHT_LIMITS.perDocumentBytes
+  );
+}
+
+/**
+ * この数式を描画してよいかを返す。
+ *
+ * 超過した数式は描画せず、ソースをそのまま表示する（design-decisions.md 8.5）。
+ * `spentBudget` には、その文書で既に描画した数式の `mathRenderCost` の合計を渡す。
+ */
+export function shouldRenderMath(
+  formulaBytes: number,
+  spentBudget: number,
+): boolean {
+  return (
+    formulaBytes <= KATEX_LIMITS.perFormulaBytes &&
+    spentBudget + mathRenderCost(formulaBytes) <= KATEX_LIMITS.perDocumentBytes
+  );
+}

@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- Mermaid・コードブロック・KaTeX・画像の処理上限を追加。Frontendが行う処理の上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs` を正本とする。いずれも実測に基づく（[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）
+  - コードブロックのハイライトは1ブロック64 KiB、1文書の合計256 KiB。超過分はハイライトせずプレーンな `pre/code` として表示する。lowlightは488 KiBで198 ms・18万hastノードを生み、ブロック単位の制限だけでは1 MiBの文書が「500 ms以内」の目標を超えるため二段で抑える
+  - Mermaidは1図50 KiB・エッジ500・タイムアウト3秒・同時2図・1文書50図。`maxEdges` はMermaidの既定値と同じだが既定に依存せず明示する
+  - KaTeXは `maxExpand` 1000、`maxSize` 50 em に加え、入力サイズを1数式16 KiB・1文書の合計64 KiB。KaTeXの出力は入力の約11倍へ膨張し、977 KiBの単一数式は468 ms・出力10.7 MiBとなるため、Markdownの10 MiB上限では性能目標を守れない。`maxSize` は出力サイズではなくユーザー指定寸法の上限であり、`\raisebox` の `voffset` には効かないことをテストで固定した
+  - 文書の予算は入力サイズではなくコスト（入力サイズと最小コスト32 Bの大きいほう）で数える。入力サイズだけで積むと、`$x$` のような短い数式が固定の処理費用ごと上限を迂回し、65536個・39万要素に達する
+  - 上限の判定は `shouldHighlight` と `shouldRenderMath`、コストの算出は `highlightCost` と `mathRenderCost` を正本とし、境界を `src/markdown/limits.test.ts` で固定した
+  - 画像は1辺16384 px、かつ総24 Mpx。RGBA8で96 MB、同時読込2件で192 MBとなり、全プロセス合計300 MBのメモリ目標の内側に収まる
 - YAML front matterの扱いを追加。`remark-frontmatter` で文書先頭のYAMLブロックを解析し、本文からは除く。解析しないと `---` が水平線、続く行がsetext見出しとして描画され、見出しIDまで付く（実測）。対象はYAMLに限り、TOML（`+++`）・文書途中のブロック・閉じられていないブロック・前に空行があるブロックは本文として残す（[design-decisions.md](./docs/design-decisions.md) 8.1）
 - `remark-frontmatter` の推移依存 `format@0.2.2` が条文を同梱しないため、`licenses/overrides/format/LICENSE` へ上流の著作権表示を伴うMIT条文を配置（[design-decisions.md](./docs/design-decisions.md) 11.3）
 - 見出しアンカーのID生成規則を `src/markdown/heading-id.ts` へ追加。`rehypeHeadingIds` が木を2度走査し、1度目で既存のID（脚注の `user-content-fn-1` など）をそのまま使用済みとして集めてから、2度目で見出しへ `user-content-` 前置のIDを付ける。既存のIDはslug化せず候補IDと完全一致で比べる。一部をslug化して比べると、`[^a.b]`（実IDは `user-content-fn-a.b`）が実在しない `fn-ab` を占有して `# fn-ab` をずらすなど、リンクから到達できない見出しが生じる。`rehype-slug` は既存のIDを重複回避の対象へ含めないため使わない。同プラグインでは `# fn-1` と `[^1]` が同じ文書にあると `user-content-fn-1` が2つ生成され、脚注参照が見出しへ移動してしまう。`rehype-katex` より前に置く。後ろに置くとKaTeXが生成するMathMLのテキストと `annotation` のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。脚注の相互参照リンクは前置済みのIDと対応するため、`data-footnote-ref` と `data-footnote-backref` で経路を分ける（[design-decisions.md](./docs/design-decisions.md) 7.2、8.2）
