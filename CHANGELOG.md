@@ -14,8 +14,9 @@
 ## [Unreleased]
 
 ### Added
+- 見出しアンカーのID生成規則を `src/markdown/heading-id.ts` へ追加。`rehypeHeadingIds` が木を2度走査し、1度目で既存のID（脚注の `user-content-fn-1` など）をそのまま使用済みとして集めてから、2度目で見出しへ `user-content-` 前置のIDを付ける。既存のIDはslug化せず候補IDと完全一致で比べる。一部をslug化して比べると、`[^a.b]`（実IDは `user-content-fn-a.b`）が実在しない `fn-ab` を占有して `# fn-ab` をずらすなど、リンクから到達できない見出しが生じる。`rehype-slug` は既存のIDを重複回避の対象へ含めないため使わない。同プラグインでは `# fn-1` と `[^1]` が同じ文書にあると `user-content-fn-1` が2つ生成され、脚注参照が見出しへ移動してしまう。`rehype-katex` より前に置く。後ろに置くとKaTeXが生成するMathMLのテキストと `annotation` のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。脚注の相互参照リンクは前置済みのIDと対応するため、`data-footnote-ref` と `data-footnote-backref` で経路を分ける（[design-decisions.md](./docs/design-decisions.md) 7.2、8.2）
+- 相対リンクの解決規則を `src/markdown/link-target.ts` へ追加。sanitizeを通過する `href` を実測で列挙し、同一文書内アンカー・ワークスペース内Markdown・外部URL・拒否のいずれかへ解決する。ルート絶対リンクはワークスペースルート基準とし、ルート外・非Markdown・スキーム相対URL・`%5C` によるUNC表記・代替データストリーム表記は遷移せず理由を示す（[design-decisions.md](./docs/design-decisions.md) 7.2）
 - Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装と「起動中に2つ目の `.md` を関連付けから開く」経路のE2E回帰）、Phase 5（データ収集申告、Partner Centerでの確認、計測母集団の制約の明記）の4段階に分ける。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する
-- Store向けカスタムイベント（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）の実施計画を `tasks.md` と [dev-flow.md](./docs/dev-flow.md) へ追加。Phase 3-5（送信経路の実測と要件確定）、Phase 4（発火点の実装）、Phase 5（データ収集申告とPartner Centerでの確認）の4段階に分ける
 - Store向けカスタムイベントの送信経路の実測結果を [design-decisions.md](./docs/design-decisions.md) 13.5 へ追加。packaged classic appから `StoreServicesCustomEventLogger` を呼び出せること、`Microsoft.Services.Store.Engagement` と `Microsoft.VCLibs.140.00` の `PackageDependency` が必要であること、CSPとTauri capabilityの最終値には影響しないことを確認した
 - Raw HTMLをソース文字列として出力する `remark-rehype` のhandlerを `src/markdown/raw-html.ts` へ追加。block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code` で包んで改行とインデントを保持し、それ以外（`paragraph`・`heading`・`strong`・`link`・表セルなど）は素のテキストとしてタグと本文の分断を避ける。HTMLコメントも同じ扱いとし、`allowDangerousHtml` と `rehype-raw` は使わない（[design-decisions.md](./docs/design-decisions.md) 8.1）
 - unifiedパイプラインの依存（unified、remark-parse、remark-gfm、remark-math、remark-rehype、rehype-katex）を追加。schemaを実パイプラインの出力に対して検証する統合テストで使う
@@ -43,6 +44,9 @@
 
 ### Changed
 
+- `tasks.md` へ「検討待ち」を追加し、作業中に見つかったスコープ外の事項をその場で直さず積む運用を運用ルールへ明記。フェーズを割り当てられる状態になってから該当フェーズのタスクへ移す。最初の項目として、脚注セクションの隠し見出し（`<h2 class="sr-only">`）の `class` がsanitize schemaで落ちる件を登録した
+- ルート外Markdownリンクとloose tabの扱いを確定。loose tabは関連付け起動でワークスペース外のファイルを開いたときにだけ生じ、所在フォルダーを暗黙のルートとして配下の相対リンクと相対画像を解決する。文書内のリンクからワークスペースの外へは出ない（[design-decisions.md](./docs/design-decisions.md) 7.2、9.1、9.2）
+- リンク中のパーセントエンコードの扱いを「1回復号し多重エンコードを拒否」から「パスを `/` で分けたセグメントごとに1回復号」へ改訂。remarkは有効なエスケープだけを温存して他の `%` を `%25` へ変換するため、復号後に `%` が残ることを多重エンコードの証拠として使えない。セグメント単位であれば `..%2F..%2Fetc.md` は1つの名前にとどまり、トラバーサルが成立しない（実測。[design-decisions.md](./docs/design-decisions.md) 7.2）
 - 非Markdownファイルをツリーへ表示しないことを確定（[design-decisions.md](./docs/design-decisions.md) 6.3）。あわせて `tasks.md` の運用ルールへ、フェーズ最後のPull Requestで進捗サマリと完了条件も更新する旨を追加した
 - Phase 3を4単位（IPC、描画とナビゲーション、状態管理、UIとUX）へ詳細化し、着手順と成果物の形式を [dev-flow.md](./docs/dev-flow.md) 第5章に定義。P1未決事項の解決先を単位まで細分した
 - Bunのバージョン固定を `package.json` の `packageManager` から `.bun-version` へ移行。Renovateの `bun-version` マネージャは `.bun-version` を対象とし、`packageManager` からはBun本体を更新できないため（[design-decisions.md](./docs/design-decisions.md) 4.4）

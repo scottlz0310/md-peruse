@@ -10,6 +10,7 @@
 - フェーズ最後のタスクを閉じるPull Requestでは、「進捗サマリ」の状態と [dev-flow.md](./docs/dev-flow.md) のフェーズ完了条件も併せて更新する。
 - 未決事項を解決したら、結論を `docs/design-decisions.md` へ記載し、本書のチェックを閉じる。
 - Phase 4以降のタスクは、着手時にフェーズ内で詳細化する。現時点では完了条件の粒度で保持する。
+- 作業中に見つかった、そのPull Requestのスコープ外の事項は「検討待ち」へ積む。その場で直さず、フェーズを割り当てられる状態になってから該当フェーズのタスクへ移す。
 
 ## 進捗サマリ
 
@@ -111,7 +112,7 @@
 
 - [x] `rehype-sanitize` schemaを最終定義する（既定schemaを継承せず全列挙。`src/markdown/sanitize-schema.ts`。[design-decisions.md](./docs/design-decisions.md) 8.2）
 - [x] Raw HTMLをテキストとして出力するhandlerの実装方針を決める（block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code`、それ以外は素のテキスト。コメントも同じ扱い。`src/markdown/raw-html.ts`。[design-decisions.md](./docs/design-decisions.md) 8.1）
-- [ ] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する
+- [x] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する（見出しIDは自前の `rehypeHeadingIds` が既存IDを占有済みとして登録してから `user-content-` 前置で生成し、`rehype-katex` より前に置く。リンク解決はセグメント単位の復号でルート外を拒否、loose tabは関連付け起動のみ。`src/markdown/heading-id.ts`、`src/markdown/link-target.ts`。[design-decisions.md](./docs/design-decisions.md) 7.2、9.1、9.2）
 - [ ] YAML front matterの扱いを決める
 - [ ] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する
 - [ ] CSPとTauri capabilityの最終値を確定する
@@ -121,7 +122,7 @@
 - [ ] 永続化する状態を決め、設定ファイルのスキーマと `schemaVersion` を定義する
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する
 - [ ] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する
-- [ ] 同時に開けるタブ数の上限、最近使ったフォルダーと最後のワークスペースの復元、関連付け起動でワークスペース外のファイルを開いたときの状態を決める
+- [ ] 同時に開けるタブ数の上限と、最近使ったフォルダーと最後のワークスペースの復元を決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
 
 ### 3-4 UIとUX
 
@@ -195,6 +196,14 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] Store提出物とCIで検証した成果物が一致している
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる
+
+## 検討待ち
+
+作業中に見つかった、そのPull Requestのスコープ外の事項を積む。「未決事項の一覧」が設計判断としてフェーズへ割り当て済みのものを指すのに対し、本節は割り当て先がまだ決まっていないものを保持する。
+
+判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
+
+- [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
 
 ## 未決事項の一覧
 
