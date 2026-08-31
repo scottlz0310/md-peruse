@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import type { Element, Root } from "hast";
+import type { Element, Root, Text } from "hast";
 import { sanitize } from "hast-util-sanitize";
 import rehypeKatex from "rehype-katex";
-
+import remarkFrontmatter from "remark-frontmatter";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
@@ -24,6 +24,9 @@ async function render(markdown: string): Promise<Root> {
     .use(remarkParse)
     .use(remarkGfm)
     .use(remarkMath)
+    // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される
+    // （design-decisions.md 8.1）。
+    .use(remarkFrontmatter, ["yaml"])
     .parse(markdown);
   const hast = await unified()
     .use(remarkRehype, { handlers: rawHtmlHandlers })
@@ -41,6 +44,14 @@ function collect(tree: Root, tagName: string): Element[] {
     if (node.tagName === tagName) found.push(node);
   });
   return found;
+}
+
+function textOf(tree: Root): string {
+  let text = "";
+  visit(tree, "text", (node: Text) => {
+    text += node.value;
+  });
+  return text;
 }
 
 describe("数式の属性がsanitizeを通る", () => {
@@ -217,6 +228,50 @@ describe("見出しアンカー", () => {
     const tree = await render("本文[^1]\n\n[^1]: 脚注\n");
     const [label] = collect(tree, "h2");
     expect(label?.properties?.id).toBe("footnote-label");
+  });
+});
+
+describe("YAML front matter", () => {
+  test("本文から除かれる", async () => {
+    // 解析しないと `---` が水平線、中身が setext 見出しとして描画され、
+    // 見出しIDまで付く（design-decisions.md 8.1）。
+    const tree = await render(
+      "---\ntitle: 値\ntags: [a, b]\n---\n\n# 見出し\n\n本文。\n",
+    );
+    expect(textOf(tree)).not.toContain("値");
+    expect(collect(tree, "hr")).toHaveLength(0);
+    expect(collect(tree, "h2")).toHaveLength(0);
+    expect(collect(tree, "h1")).toHaveLength(1);
+  });
+
+  test("空のfront matterも本文へ出ない", async () => {
+    const tree = await render("---\n---\n\n# 見出し\n");
+    expect(collect(tree, "hr")).toHaveLength(0);
+    expect(collect(tree, "h1")).toHaveLength(1);
+  });
+
+  test.each([
+    // 説明, Markdown
+    ["前に空行がある", "\n---\ntitle: 値\n---\n\n本文\n"],
+    ["閉じられていない", "---\ntitle: 値\n\n本文\n"],
+    ["文書の途中にある", "# 見出し\n\n---\ntitle: 値\n---\n\n本文\n"],
+    ["TOML形式である", "+++\ntitle = 値\n+++\n\n本文\n"],
+  ])("%s ブロックは本文に残る", async (_name, markdown) => {
+    // front matterとして扱う範囲は文書の先頭のYAMLブロックに限る。
+    // 対象外のブロックを黙って消すと、本文の記述が失われる。
+    expect(textOf(await render(markdown))).toContain("値");
+  });
+
+  test.each([
+    // 説明, Markdown, 残る要素
+    ["段落に続く `---` は水平線になる", "本文\n\n---\n\n次の段落\n", "hr"],
+    [
+      "`見出し` に続く `---` はsetext見出しになる",
+      "見出し\n---\n\n本文\n",
+      "h2",
+    ],
+  ])("%s", async (_name, markdown, tagName) => {
+    expect(collect(await render(markdown), tagName)).toHaveLength(1);
   });
 });
 
