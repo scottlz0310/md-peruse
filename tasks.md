@@ -114,7 +114,7 @@
 - [x] Raw HTMLをテキストとして出力するhandlerの実装方針を決める（block（`root`・`blockquote`・`listItem`・`footnoteDefinition` 直下）は `pre/code`、それ以外は素のテキスト。コメントも同じ扱い。`src/markdown/raw-html.ts`。[design-decisions.md](./docs/design-decisions.md) 8.1）
 - [x] 見出しアンカーのID生成規則と、相対リンク（アンカー付き、ルート外リンクとloose tabを含む）の解決規則を定義する（見出しIDは自前の `rehypeHeadingIds` が既存IDを占有済みとして登録してから `user-content-` 前置で生成し、`rehype-katex` より前に置く。リンク解決はセグメント単位の復号でルート外を拒否、loose tabは関連付け起動のみ。`src/markdown/heading-id.ts`、`src/markdown/link-target.ts`。[design-decisions.md](./docs/design-decisions.md) 7.2、9.1、9.2）
 - [x] YAML front matterの扱いを決める（`remark-frontmatter` でYAMLのみ解析し、本文からは除く。TOMLと先頭以外のブロックは本文として残す。[design-decisions.md](./docs/design-decisions.md) 8.1）
-- [ ] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する
+- [x] Mermaid、コードブロック、KaTeX、画像の処理上限を定義する（Frontendの上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs`。[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）
 - [ ] CSPとTauri capabilityの最終値を確定する
 
 ### 3-3 状態管理

@@ -10,6 +10,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { anchorElementId, rehypeHeadingIds } from "./heading-id";
+import { KATEX_LIMITS } from "./limits";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -33,7 +34,7 @@ async function render(markdown: string): Promise<Root> {
     // `rehype-katex` より前に置く。後ろだとMathMLのテキストと `annotation` の
     // LaTeXを二重に拾う（design-decisions.md 8.2）。
     .use(rehypeHeadingIds)
-    .use(rehypeKatex, { output: "mathml" })
+    .use(rehypeKatex, { output: "mathml", ...KATEX_LIMITS })
     .run(mdast);
   return sanitize(hast as Root, sanitizeSchema) as Root;
 }
@@ -76,6 +77,41 @@ describe("数式の属性がsanitizeを通る", () => {
     const tree = await render(String.raw`$\color{red}{x}$`);
     const [mstyle] = collect(tree, "mstyle");
     expect(mstyle?.properties?.mathcolor).toBe("red");
+  });
+});
+
+describe("数式の処理上限", () => {
+  test.each([
+    // LaTeX, 制限される属性
+    [String.raw`$\rule{100em}{100em}$`, "width"],
+    [String.raw`$\rule{100em}{100em}$`, "height"],
+    [String.raw`$\hspace{500em}$`, "width"],
+  ])("%s の %s が maxSize で制限される", async (markdown, attribute) => {
+    const [mspace] = collect(await render(markdown), "mspace");
+    expect(mspace?.properties?.[attribute]).toBe(`${KATEX_LIMITS.maxSize}em`);
+  });
+
+  test("raiseboxのvoffsetはmaxSizeの対象外である", async () => {
+    // KaTeX側の制限であり本アプリでは塞げない（design-decisions.md 8.5）。
+    // 塞げるようになったらこのテストが失敗し、方針を見直す契機になる。
+    const [mpadded] = collect(
+      await render(String.raw`$\raisebox{500em}{x}$`),
+      "mpadded",
+    );
+    expect(mpadded?.properties?.voffset).toBe("500em");
+  });
+
+  test("マクロ展開の爆発がmaxExpandで停止する", async () => {
+    // 4段の展開は10^4文字規模になりうるが、maxExpandで止まりエラー表示に変わる。
+    const tree = await render(
+      String.raw`$\def\a{aaaaaaaaaa}\def\b{\a\a\a\a\a\a\a\a\a\a}\def\c{\b\b\b\b\b\b\b\b\b\b}\def\d{\c\c\c\c\c\c\c\c\c\c}\d$`,
+    );
+    expect(textOf(tree).length).toBeLessThan(1_000);
+  });
+
+  test("無限再帰マクロが停止する", async () => {
+    const tree = await render(String.raw`$\def\a{\a}\a$`);
+    expect(textOf(tree).length).toBeLessThan(1_000);
   });
 });
 
