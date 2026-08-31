@@ -323,7 +323,7 @@ Bunはユーザー標準のパッケージマネージャー（pnpm）と異な�
 | --- | --- |
 | WebView2 Runtimeの欠落、MSIXのPackage Identity | IPCが成立しないため対象外。ネイティブダイアログで表示する |
 | 画像の境界違反、サイズ超過、ピクセル寸法超過、読込失敗 | resource IDの発行時（IPC command）は画像用の `code` を持つ `IpcError`、配信時はcustom image protocolの応答で表す。区分は両者で一致させる（5.4） |
-| Mermaid、lowlight、KaTeXの描画失敗、処理上限の超過、lazy import失敗 | Frontend内で完結するため対象外 |
+| Mermaid、lowlight、KaTeXの描画失敗、Mermaidと数式の上限超過、lazy import失敗 | Frontend内で完結するため対象外 |
 | 上記以外（ワークスペース、パス検証、ファイル読込、監視、設定） | `IpcError` |
 
 ネイティブ絶対パスを `message` と `detail` へ含めない。表示にはワークスペースルートからの相対パスを用いる。
@@ -910,11 +910,14 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 - フォルダー選択失敗、アクセス拒否
 - Markdownのデコード失敗、サイズ上限超過
 - 画像の境界違反、サイズ超過、ピクセル寸法超過、読込失敗
-- Mermaid、lowlight、KaTeXの描画失敗、処理上限の超過（8.3、8.4、8.5）、lazy importの失敗
+- Mermaid、lowlight、KaTeXの描画失敗とlazy importの失敗
+- Mermaidの図と数式が処理上限を超え、描画しなかったこと（8.4、8.5）
 - ファイルの削除、移動、置換、共有違反
 - Watcherのバッファオーバーフローまたは監視停止
 - 設定ファイルの破損
 - MSIXのPackage IdentityまたはRuntime初期化失敗
+
+コードブロックのハイライト上限の超過はここへ含めない。8.3の定めにより、超過したブロックはハイライトせずプレーンな `pre/code` として表示し、選択とコピーも変わらず行える。本文の内容は失われず、利用者が対処する余地もないため、理由を示す対象としない。Mermaidと数式は描画そのものを行わないため、何が起きたかを示す必要がある。
 
 自動的な無限リトライや暗黙の代替処理は行わない。再試行可能な操作では、ユーザーが明示的に再実行できるようにする。6.5で選択した場合のatomic replace再読込だけを、明文化された限定的な例外とする。
 
