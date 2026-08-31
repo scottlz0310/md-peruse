@@ -88,7 +88,7 @@
 - [x] Codecovでカバレッジを可視化する（RustとFrontendを分けて集計。CIからOIDCでアップロードする。[design-decisions.md](./docs/design-decisions.md) 4.11）
 - [x] Bun本体の更新を通常依存から分離する（`.bun-version` へ移行し、`renovate.json` で `Bun runtime` グループへ切り出して自動マージを無効化。[design-decisions.md](./docs/design-decisions.md) 4.4）
 - [x] required status checkを設定したうえで、Renovateの `presets/options/automerge` を戻し、`renovate.json` のautomerge打ち消し（`vulnerabilityAlerts.automerge` と `packageRules`）を解除する
-- [x] 依存ライセンス一覧の生成手段を確定し、未更新時にCIを失敗させる（`cargo-about` と `scripts/generate-licenses.ts`。[design-decisions.md](./docs/design-decisions.md) 11.3）
+- [x] 依存ライセンス一覧の生成手段を確定し、条文を取得できないパッケージがある場合にCIを失敗させる（`cargo-about` と `scripts/generate-licenses.ts`。生成物はコミットせずlockfileから都度生成する。[design-decisions.md](./docs/design-decisions.md) 11.3）
 
 ### このフェーズで解決する未決事項
 

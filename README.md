@@ -185,11 +185,11 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
-| `Licenses` | `ubuntu-latest` | ライセンス一覧を再生成し、生成物が最新であることを検査する |
+| `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージがないことを検査する |
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-ライセンス一覧は `Licenses` ジョブが `bun run generate:licenses` で再生成し、`git diff --exit-code` で `src/generated/third-party-licenses.json` が最新であることを検査する。依存を追加・更新したら、生成物も併せてコミットする（[design-decisions.md](./docs/design-decisions.md) 11.3）。
+ライセンス一覧 `src/generated/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージがあれば失敗する。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
 
 上流が条文を同梱していないパッケージは `licenses/overrides/<パッケージ名>/` に本文を配置する。配置がない場合は生成が失敗する。
 

@@ -2,11 +2,13 @@
 // 同梱するサードパーティ依存のライセンス一覧を生成する。
 // JavaScript側は package.json の dependencies から推移閉包を辿り、node_modules の
 // メタデータとライセンス本文を収集する。Rust側は cargo-about の出力を取り込む。
-// 生成物はリポジトリへコミットし、CIが再生成して差分の有無を検査する。
+// 生成物はリポジトリへコミットせず、lockfileから都度生成する（design-decisions.md 11.3）。
+// CIは生成の実行を検査し、条文を取得できないパッケージがあれば失敗する。
 
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readdirSync,
   readFileSync,
@@ -255,6 +257,8 @@ const rust = emit(
   licenseTexts,
 );
 
+// 生成物はコミットしないため、出力先ディレクトリはcheckout直後に存在しない。
+mkdirSync(dirname(outputPath), { recursive: true });
 writeFileSync(
   outputPath,
   `${JSON.stringify({ licenseTexts, javascript, rust }, null, 2)}\n`,

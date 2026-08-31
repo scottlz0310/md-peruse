@@ -186,7 +186,7 @@ Rustのeditionは2024を採用する。新規プロジェクトであり、既�
 
 | 設定 | 値 | 理由 |
 | --- | --- | --- |
-| required status check | `Frontend`、`Rust`、`Coverage`、`Licenses` | CIを通過していない変更を `main` へ入れない。カバレッジのアップロード失敗と、ライセンス一覧の未更新も検出する |
+| required status check | `Frontend`、`Rust`、`Coverage`、`Licenses` | CIを通過していない変更を `main` へ入れない。カバレッジのアップロード失敗と、ライセンス条文を取得できない依存の混入も検出する |
 | `strict`（マージ前に最新化を要求） | 無効 | Renovateが複数のPull Requestを同時に開くため、有効にすると相互に古くなり続けてマージが進まない。CIは `main` へのpushでも実行するため、結合後の検証は担保される |
 | 必須の承認レビュー | 設定しない | GitHubでは自分のPull Requestを自分でapproveできず、thread-owlはformal reviewではなくVerdictコメントでレビュー結果を返すため、要求すると恒久的にマージ不能になる。レビューの担保は運用規約（thread-owlのVerdictコメントとreviewed-side cycle）で行う。適用範囲は下記「レビューの適用範囲」を参照する |
 | 会話の解決を必須 | 有効 | 未解決のレビュースレッドを残したままマージできないようにする |
