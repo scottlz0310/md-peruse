@@ -156,9 +156,8 @@ jobs:
       # Windowsターゲットの一覧をLinuxランナー上で生成できる。
       - uses: taiki-e/install-action@cargo-about
 
+      # 生成物はコミットせず、lockfileから都度導出する（design-decisions.md 11.3）。
+      # このジョブは条文を取得できないパッケージがあれば生成が失敗することを検査する。
       - name: ライセンス一覧を生成
         run: bun run generate:licenses
-
-      - name: 生成物が最新か検査
-        run: git diff --exit-code -- src/generated/third-party-licenses.json
 

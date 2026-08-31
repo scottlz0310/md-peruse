@@ -55,6 +55,7 @@
 
 ### Changed
 
+- サードパーティライセンス一覧をリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する方式へ変更（[design-decisions.md](./docs/design-decisions.md) 11.3）。従来は生成物をコミットし `git diff --exit-code` で最新かを検査していたが、Renovateは依存を更新してもlockfileしか書き換えないため、依存更新のPull Requestが例外なく `Licenses` ジョブで失敗していた（[#32](https://github.com/scottlz0310/md-peruse/pull/32) で顕在化）。バージョンの正本をlockfileの1か所へ寄せ、不整合が構造として生じないようにする。`Licenses` ジョブは生成の実行のみを検査し、条文を取得できないパッケージがあれば失敗する
 - Phase 3-1・3-2の確定内容が他セクションへ反映されていなかった箇所を、[design-decisions.md](./docs/design-decisions.md) 内で整合させた。確定した判断と、まだ仮置きの記述が混在したまま次のフェーズへ進まないようにするための見直しである
   - 6.2「ツリーの表示対象は未決とする」を、6.3で確定済みの内容（フォルダーと `.md`・`.markdown` に限る）へ揃えた。`spec.md` 側は先に確定形へ更新されており、`design-decisions.md` だけが古いままだった
   - 5.3のエラー区分の表に「ピクセル寸法超過」が抜けていたため、12章の記述と揃えた。`ErrorCode` には `imagePixelLimitExceeded` が定義済みで、表記だけが漏れていた

@@ -51,3 +51,6 @@ lcov.info
 
 # Development certificate
 devcert.pfx
+
+# ライセンス一覧はlockfileから都度生成する（design-decisions.md 11.3）
+src/generated/

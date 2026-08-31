@@ -886,8 +886,8 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 | JavaScript | `scripts/generate-licenses.ts`（Bunで実行）が `package.json` の `dependencies` から推移閉包を辿り、`node_modules` のメタデータとライセンスファイルを収集する |
 | 条文を同梱しないパッケージ | `licenses/overrides/<パッケージ名>/` へ上流の条文を配置し、それも無ければ生成を失敗させる |
 | Rust | `cargo-about` が `src-tauri/about.toml` の設定で依存crateのライセンス本文を収集する |
-| 出力 | `src/generated/third-party-licenses.json`。リポジトリへコミットする |
-| 検査 | CIの `Licenses` ジョブが再生成し、`git diff --exit-code` で生成物が最新であることを検査する |
+| 出力 | `src/generated/third-party-licenses.json`。リポジトリへコミットせず、lockfileから都度生成する |
+| 検査 | CIの `Licenses` ジョブが生成を実行し、条文を取得できないパッケージがあれば失敗する |
 
 判断の理由は次のとおり。
 
@@ -896,7 +896,9 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 - 条文を取得できないパッケージは生成を失敗させる。配布物へ含める条件を満たせないまま出荷しないため。上流が同梱しない場合は `licenses/overrides/` へ本文を配置して解消する。
 - 対象を配布物に含まれる依存へ限る。JavaScript側は `dependencies` とその推移閉包のみを辿り、Rust側は `about.toml` でbuild依存とdev依存を除外する。
 - 許容ライセンスを `about.toml` の `accepted` へ列挙する。未列挙のライセンスを持つcrateが増えると生成が失敗するため、依存追加時にライセンスを確認する強制力を持つ。
-- 生成物をリポジトリへコミットする。「最新でない場合にCIを失敗させる」には比較対象が必要であり、Pull Requestの差分でライセンスの増減が見える利点もある。
+- 生成物をリポジトリへコミットしない。バージョンの正本を `bun.lock` と `Cargo.lock` の1か所へ寄せ、生成物はそこから都度導出する。当初は生成物をコミットし `git diff --exit-code` で最新かを検査していたが、Renovateが依存を更新してもlockfileしか書き換えないため、依存更新のPull Requestが例外なく `Licenses` ジョブで失敗した（[#32](https://github.com/scottlz0310/md-peruse/pull/32) で顕在化）。バージョンを2か所で持つ限り、生成物を手で追随させるか自動マージを諦めるかの二択になる。導出へ変えれば不整合が構造として生じない。
+- 差分でライセンスの増減が見えなくなる点は、生成の失敗で代替する。条文を取得できないパッケージがあれば生成自体が失敗するため、未知の依存が黙って入ることはない。Rust側は `about.toml` の `accepted` が未列挙のライセンスも検出する。JavaScript側に同等のライセンス種別allowlistがないことは残る穴であり、`tasks.md` の「検討待ち」へ記録する。
+- 生成をビルド工程へ組み込むかはPhase 4で決める。現時点で生成物を参照するコードはなく、`bun run build` へ組み込むと `Frontend` と `Rust` の両ジョブにもcargo-aboutの導入が要る。アプリ内でライセンス一覧を表示する実装（下記）と同時に、生成のタイミングとジョブ構成を決める。
 - JavaScript側に既製ツールを使わない。主要なツールはnpmのnode_modulesレイアウトとCLIに依存し、Bunでの動作保証がない。走査するのは `package.json` とライセンスファイルだけで、実装は小さい。
 - ライセンス本文を `licenseTexts` へ集約し、各パッケージはインデックスで参照する。同じ本文を多数のcrateが共有するため、パッケージごとに本文を持たせると生成物が数MBに達し、バンドルサイズと依存更新時の差分の両方を悪化させる。
 
