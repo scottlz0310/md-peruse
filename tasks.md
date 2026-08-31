@@ -88,7 +88,7 @@
 - [x] Codecovでカバレッジを可視化する（RustとFrontendを分けて集計。CIからOIDCでアップロードする。[design-decisions.md](./docs/design-decisions.md) 4.11）
 - [x] Bun本体の更新を通常依存から分離する（`.bun-version` へ移行し、`renovate.json` で `Bun runtime` グループへ切り出して自動マージを無効化。[design-decisions.md](./docs/design-decisions.md) 4.4）
 - [x] required status checkを設定したうえで、Renovateの `presets/options/automerge` を戻し、`renovate.json` のautomerge打ち消し（`vulnerabilityAlerts.automerge` と `packageRules`）を解除する
-- [x] 依存ライセンス一覧の生成手段を確定し、未更新時にCIを失敗させる（`cargo-about` と `scripts/generate-licenses.ts`。[design-decisions.md](./docs/design-decisions.md) 11.3）
+- [x] 依存ライセンス一覧の生成手段を確定し、条文を取得できないパッケージがある場合にCIを失敗させる（`cargo-about` と `scripts/generate-licenses.ts`。生成物はコミットせずlockfileから都度生成する。[design-decisions.md](./docs/design-decisions.md) 11.3）
 
 ### このフェーズで解決する未決事項
 
@@ -122,7 +122,7 @@
 - [ ] 永続化する状態を決め、設定ファイルのスキーマと `schemaVersion` を定義する
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する
 - [ ] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する
-- [ ] 同時に開けるタブ数の上限と、最近使ったフォルダーと最後のワークスペースの復元を決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
+- [ ] 同時に開けるタブ数の上限と、最近使ったフォルダー・最後のワークスペースの復元・複数ファイル引数の扱いを決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
 
 ### 3-4 UIとUX
 
@@ -203,6 +203,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
 
+- [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
 
 ## 未決事項の一覧
