@@ -27,6 +27,12 @@ export const HEADING_ID_PREFIX = "user-content-";
  * 脚注の `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの
  * `footnote-label`）は上書きしない。
  *
+ * 占有登録の対象は前置を持つ既存IDに限る。見出しのIDは前置付きで生成するため、
+ * 衝突しうるのは同じ名前空間のIDだけである。前置のない `footnote-label` まで
+ * 占有すると `# footnote-label` が `user-content-footnote-label-1` へ逃げ、
+ * `#footnote-label` を `user-content-footnote-label` へ解決する `anchorElementId`
+ * と食い違って見出しへ到達できない（design-decisions.md 7.2）。
+ *
  * slug規則はGitHub互換（`github-slugger`）であり、日本語の文字は保持され、半角空白は
  * ハイフンへ、重複は連番で回避される。
  */
@@ -36,7 +42,8 @@ export function rehypeHeadingIds() {
 
     visit(tree, "element", (node) => {
       const id = node.properties.id;
-      if (typeof id === "string") slugger.slug(stripPrefix(id));
+      if (typeof id !== "string" || !id.startsWith(HEADING_ID_PREFIX)) return;
+      slugger.slug(id.slice(HEADING_ID_PREFIX.length));
     });
 
     visit(tree, "element", (node) => {
@@ -72,17 +79,6 @@ export function anchorElementId(fragment: string): string | null {
 export function footnoteElementId(fragment: string): string | null {
   if (fragment === "") return null;
   return decodeFragment(fragment);
-}
-
-/**
- * 占有済みとして登録するために前置を外す。
- *
- * 見出しのslugは前置を付ける前の値で採番するため、既存のIDも同じ形へ揃える。
- */
-function stripPrefix(id: string): string {
-  return id.startsWith(HEADING_ID_PREFIX)
-    ? id.slice(HEADING_ID_PREFIX.length)
-    : id;
 }
 
 function decodeFragment(fragment: string): string | null {

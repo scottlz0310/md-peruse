@@ -154,10 +154,55 @@ describe("見出しアンカー", () => {
     // 見出し（脚注のIDと同じslugになる）, 期待するID
     ["# fn-1", "user-content-fn-1-1"],
     ["# fnref-1", "user-content-fnref-1-1"],
-    ["# footnote-label", "user-content-footnote-label-1"],
   ])("%s は脚注を避けて %s になる", async (heading, expected) => {
     const tree = await render(`${heading}\n\n本文[^1]\n\n[^1]: 脚注\n`);
     expect(collect(tree, "h1")[0]?.properties?.id).toBe(expected);
+  });
+
+  test("脚注と同名の見出しへのリンクは脚注を指す", async () => {
+    // 名前空間が同じである以上、`#fn-1` がどちらか一方しか指せない。脚注が先に
+    // IDを取り、見出しは連番へ逃げる。DOMのID重複（脚注参照が見出しへ吸われる）
+    // を防ぐことを優先した結果であり、この非対称は残る（design-decisions.md 7.2）。
+    const tree = await render(
+      "# fn-1\n\n[移動](#fn-1)\n\n本文[^1]\n\n[^1]: 脚注\n",
+    );
+    const [link] = collect(tree, "a").filter(
+      (anchor) =>
+        anchor.properties?.dataFootnoteRef === undefined &&
+        anchor.properties?.dataFootnoteBackref === undefined,
+    );
+    const target = anchorElementId(String(link?.properties?.href).slice(1));
+    expect(target).toBe("user-content-fn-1");
+    expect(collect(tree, "li")[0]?.properties?.id).toBe(String(target));
+    expect(collect(tree, "h1")[0]?.properties?.id).toBe("user-content-fn-1-1");
+  });
+
+  test.each([
+    // 見出し, リンク先の断片
+    ["# footnote-label", "footnote-label"],
+    ["# はじめに", "%E3%81%AF%E3%81%98%E3%82%81%E3%81%AB"],
+  ])("%s は脚注が共存しても #%s から到達できる", async (heading, fragment) => {
+    // 前置のない `footnote-label` は見出しのIDと別の名前空間にあり、占有登録の
+    // 対象ではない。占有すると見出しが連番へ逃げ、`anchorElementId` の解決先と
+    // 食い違う（design-decisions.md 7.2）。
+    const tree = await render(
+      `${heading}\n\n[移動](#${fragment})\n\n本文[^1]\n\n[^1]: 脚注\n`,
+    );
+
+    const [link] = collect(tree, "a").filter(
+      (anchor) =>
+        anchor.properties?.dataFootnoteRef === undefined &&
+        anchor.properties?.dataFootnoteBackref === undefined,
+    );
+    const target = anchorElementId(String(link?.properties?.href).slice(1));
+    expect(collect(tree, "h1")[0]?.properties?.id).toBe(String(target));
+
+    const ids: string[] = [];
+    visit(tree, "element", (node: Element) => {
+      const id = node.properties?.id;
+      if (typeof id === "string") ids.push(id);
+    });
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   test("脚注ラベルのIDは前置されない", async () => {
