@@ -571,11 +571,13 @@ sanitizeを通過してFrontendへ届く `href` は次のとおり（実測）�
 
 「復号は1回だけ行い、多重エンコードを拒否する」という当初の方針は、実測に基づき上記へ改めた。remarkは有効なパーセントエスケープだけを温存し、それ以外の `%` を `%25` へ変換する。`./a%b.md` と `./a%25b.md` はどちらも `./a%25b.md` として出力されるため、復号後に `%` が残ることを多重エンコードの証拠として使えない。`./a%252Fb.md` を1回復号した `./a%2Fb.md` は、`%2F` という文字列を名前に含むファイルを指す正当な解釈である。トラバーサルはセグメント単位の復号で断つ。
 
-見出しのIDは `rehype-slug` で生成する。定義は `src/markdown/heading-id.ts` を正本とする。`github-slugger` によるGitHub互換のslug規則であり、日本語の文字は保持され、半角空白はハイフンへ、重複は連番で回避される。全角スペースは記号として除去される（実測）。明示的なID指定の記法（`{#id}`）は解釈しない。
+見出しのIDは `src/markdown/heading-id.ts` の `rehypeHeadingIds` で生成する。`github-slugger` によるGitHub互換のslug規則であり、日本語の文字は保持され、半角空白はハイフンへ、重複は連番で回避される。全角スペースは記号として除去される（実測）。明示的なID指定の記法（`{#id}`）は解釈しない。前置は `user-content-` とし、脚注へ `mdast-util-to-hast` が付けるものと揃える（8.2）。
 
-前置は `user-content-` とし、`prefix` オプションで指定する。脚注のIDと `href` には `mdast-util-to-hast` が既に同じ前置を付けており（8.2）、見出しへも適用することで、`## footnote-label` のような見出しがアプリ由来のIDと衝突しない。
+`rehype-slug` を使わず自前のプラグインとするのは、同プラグインが既存のIDを重複回避の対象へ含めないためである。脚注は `mdast-util-to-hast` が `user-content-fn-1`、`user-content-fnref-1`、`footnote-label` を先に付けており、`# fn-1` という見出しが同じ文書にあると `user-content-fn-1` が2つ生成される。文書順で先にある見出しが `getElementById` に拾われ、脚注参照が脚注へ到達できない（実測）。前置を揃えても分けても、名前空間が1つである限りこの衝突は残る。
 
-`rehype-slug` は `rehype-katex` より前に置く。後ろに置くと、KaTeXが生成するMathMLのテキストと `annotation` 要素のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。
+`rehypeHeadingIds` は木を2度走査する。1度目で既存のIDを前置を外した形で `GithubSlugger` へ占有済みとして登録し、2度目で見出しへ付与する。これにより `# fn-1` は `user-content-fn-1-1` となり、脚注の `user-content-fn-1` と衝突しない。既存のIDを持つ見出し（脚注セクションの `footnote-label`）は上書きしない。上書きすると `aria-describedby` の参照先が失われる。
+
+このプラグインは `rehype-katex` より前に置く。後ろに置くと、KaTeXが生成するMathMLのテキストと `annotation` 要素のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。
 
 `rehype-sanitize` は `href` を書き換えないため、`#section` というリンクの断片は前置を持たない。同一文書内アンカーの遷移先は、断片を復号して `user-content-` を前置して求める。脚注の相互参照リンクだけは前置済みのIDと対応しているため、`data-footnote-ref` と `data-footnote-backref` 属性でこの経路を分け、前置しない。
 
@@ -612,7 +614,7 @@ Markdown source
   → remark-gfm
   → remark-math
   → remark-rehype（Raw HTML はテキストとして出力）
-  → rehype-slug（user-content- を前置。KaTeX より前に置く）
+  → rehypeHeadingIds（見出しへ user-content- 前置のIDを付与。KaTeX より前）
   → rehype-katex
   → rehype-sanitize（拡張した strict schema）
   → rehype-react
@@ -673,7 +675,7 @@ schemaの検証は2段構えで行う。要素と属性を手で組む単体テ�
 - `on*` 属性、`style` 属性、`srcset`、`ping`、`formaction` は列挙しないため除去される。
 - 表の構成要素は `ancestors` で祖先に `table` を要求し、単独で現れた場合に除去する。
 
-`id` への前置（`clobber` と `clobberPrefix`）はsanitizeで行わない。`mdast-util-to-hast` は脚注の `id` と `href` の双方へ既に `user-content-` を付けており、sanitizeで再度前置すると `id` だけが `user-content-user-content-fn-1` となる。sanitizeは `href` を書き換えないため、参照先が存在しなくなる。前置の担当は上流へ一本化し、見出しのIDにも `rehype-slug` の `prefix` で同じ前置を適用する（7.2）。
+`id` への前置（`clobber` と `clobberPrefix`）はsanitizeで行わない。`mdast-util-to-hast` は脚注の `id` と `href` の双方へ既に `user-content-` を付けており、sanitizeで再度前置すると `id` だけが `user-content-user-content-fn-1` となる。sanitizeは `href` を書き換えないため、参照先が存在しなくなる。前置の担当は上流へ一本化し、見出しのIDにも同じ前置を適用する。ただし前置を揃えるだけでは見出しと脚注のIDが衝突しうるため、衝突は既存IDの占有登録で避ける（7.2）。
 
 MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるものから `style`、`href`、`src`、`d`、`alt`、`title` を除いて列挙する。`style` は上記の方針により許可せず、`href` は `trust` 無効化により生成されず（8.5）、`src` と `alt` は `mglyph` 専用でその要素自体を許可しない。色（`mathcolor`、`mathbackground`）と長さ（`width`、`height` ほか）は値のパターンで制限する。利用者はLaTeXへ任意の文字列を書けるため、属性名の許可だけでは値を絞れない。
 

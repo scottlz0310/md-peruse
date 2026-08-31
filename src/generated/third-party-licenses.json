@@ -1047,17 +1047,6 @@
       ]
     },
     {
-      "name": "rehype-slug",
-      "version": "6.0.0",
-      "license": "MIT",
-      "texts": [
-        {
-          "label": "license",
-          "index": 5
-        }
-      ]
-    },
-    {
       "name": "remark-gfm",
       "version": "4.0.1",
       "license": "MIT",

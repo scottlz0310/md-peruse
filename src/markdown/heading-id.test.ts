@@ -3,7 +3,6 @@ import {
   anchorElementId,
   footnoteElementId,
   HEADING_ID_PREFIX,
-  headingSlugOptions,
 } from "./heading-id";
 
 describe("anchorElementId", () => {
@@ -41,8 +40,10 @@ describe("footnoteElementId", () => {
   });
 });
 
-describe("headingSlugOptions", () => {
-  test("脚注と同じ前置を rehype-slug へ渡す", () => {
-    expect(headingSlugOptions.prefix).toBe(HEADING_ID_PREFIX);
+describe("HEADING_ID_PREFIX", () => {
+  test("脚注と同じ前置を使う", () => {
+    // `mdast-util-to-hast` が脚注へ付ける前置と揃える（design-decisions.md 8.2）。
+    // 衝突は前置ではなく、既存IDを占有済みとして登録することで避ける。
+    expect(HEADING_ID_PREFIX).toBe("user-content-");
   });
 });

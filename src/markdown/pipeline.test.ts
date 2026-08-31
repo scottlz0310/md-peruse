@@ -2,14 +2,14 @@ import { describe, expect, test } from "bun:test";
 import type { Element, Root } from "hast";
 import { sanitize } from "hast-util-sanitize";
 import rehypeKatex from "rehype-katex";
-import rehypeSlug from "rehype-slug";
+
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
-import { anchorElementId, headingSlugOptions } from "./heading-id";
+import { anchorElementId, rehypeHeadingIds } from "./heading-id";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -29,7 +29,7 @@ async function render(markdown: string): Promise<Root> {
     .use(remarkRehype, { handlers: rawHtmlHandlers })
     // `rehype-katex` より前に置く。後ろだとMathMLのテキストと `annotation` の
     // LaTeXを二重に拾う（design-decisions.md 8.2）。
-    .use(rehypeSlug, headingSlugOptions)
+    .use(rehypeHeadingIds)
     .use(rehypeKatex, { output: "mathml" })
     .run(mdast);
   return sanitize(hast as Root, sanitizeSchema) as Root;
@@ -103,7 +103,7 @@ describe("見出しアンカー", () => {
     ["# Getting Started", "user-content-getting-started"],
     ["# はじめに", "user-content-はじめに"],
     ["# API リファレンス (v2)", "user-content-api-リファレンス-v2"],
-    // `rehype-slug` を `rehype-katex` の前に置いた効果。後ろだと `x2x2` になる
+    // 見出しIDの生成を `rehype-katex` の前に置いた効果。後ろだと `x2x2` になる
     ["# 数式 $x^2$ を含む", "user-content-数式-x2-を含む"],
     ["# `code` を含む", "user-content-code-を含む"],
   ])("%s のIDは %s", async (markdown, expected) => {
@@ -129,8 +129,39 @@ describe("見出しアンカー", () => {
     expect(await headingIds("# はじめに\n")).toContain(String(target));
   });
 
+  test("見出しと脚注のIDが衝突しない", async () => {
+    // `# fn-1` のslugは脚注が使う `fn-1` と一致する。既存のIDを占有済みとして
+    // 登録することで連番へ逃がす（design-decisions.md 7.2）。
+    const tree = await render("# fn-1\n\n本文[^1]\n\n[^1]: 脚注\n");
+
+    const ids: string[] = [];
+    visit(tree, "element", (node: Element) => {
+      const id = node.properties?.id;
+      if (typeof id === "string") ids.push(id);
+    });
+    expect(new Set(ids).size).toBe(ids.length);
+
+    // 脚注参照の遷移先は脚注本体であり、見出しではない。
+    const [reference] = collect(tree, "a").filter(
+      (anchor) => anchor.properties?.dataFootnoteRef !== undefined,
+    );
+    const target = String(reference?.properties?.href).slice(1);
+    expect(collect(tree, "li")[0]?.properties?.id).toBe(target);
+    expect(collect(tree, "h1")[0]?.properties?.id).not.toBe(target);
+  });
+
+  test.each([
+    // 見出し（脚注のIDと同じslugになる）, 期待するID
+    ["# fn-1", "user-content-fn-1-1"],
+    ["# fnref-1", "user-content-fnref-1-1"],
+    ["# footnote-label", "user-content-footnote-label-1"],
+  ])("%s は脚注を避けて %s になる", async (heading, expected) => {
+    const tree = await render(`${heading}\n\n本文[^1]\n\n[^1]: 脚注\n`);
+    expect(collect(tree, "h1")[0]?.properties?.id).toBe(expected);
+  });
+
   test("脚注ラベルのIDは前置されない", async () => {
-    // `mdast-util-to-hast` が付けた `id` を `rehype-slug` は上書きしない。
+    // `mdast-util-to-hast` が付けた `id` は上書きしない。
     // 上書きすると `aria-describedby` の参照先が失われる。
     const tree = await render("本文[^1]\n\n[^1]: 脚注\n");
     const [label] = collect(tree, "h2");
