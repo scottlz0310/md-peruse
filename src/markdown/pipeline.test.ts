@@ -10,7 +10,7 @@ import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { visit } from "unist-util-visit";
 import { anchorElementId, rehypeHeadingIds } from "./heading-id";
-import { KATEX_LIMITS } from "./limits";
+import { KATEX_LIMITS, KATEX_OUTPUT_EXPANSION_RATIO } from "./limits";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -112,6 +112,21 @@ describe("数式の処理上限", () => {
   test("無限再帰マクロが停止する", async () => {
     const tree = await render(String.raw`$\def\a{\a}\a$`);
     expect(textOf(tree).length).toBeLessThan(1_000);
+  });
+
+  test("上限サイズの数式の出力が想定の膨張率に収まる", async () => {
+    // KaTeXの出力は入力の約11倍へ膨らむ。上限値はこの倍率を前提に決めており、
+    // 倍率が上振れすると上限内でもDOMが重くなる（design-decisions.md 8.5）。
+    const formula = "x+".repeat(KATEX_LIMITS.perFormulaBytes / 2);
+    const tree = await render(`$${formula}x$`);
+
+    let elements = 0;
+    visit(tree, "element", () => {
+      elements += 1;
+    });
+    expect(elements).toBeLessThan(
+      formula.length * KATEX_OUTPUT_EXPANSION_RATIO,
+    );
   });
 });
 

@@ -54,13 +54,61 @@ export const MERMAID_LIMITS = {
  * `\raisebox{500em}{x}` は500emのまま出力される（実測）。この抜けはKaTeX側の制限で
  * あり、本アプリでは塞げない。
  *
- * 数式の個数と単一数式の長さには固有の上限を設けない。5000個で41 ms、5万項の単一
- * 数式で247 msであり（実測）、Markdownの10 MiB上限（7.3、`src-tauri/src/limits.rs`）
- * で律速される。
+ * 入力サイズの上限は、Markdownの10 MiB上限とは別に設ける。KaTeXの出力は入力の約11倍
+ * へ膨張し、1 MiBの単一数式は468 ms・出力10.7 MiBとなる（実測）。「1 MiBの文書を
+ * 500 ms以内に描画する」目標（spec.md 5.1）をKaTeX単体で超えるため、Markdownの
+ * 上限では律速できない。膨張率が高いぶん、閾値はコードブロック（64 KiB / 256 KiB）
+ * より厳しくする。
  */
 export const KATEX_LIMITS = {
   /** マクロ展開の回数。 */
   maxExpand: 1_000,
   /** ユーザー指定寸法の上限（em）。 */
   maxSize: 50,
+  /** 1つの数式の入力サイズ。16 msで出力176 KiBに相当する。 */
+  perFormulaBytes: 16 * KIB,
+  /** 1文書で描画する数式の入力の合計。約35 msで出力704 KiBに相当する。 */
+  perDocumentBytes: 64 * KIB,
 } as const;
+
+/**
+ * KaTeXの出力が入力に対して膨らむ倍率の上限。
+ *
+ * `x+` の繰り返しを1 KiBから977 KiBまで変えても11.0〜11.2倍で一定だった（実測）。
+ * 入力サイズの上限から出力サイズを見積もるために使う。上限値を見直すときは、
+ * この倍率を掛けた出力サイズがDOMへ流れることを踏まえる。
+ */
+export const KATEX_OUTPUT_EXPANSION_RATIO = 12;
+
+/**
+ * このコードブロックをハイライトしてよいかを返す。
+ *
+ * 超過したブロックはハイライトせず、プレーンな `pre/code` として表示する
+ * （design-decisions.md 8.3）。`highlightedBytes` には、その文書で既にハイライトした
+ * ブロックの入力サイズの合計を渡す。
+ */
+export function shouldHighlight(
+  blockBytes: number,
+  highlightedBytes: number,
+): boolean {
+  return (
+    blockBytes <= HIGHLIGHT_LIMITS.perBlockBytes &&
+    highlightedBytes + blockBytes <= HIGHLIGHT_LIMITS.perDocumentBytes
+  );
+}
+
+/**
+ * この数式を描画してよいかを返す。
+ *
+ * 超過した数式は描画せず、ソースをそのまま表示する（design-decisions.md 8.5）。
+ * `renderedBytes` には、その文書で既に描画した数式の入力サイズの合計を渡す。
+ */
+export function shouldRenderMath(
+  formulaBytes: number,
+  renderedBytes: number,
+): boolean {
+  return (
+    formulaBytes <= KATEX_LIMITS.perFormulaBytes &&
+    renderedBytes + formulaBytes <= KATEX_LIMITS.perDocumentBytes
+  );
+}

@@ -17,7 +17,8 @@
 - Mermaid・コードブロック・KaTeX・画像の処理上限を追加。Frontendが行う処理の上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs` を正本とする。いずれも実測に基づく（[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）
   - コードブロックのハイライトは1ブロック64 KiB、1文書の合計256 KiB。超過分はハイライトせずプレーンな `pre/code` として表示する。lowlightは488 KiBで198 ms・18万hastノードを生み、ブロック単位の制限だけでは1 MiBの文書が「500 ms以内」の目標を超えるため二段で抑える
   - Mermaidは1図50 KiB・エッジ500・タイムアウト3秒・同時2図・1文書50図。`maxEdges` はMermaidの既定値と同じだが既定に依存せず明示する
-  - KaTeXは `maxExpand` 1000、`maxSize` 50 em。`maxSize` は出力サイズではなくユーザー指定寸法の上限であり、`\raisebox` の `voffset` には効かないことをテストで固定した
+  - KaTeXは `maxExpand` 1000、`maxSize` 50 em に加え、入力サイズを1数式16 KiB・1文書の合計64 KiB。KaTeXの出力は入力の約11倍へ膨張し、977 KiBの単一数式は468 ms・出力10.7 MiBとなるため、Markdownの10 MiB上限では性能目標を守れない。`maxSize` は出力サイズではなくユーザー指定寸法の上限であり、`\raisebox` の `voffset` には効かないことをテストで固定した
+  - 上限の判定は `shouldHighlight` と `shouldRenderMath` を正本とし、境界を `src/markdown/limits.test.ts` で固定した
   - 画像は1辺16384 px、かつ総24 Mpx。RGBA8で96 MB、同時読込2件で192 MBとなり、全プロセス合計300 MBのメモリ目標の内側に収まる
 - YAML front matterの扱いを追加。`remark-frontmatter` で文書先頭のYAMLブロックを解析し、本文からは除く。解析しないと `---` が水平線、続く行がsetext見出しとして描画され、見出しIDまで付く（実測）。対象はYAMLに限り、TOML（`+++`）・文書途中のブロック・閉じられていないブロック・前に空行があるブロックは本文として残す（[design-decisions.md](./docs/design-decisions.md) 8.1）
 - `remark-frontmatter` の推移依存 `format@0.2.2` が条文を同梱しないため、`licenses/overrides/format/LICENSE` へ上流の著作権表示を伴うMIT条文を配置（[design-decisions.md](./docs/design-decisions.md) 11.3）
