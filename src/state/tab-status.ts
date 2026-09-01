@@ -64,15 +64,25 @@ export function applyFileChange<T extends TrackedTab>(
   if (tab.status === "deleted") {
     return tab;
   }
+  // 変更を受理したときは読込世代も進める。進行中の読込があると、その応答は
+  // 変更より前の内容であり、完了しても反映してはならない（design-decisions.md 6.5）。
+  const invalidated = tab.loadGeneration + 1;
   const change = event.change;
   switch (change.kind) {
     case "fileModified":
-      return change.path === tab.path ? { ...tab, status: "stale" } : tab;
+      return change.path === tab.path
+        ? { ...tab, status: "stale", loadGeneration: invalidated }
+        : tab;
     case "fileRemoved":
-      return change.path === tab.path ? { ...tab, status: "deleted" } : tab;
+      return change.path === tab.path
+        ? { ...tab, status: "deleted", loadGeneration: invalidated }
+        : tab;
     case "fileRenamed":
       // 内容は変わらないため状態は保つ。パスだけを新しいものへ追従させる。
-      return change.oldPath === tab.path ? { ...tab, path: change.path } : tab;
+      // 進行中の読込は旧パスに対するものであり、応答は受理しない。
+      return change.oldPath === tab.path
+        ? { ...tab, path: change.path, loadGeneration: invalidated }
+        : tab;
     case "directoryChanged":
       return tab;
   }
@@ -97,9 +107,14 @@ export type LoadOutcome = "succeeded" | "failed";
  * 読込の応答をタブへ適用する。
  *
  * 開始時の世代が最新でない応答は破棄する。読込は非同期であり、完了の順序は開始の順序と
- * 一致しない。置換直後の再読込（6.5）は同じタブに対して短い間隔で2回の読込を走らせるため、
- * 先に始めた読込が後から完了して新しい内容を古い内容で上書きしうる。走査応答の世代（5.3）は
- * ディレクトリが対象であり、文書の読込は対象にしていない。
+ * 一致しない。世代が進むのは次の2つの場合であり、どちらも進行中の読込の応答を無効にする。
+ *
+ * - 同じタブに対して次の読込を始めたとき。置換直後の再読込（6.5）は短い間隔で2回の読込を
+ *   走らせるため、先に始めた読込が後から完了して新しい内容を古い内容で上書きしうる。
+ * - 進行中の読込があるうちに、そのタブが変更・削除・renameを受理したとき。次の読込を
+ *   始める前に前の読込が完了すると、変更より前の内容を最新として受理してしまう。
+ *
+ * 走査応答の世代（5.3）はディレクトリが対象であり、文書の読込は対象にしていない。
  *
  * 失敗した応答では状態を変えない。`stale` のまま留めることで、ユーザーが古い内容を最新と
  * 誤認せずに済む（design-decisions.md 6.5）。

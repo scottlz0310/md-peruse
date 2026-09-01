@@ -23,6 +23,11 @@
   - 置換直後の読込失敗は案Bを採り、同一イベントに対して1回だけ再読込を許す。「共有違反時に自動リトライしない」原則の限定的な例外として明文化した。連続書込みが常態である主用途では、置換直後の一時的な失敗をユーザーへ提示する価値が低い
 - `FileChangeEvent` へ監視の発生元を表す不透明な `scopeId` を追加（[design-decisions.md](./docs/design-decisions.md) 6.4）。イベントの `path` はスコープのルートからの相対パスであり、それだけでは通知先を一意にできない。暗黙のルートが異なる2つのloose tab（`C:\A\README.md` と `C:\B\README.md`）はどちらも `README.md` になり、ワークスペース切替では停止前に送出された旧Watcherのイベントが新しいルートの同名ファイルへ適用されうる。Frontendは自分が保持するスコープと一致しないイベントを破棄する。スコープはワークスペースまたはloose tabの暗黙のルートを単位とし、画像resource IDのソルトと同じ粒度である
 - 文書読込の世代を `src/state/tab-status.ts` へ追加（`beginLoad` / `applyLoadResult`。[design-decisions.md](./docs/design-decisions.md) 6.5）。再読込の待ち時間をdebounceの窓より短くしても保証されるのは開始順だけであり、非同期の読込は完了順が入れ替わる。先に開始した読込が後から完了して新しい表示を古い内容で上書きしないよう、開始時の世代が最新の応答だけを反映する。5.3の2層の世代は走査の応答が対象であり、文書の読込は含まない
+  - 世代は読込の開始だけでなく、そのタブが変更・削除・renameを受理したときにも進める。読込Aを開始してから次の読込を始めるまでの間に変更Bが届き、その後Aが完了する順序では、開始だけで世代を進める設計だとAの応答（Bより前の内容）を最新として受理してしまう
+- debounce窓の畳み込み規則を `src-tauri/src/watch.rs` の `coalesce` へ追加（[design-decisions.md](./docs/design-decisions.md) 6.5）。6.4で実測したatomic replaceの列も `Modify(Name(From)) a.md.tmp` と `Modify(Name(To)) a.md` の対になるため、rename対をそのまま通知すると `oldPath` が `a.md.tmp` となり、開いている `a.md` のタブが再読込されない。先行する `Remove a.md` をそのまま通すと置換のたびにタブが `deleted` になる
+  - rename元がツリーの対象（`.md` / `.markdown`）かどうかで、通常のrenameとatomic replaceを分ける。一時ファイルは対象外であり、対象外からのrenameは「その場での置換」として置換先の `fileModified` へ畳み込む
+  - 削除は窓を閉じるまで確定させない。同じ窓の中で置換やrename先として復活しうるためである
+  - `notify` の型をそのまま扱わず自前の生イベントへ写像する。規則をプラットフォームと `notify` のバージョンから切り離して検証するためである。6.4の実測列、上書きrename、対象外への移動、削除後の再作成をテストで固定した
 - `FileChangeEvent` の変更内容を `FileChange` としてtagged unionへ切り出し、`FileRenamed`（旧パスを持つ）を追加。`FileChangeKind` は廃止した。renameを追跡してタブのパスとツリーの選択状態を追従させるためであり、旧パスを任意フィールドとして持たせると、renameでないのに旧パスが入った状態や、renameなのに欠けた状態を型として表現できてしまう（`ImageResource` と同じ理由）。debounce窓内で `Modify(Name(From))` と `Modify(Name(To))` を対にできた場合だけ通知し、対にできない場合は削除と作成として扱う
 - 永続化するアプリ設定のスキーマを `src-tauri/src/settings.rs` へ追加。`schemaVersion` は1とし、読み書きはRust側が担う。Frontendに設定ファイルを触らせないことで `fs` 系のcapabilityを増やさずに済ませ、一時ファイルへ書いてrenameする書込みと破損時の退避をOSのAPIで素直に書けるようにする（[design-decisions.md](./docs/design-decisions.md) 11.1）
   - 保存対象はテーマ、サイドバー幅、サイドバー表示状態、文字サイズ、ウィンドウ位置とサイズ、最近使ったフォルダー、最後のワークスペース。開いているタブ・選択中ファイル・スクロール位置は保存しない

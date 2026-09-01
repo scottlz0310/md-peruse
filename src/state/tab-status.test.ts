@@ -34,7 +34,7 @@ describe("applyFileChange", () => {
       name: "変更されたファイルを開いているタブはstaleになる",
       tab: tab("docs/a.md", "loaded"),
       event: event({ kind: "fileModified", path: "docs/a.md" }),
-      expected: tab("docs/a.md", "stale"),
+      expected: tab("docs/a.md", "stale", WORKSPACE, 1),
     },
     {
       name: "別のファイルの変更は影響しない",
@@ -46,7 +46,7 @@ describe("applyFileChange", () => {
       name: "削除されたファイルを開いているタブはdeletedになる",
       tab: tab("docs/a.md", "stale"),
       event: event({ kind: "fileRemoved", path: "docs/a.md" }),
-      expected: tab("docs/a.md", "deleted"),
+      expected: tab("docs/a.md", "deleted", WORKSPACE, 1),
     },
     {
       name: "renameはパスだけを追従させ、状態は保つ",
@@ -56,7 +56,7 @@ describe("applyFileChange", () => {
         path: "docs/b.md",
         oldPath: "docs/a.md",
       }),
-      expected: tab("docs/b.md", "stale"),
+      expected: tab("docs/b.md", "stale", WORKSPACE, 1),
     },
     {
       name: "rename後のパスと一致するだけのタブは追従しない",
@@ -101,7 +101,7 @@ describe("applyFileChange", () => {
         looseA,
         event({ kind: "fileModified", path: "README.md" }, "scope-loose-a"),
       ),
-    ).toEqual(tab("README.md", "stale", "scope-loose-a"));
+    ).toEqual(tab("README.md", "stale", "scope-loose-a", 1));
   });
 
   // 切替前にWatcherが送出したイベントが切替後に配送されると、新旧のルートで
@@ -151,9 +151,20 @@ describe("applyFileChange", () => {
         event({ kind: "fileModified", path: "docs/a.md" }),
       ),
     ).toEqual({
-      ...tab("docs/a.md", "stale"),
+      ...tab("docs/a.md", "stale", WORKSPACE, 1),
       scrollTop: 320,
     });
+  });
+
+  // design-decisions.md 6.4 で実測したatomic replaceの列は、Rust側で
+  // `fileModified` へ畳み込まれる（`src-tauri/src/watch.rs` の `coalesce`）。
+  // Frontendはその1件を受けて、開いているタブを再読込の対象にする。
+  test("atomic replaceの畳み込み結果で開いているタブがstaleになる", () => {
+    const opened = tab("a.md", "loaded");
+    expect(
+      applyFileChange(opened, event({ kind: "fileModified", path: "a.md" }))
+        .status,
+    ).toBe("stale");
   });
 });
 
@@ -179,6 +190,32 @@ describe("beginLoad / applyLoadResult", () => {
 
     const afterA = applyLoadResult(afterB, a.loadGeneration, "succeeded");
     expect(afterA).toBe(afterB);
+  });
+
+  // 読込Aを開始したあと、次の読込を始める前に変更Bが届く窓がある。ここで世代を
+  // 進めないと、Aの応答（Bより前の内容）を最新として受理してしまう。
+  test("読込中に届いた変更は進行中の読込を無効化する", () => {
+    const started = beginLoad(tab("docs/a.md", "stale"));
+    const changed = applyFileChange(
+      started,
+      event({ kind: "fileModified", path: "docs/a.md" }),
+    );
+    expect(changed.loadGeneration).not.toBe(started.loadGeneration);
+    expect(applyLoadResult(changed, started.loadGeneration, "succeeded")).toBe(
+      changed,
+    );
+    expect(changed.status).toBe("stale");
+  });
+
+  test("読込中に届いたrenameも進行中の読込を無効化する", () => {
+    const started = beginLoad(tab("docs/a.md", "loaded"));
+    const renamed = applyFileChange(
+      started,
+      event({ kind: "fileRenamed", path: "docs/b.md", oldPath: "docs/a.md" }),
+    );
+    expect(applyLoadResult(renamed, started.loadGeneration, "succeeded")).toBe(
+      renamed,
+    );
   });
 
   test("失敗した応答では状態を変えない", () => {
