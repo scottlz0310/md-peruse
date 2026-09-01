@@ -27,12 +27,35 @@ pub const MAX_RECENT_FOLDERS: usize = 10;
 
 /// サイドバー幅の既定値（px）。
 ///
-/// 幅の範囲と刻みは3-4で確定する。ここでは10.2の暫定範囲（200〜600 px）の
-/// 内側の値を既定として置く。
+/// 範囲と刻みの正本は `src/state/sidebar-width.ts` とする（design-decisions.md 10.2）。
 pub const DEFAULT_SIDEBAR_WIDTH: u32 = 280;
 
-/// プレビュー本文の文字サイズの既定値（%）。範囲と刻みは3-4で確定する（10.3）。
+/// プレビュー本文の文字サイズの既定値（%）。
+///
+/// 段階の並びの正本は `src/state/font-scale.ts` とする（design-decisions.md 10.3）。
 pub const DEFAULT_FONT_SCALE_PERCENT: u16 = 100;
+
+// 既定値が10.2の範囲と10.3の段階へ収まることをコンパイル時に固定する。
+//
+// 正本はFrontend側にあり言語をまたぐため参照できない。ここへ写した値が食い違うと、
+// Frontendが読み込み時に既定値を別の値へ丸めることになる。文字サイズでは、既定値の
+// まま拡大しても丸めで別の段階へ飛ぶ。範囲や段階を変えるときは、ここが既定値の
+// 見直しを促す。
+const _: () = {
+    assert!(DEFAULT_SIDEBAR_WIDTH >= 200);
+    assert!(DEFAULT_SIDEBAR_WIDTH <= 600);
+
+    let steps = [80u16, 90, 100, 110, 125, 150, 175, 200];
+    let mut index = 0;
+    let mut found = false;
+    while index < steps.len() {
+        if steps[index] == DEFAULT_FONT_SCALE_PERCENT {
+            found = true;
+        }
+        index += 1;
+    }
+    assert!(found);
+};
 
 /// 配色テーマの設定値。
 ///

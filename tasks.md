@@ -127,7 +127,7 @@
 ### 3-4 UIとUX
 
 - [x] メニューをネイティブ実装とするかWebView内実装とするかを決め、メニュー、ショートカット、パンくずの操作仕様を定義する（ネイティブメニュー。コマンドとアクセラレータの正本は `src-tauri/src/menu.rs`。パンくずはツリーを展開して選択する。[design-decisions.md](./docs/design-decisions.md) 10.1）
-- [ ] スプリッターの幅範囲、刻み、設定保存と、文字サイズの範囲、刻みを定義する（ショートカットは3-4の1つ目で確定。[design-decisions.md](./docs/design-decisions.md) 10.1）
+- [x] スプリッターの幅範囲、刻み、設定保存と、文字サイズの範囲、刻みを定義する（幅は最小200 px・最大 `min(600 px, ウィンドウ幅の50 %)`・刻み16 px（`Shift` 併用64 px）、文字サイズは80〜200 %の8段階。正本は `src/state/sidebar-width.ts` と `src/state/font-scale.ts`。ショートカットは3-4の1つ目で確定。[design-decisions.md](./docs/design-decisions.md) 10.2、10.3）
 - [ ] 文書内検索とリンク遷移の戻る／進む操作の採否を決める
 - [ ] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める
 
