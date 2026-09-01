@@ -939,14 +939,18 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 | 表示 | サイドバー | `toggleSidebar` | `Ctrl+B` | Frontend |
 | 表示 | 再読み込み | `reloadDocument` | `F5` | Frontend |
 | 表示 | テーマ: システム / ライト / ダーク | `useSystemTheme` ほか | — | Frontend（設定はRustが保存） |
-| 表示 | 文字を大きく / 小さく / 既定に戻す | `increaseFontSize` ほか | `Ctrl+Plus` / `Ctrl+Minus` / `Ctrl+0` | Frontend |
+| 表示 | 文字を大きく / 小さく / 既定に戻す | `increaseFontSize` ほか | `Ctrl+Equal` / `Ctrl+Minus` / `Ctrl+0` | Frontend |
 | ヘルプ | md-peruse について | `about` | — | Rust（バージョンとライセンス一覧。11.3） |
 
 保存、印刷、ソース表示、開発者ツールは置かない（10章）。終了にアクセラレータを割り当てないのは、`Alt+F4` をWindowsが処理するためである。
 
 「再読み込み」は監視のバッファあふれや監視停止（`WatcherStopped`）からの回復手段として置く。自動追従が効かない状況で、ユーザーが取れる唯一の行動だからである（6.4）。
 
-`Ctrl` + `+` / `-` / `0` をアプリへ割り当てるため、WebViewのズームホットキーは無効にする。有効なままだと、WebView全体の拡大とプレビュー本文の拡大が同じキーで二重に起きる。本文だけを拡大する方針（10.3）を保つための措置であり、設定はwebview側で行う。
+アクセラレータの表記は、Tauriが内部で使う `muda` の形式に従う。キーはW3Cの `KeyboardEvent.code` に対応する名前であり、`Plus` のような記号名は受け付けない。Tauriはパースに失敗した文字列を無言で捨て、アクセラレータなしの項目として登録する。ビルドもテストも通り、実行するまで「効かないショートカット」に気づけないため、すべての割り当てを実際のパーサーへ通すテスト（`accelerators_are_parsable`）で固定する。パーサーが何でも受け入れるようになった場合に備え、既知の無効な表記で反証も取る。
+
+文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。メニューには代表として `Ctrl+Equal` を表示し、`Ctrl+Shift+Equal` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる。
+
+`Ctrl` + `=` / `-` / `0` をアプリへ割り当てるため、WebViewのズームホットキーは無効にする。有効なままだと、WebView全体の拡大とプレビュー本文の拡大が同じキーで二重に起きる。本文だけを拡大する方針（10.3）を保つための措置であり、設定はwebview側で行う。
 
 タブの移動（`Ctrl+Tab`、`Ctrl+Shift+Tab`）とツリーの操作（矢印、`Enter`、`Home`、`End`）はメニュー項目を持たず、WebView内で処理する。メニューに現れない操作のアクセラレータをネイティブ側で登録すると、フォーカスのある要素へキーが届かなくなるためである。
 
@@ -969,7 +973,7 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 
 - 変更範囲と刻みはPhase 3で確定する。暫定案は80 %から200 %まで、10ポイント刻みとする。
 - 変更対象はプレビュー本文とし、ツリーとメニューはOSのスケーリングに従う。
-- `Ctrl` と `+` / `-` / `0` を割り当てるかをPhase 3で確定する。
+- メニューのアクセラレータは `Ctrl+Equal` / `Ctrl+Minus` / `Ctrl+0` とする。`Ctrl+Shift+Equal` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる（10.1）。
 - 文字サイズの反映もペイン幅と同じく `style` 要素へのCSSカスタムプロパティで行う（10.2、5.5）。
 
 ## 11. アプリ設定と診断

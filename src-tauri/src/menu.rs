@@ -51,10 +51,19 @@ pub enum MenuCommand {
 
 /// アクセラレータを持つコマンドとその割り当て。
 ///
-/// 表記はTauriのアクセラレータ形式に従う。Windows専用のため `CmdOrCtrl` ではなく
-/// `Ctrl` を使う。
+/// 表記はTauriが内部で使う `muda` のアクセラレータ形式に従う。キーはW3Cの
+/// `KeyboardEvent.code` に対応する名前であり、`Plus` のような記号名は受け付けない。
+/// Tauriはパースに失敗した文字列を無言で捨てるため、実行するまで登録されていないことに
+/// 気づけない。`accelerators_are_parsable` で実際のパーサーへ通して固定する。
 ///
-/// `Ctrl` + `+` / `-` / `0` を文字サイズへ割り当てるため、WebViewのズームホットキーは
+/// Windows専用のため `CmdOrCtrl` ではなく `Ctrl` を使う。
+///
+/// 文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを
+/// 厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。
+/// メニューには代表として `Ctrl+Equal` を表示し、`Ctrl+Shift+Equal` とテンキーの
+/// `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` はWebView内で同じ操作へ割り当てる（10.3）。
+///
+/// `Ctrl` + `=` / `-` / `0` を文字サイズへ割り当てるため、WebViewのズームホットキーは
 /// 無効にする。有効なままだと、WebView全体の拡大とプレビュー本文の拡大が同じキーで
 /// 二重に起きる。本文だけを拡大する方針（10.3）を保つため、無効化はwebviewの設定で行う。
 ///
@@ -67,7 +76,7 @@ pub const ACCELERATORS: [(MenuCommand, &str); 7] = [
     (MenuCommand::CloseTab, "Ctrl+W"),
     (MenuCommand::ToggleSidebar, "Ctrl+B"),
     (MenuCommand::ReloadDocument, "F5"),
-    (MenuCommand::IncreaseFontSize, "Ctrl+Plus"),
+    (MenuCommand::IncreaseFontSize, "Ctrl+Equal"),
     (MenuCommand::DecreaseFontSize, "Ctrl+Minus"),
     (MenuCommand::ResetFontSize, "Ctrl+0"),
 ];
@@ -83,6 +92,37 @@ pub fn accelerator_of(command: MenuCommand) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use muda::accelerator::Accelerator;
+
+    /// すべての割り当てが実際のパーサーを通ることを固定する。
+    ///
+    /// Tauriはメニュー項目へ渡された文字列を `muda` でパースし、失敗した場合は
+    /// アクセラレータなしとして扱う。エラーを返さないため、`Ctrl+Plus` のような
+    /// 無効な表記はビルドもテストも通り、実行時に「効かないショートカット」になる。
+    /// 実物のパーサーへ通すことでしか防げない。
+    #[test]
+    fn accelerators_are_parsable() {
+        for (command, accelerator) in ACCELERATORS {
+            assert!(
+                accelerator.parse::<Accelerator>().is_ok(),
+                "パースできないアクセラレータ: {accelerator}（{command:?}）"
+            );
+        }
+    }
+
+    /// このテストが実際に無効な表記を捕まえることを確かめる。
+    ///
+    /// パーサーが何でも受け入れるようになると `accelerators_are_parsable` は
+    /// 素通りするため、既知の無効な表記で反証を取る。
+    #[test]
+    fn invalid_accelerators_are_rejected() {
+        for invalid in ["Ctrl+Plus", "Ctrl+", "Meta+Nope"] {
+            assert!(
+                invalid.parse::<Accelerator>().is_err(),
+                "無効なはずの表記が通った: {invalid}"
+            );
+        }
+    }
 
     /// 同じキーに2つのコマンドを割り当てないことを固定する。
     ///
