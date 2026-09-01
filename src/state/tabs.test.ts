@@ -77,9 +77,9 @@ describe("selectEvictableTab", () => {
 });
 
 describe("MAX_OPEN_TABS", () => {
-  // 上限を下げるときは、関連付け起動で複数ファイルを渡された場合に開いた端から
-  // 閉じる範囲が広がることを踏まえる（design-decisions.md 9.2）。
-  test("エクスプローラーの複数選択で警告が出る件数より大きい", () => {
-    expect(MAX_OPEN_TABS).toBeGreaterThan(15);
+  // 値を変えるときは design-decisions.md 9.1 の判断（タブバーの可読性で決めた）と、
+  // 9.2 の複数ファイル起動で開いた端から閉じる範囲が広がることを併せて見直す。
+  test("上限は20である", () => {
+    expect(MAX_OPEN_TABS).toBe(20);
   });
 });

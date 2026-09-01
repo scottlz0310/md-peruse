@@ -13,16 +13,22 @@ pub const MARKDOWN_EXTENSIONS: [&str; 2] = ["md", "markdown"];
 /// 比較は大文字小文字を区別しない。Windowsのファイルシステムが区別せず、
 /// エクスプローラーから渡されるパスの表記も一定ではないためである（6.2、7.1）。
 ///
-/// 判定するのは拡張子だけであり、除外対象（6.2）配下かどうかは呼び出し側で見る。
+/// `.md` のように拡張子だけの名前も対象とする。`Path::extension` はこれを拡張子なしと
+/// 見なすが、リンク解決（`src/markdown/link-target.ts`）は末尾一致で判定しており、
+/// そちらへ揃えないと「リンクからは開けるのにツリーへ出ない」ファイルが生じる。
+///
+/// 判定するのは名前の末尾だけであり、除外対象（6.2）配下かどうかは呼び出し側で見る。
+/// ディレクトリ名は見ない。`docs.md/notes.txt` を対象と誤判定しないためである。
 pub fn is_markdown_path(path: &str) -> bool {
-    Path::new(path)
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            MARKDOWN_EXTENSIONS
-                .iter()
-                .any(|target| extension.eq_ignore_ascii_case(target))
-        })
+    let name = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    MARKDOWN_EXTENSIONS.iter().any(|extension| {
+        name.strip_suffix(extension)
+            .is_some_and(|stem| stem.ends_with('.'))
+    })
 }
 
 #[cfg(test)]
@@ -44,9 +50,15 @@ mod tests {
             ("a.md.bak", false),
             ("a.txt", false),
             ("a", false),
-            // 拡張子のないドットファイル。`Path::extension` は `None` を返す。
-            (".md", false),
+            ("md", false),
             ("", false),
+            // 拡張子だけの名前。リンク解決（`src/markdown/link-target.ts`）と揃える。
+            (".md", true),
+            (".markdown", true),
+            ("docs/.md", true),
+            // ディレクトリ名は見ない。
+            ("docs.md/notes.txt", false),
+            (r"C:\docs.md\notes.txt", false),
         ];
         for (path, expected) in cases {
             assert_eq!(is_markdown_path(path), expected, "入力: {path}");
