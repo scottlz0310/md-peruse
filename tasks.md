@@ -119,10 +119,10 @@
 
 ### 3-3 状態管理
 
-- [ ] 永続化する状態を決め、設定ファイルのスキーマと `schemaVersion` を定義する
+- [x] 永続化する状態と、最近使ったフォルダー・最後のワークスペースの復元の採否を決め、設定ファイルのスキーマと `schemaVersion` を定義する（いずれも初期版へ含める。スキーマの正本は `src-tauri/src/settings.rs`、`schemaVersion` は1。Frontendへは絶対パスを渡さず `UiSettings` を投影する。[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
 - [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する
 - [ ] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する
-- [ ] 同時に開けるタブ数の上限と、最近使ったフォルダー・最後のワークスペースの復元・複数ファイル引数の扱いを決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
+- [ ] 同時に開けるタブ数の上限と、複数ファイル引数の扱いを決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
 
 ### 3-4 UIとUX
 
@@ -144,7 +144,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] IPCのversion、request ID、cancelの契約が定義されている
 - [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
-- [ ] 永続化する状態と保存先、スキーマが確定している
+- [x] 永続化する状態と保存先、スキーマが確定している
 - [ ] ファイル監視のライフサイクルが確定している
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
 - [x] CSPとcapabilityの最終値が確定している

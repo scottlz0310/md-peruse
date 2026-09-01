@@ -13,4 +13,4 @@
  * 画像の失敗は、resource IDの発行時（IPC command）はここに含む `image*` のcodeで表し、
  * 配信時はcustom image protocolの応答で表す。区分は両者で一致させる（design-decisions.md 5.4）。
  */
-export type ErrorCode = "workspaceAccessDenied" | "workspaceNotFound" | "pathOutsideWorkspace" | "pathRejected" | "directoryAccessDenied" | "directoryNotFound" | "fileNotFound" | "fileAccessDenied" | "fileLocked" | "fileTooLarge" | "decodeFailed" | "imageUnsupportedFormat" | "imageTooLarge" | "imagePixelLimitExceeded" | "imageDecodeFailed" | "watcherOverflow" | "watcherStopped" | "settingsCorrupted";
+export type ErrorCode = "workspaceAccessDenied" | "workspaceNotFound" | "pathOutsideWorkspace" | "pathRejected" | "directoryAccessDenied" | "directoryNotFound" | "fileNotFound" | "fileAccessDenied" | "fileLocked" | "fileTooLarge" | "decodeFailed" | "imageUnsupportedFormat" | "imageTooLarge" | "imagePixelLimitExceeded" | "imageDecodeFailed" | "watcherOverflow" | "watcherStopped" | "settingsCorrupted" | "recentFolderNotFound";
