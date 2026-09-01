@@ -74,30 +74,41 @@ pub struct FileContent {
     pub byte_size: u32,
 }
 
-/// ファイル監視から届く変更の種別。
+/// ファイル監視の通知。
 ///
 /// Rust側でdebounceし、atomic replaceを削除と誤判定しないよう確定させたうえで通知する
 /// （design-decisions.md 6.4）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/types/generated/")]
-pub enum FileChangeKind {
-    /// ファイルの内容が変わった。アクティブ文書は再読込し、非アクティブタブはdirtyにする。
-    FileModified,
-    /// ファイルが削除された。debounce期間内に置換が続かないことを確認済み。
-    FileRemoved,
-    /// ディレクトリの子要素が増減した。展開済みなら、その階層だけを再取得する。
-    DirectoryChanged,
-}
-
-/// ファイル監視の通知。
+///
+/// 種別ごとに必要な情報が異なるため、種別と情報をtagged unionで表す。旧パスを
+/// 任意フィールドとして持つと、renameでないのに旧パスが入った状態や、renameなのに
+/// 欠けた状態を型として表現できてしまう（`ImageResource` と同じ理由）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
-pub struct FileChangeEvent {
-    pub kind: FileChangeKind,
-    /// 変更があった対象のワークスペース相対パス。
-    pub path: String,
+pub enum FileChangeEvent {
+    /// ファイルの内容が変わった。開いているタブはstaleにし、アクティブなら再読込する
+    /// （design-decisions.md 6.5）。
+    #[serde(rename_all = "camelCase")]
+    FileModified {
+        /// 変更があった対象のワークスペース相対パス。
+        path: String,
+    },
+    /// ファイルが削除された。debounce期間内に置換もrenameも続かないことを確認済み。
+    #[serde(rename_all = "camelCase")]
+    FileRemoved { path: String },
+    /// ファイルがrenameされた。debounce窓内で `Modify(Name(From))` と
+    /// `Modify(Name(To))` を対にできた場合だけ通知する。対にできない場合は
+    /// `FileRemoved` と `DirectoryChanged` として扱う（design-decisions.md 6.5）。
+    #[serde(rename_all = "camelCase")]
+    FileRenamed {
+        /// rename後のワークスペース相対パス。
+        path: String,
+        /// rename前のワークスペース相対パス。開いているタブの追従に使う。
+        old_path: String,
+    },
+    /// ディレクトリの子要素が増減した。展開済みなら、その階層だけを再取得する。
+    #[serde(rename_all = "camelCase")]
+    DirectoryChanged { path: String },
 }
 
 /// 配色テーマ。
