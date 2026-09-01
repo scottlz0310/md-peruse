@@ -14,6 +14,14 @@
 ## [Unreleased]
 
 ### Added
+- 永続化するアプリ設定のスキーマを `src-tauri/src/settings.rs` へ追加。`schemaVersion` は1とし、読み書きはRust側が担う。Frontendに設定ファイルを触らせないことで `fs` 系のcapabilityを増やさずに済ませ、一時ファイルへ書いてrenameする書込みと破損時の退避をOSのAPIで素直に書けるようにする（[design-decisions.md](./docs/design-decisions.md) 11.1）
+  - 保存対象はテーマ、サイドバー幅、サイドバー表示状態、文字サイズ、ウィンドウ位置とサイズ、最近使ったフォルダー、最後のワークスペース。開いているタブ・選択中ファイル・スクロール位置は保存しない
+  - 「最近使ったフォルダー」と「最後のワークスペースの復元」を初期版へ含めることを確定。復元は最後のワークスペースだけを対象とし、タブは復元しない。復元先が存在しないかアクセスできない場合はwelcome状態で起動し、一覧からも取り除く（[design-decisions.md](./docs/design-decisions.md) 9.2）
+  - `Settings` をそのままFrontendへ渡さず `UiSettings` を投影する。最近使ったフォルダーと最後のワークスペースはワークスペースルート自身であり相対パスへ落とせないため、そのまま渡すと7.1の「ネイティブ絶対パスをFrontendのURLまたはDOMへ露出しない」に例外ができる。最近使ったフォルダーは不透明なIDと表示ラベル（`RecentFolderView`）で渡し、絶対パスはRust側に留める。IDはプロセス内でのみ有効な値として設定ファイルへ保存せず、Frontendから受け取ったIDはRust側で再検証する
+  - 表示ラベルは絶対パスの末尾2コンポーネントに限る（`recent_folder_label`）。フォルダー名だけでは同名フォルダーを区別できないためである。一覧は新しいものが先頭で最大10件とし、同じフォルダーを開き直したときは既存の項目を先頭へ移す（`push_recent_folder`）
+  - 設定のテーマは `ThemePreference`（`system` / `light` / `dark`）とし、OSから得た実際の配色を表すIPCの `Theme`（2値）と型を分ける
+  - 未知のキーを読み捨てて欠落キーを既定値で埋めることと、JSONのキーがcamelCaseであることをテストで固定した。`schemaVersion` が現在より大きいファイルは既定値で起動して退避する。未知のキーを落としたまま起動すると、次の書込みで新しい版の設定を破壊するためである
+- 未知の「最近使ったフォルダー」IDを拒否する `ErrorCode::RecentFolderNotFound` を追加。一覧を取り直せば解消するため、フォルダーそのものが失われた `WorkspaceNotFound` と分ける
 - CSPとTauri capabilityの最終値を確定（[design-decisions.md](./docs/design-decisions.md) 5.5）。`style-src` を `style-src-elem 'self' 'unsafe-inline'` と `style-src-attr 'none'` へ分け、Mermaidが生成SVGへ埋め込む `style` 要素は通しつつインラインの `style` 属性を全面的に禁止する。sanitize schemaが `style` 属性を許可していないことと一致させ、DOMPurifyの設定漏れをCSPが二重に受け止める。`img-src` へ実測した画像protocolのオリジンを追加し、`font-src` はKaTeXのMathML出力とシステムフォント指定により `'none'` とした。あわせて、MathML出力へ切り替える前の記述として残っていた5.4「KaTeXのフォントを含む静的アセットを提供する」と11.3「KaTeXの同梱フォントのライセンス表記」を、フォントを同梱しない方針へ揃えた
 - capabilityを `core:event:allow-listen` / `core:event:allow-unlisten` / `opener:allow-open-url`（`http://*`、`https://*` へ限定）の3つへ絞り込み。`core:window:default`・`core:webview:default`・`core:app:default` は現時点で呼ぶ予定がなく、`core:webview:default` には `allow-internal-toggle-devtools` が含まれるため付与しない
 - Mermaid・コードブロック・KaTeX・画像の処理上限を追加。Frontendが行う処理の上限は `src/markdown/limits.ts`、Rustが検証する上限は `src-tauri/src/limits.rs` を正本とする。いずれも実測に基づく（[design-decisions.md](./docs/design-decisions.md) 7.3、8.3、8.4、8.5）

@@ -58,6 +58,12 @@ pub enum ErrorCode {
     WatcherStopped,
     /// 設定ファイルが壊れており読み取れない。
     SettingsCorrupted,
+    /// 「最近使ったフォルダー」のIDが未知である。
+    ///
+    /// IDはプロセス内でのみ有効な不透明値であり、対応表はRust側が持つ
+    /// （design-decisions.md 11.1）。一覧を取り直せば解消するため、
+    /// フォルダーそのものが失われた `WorkspaceNotFound` と分ける。
+    RecentFolderNotFound,
 }
 
 /// IPCの失敗。
