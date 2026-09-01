@@ -1,6 +1,7 @@
 pub mod ipc;
 pub mod limits;
 pub mod settings;
+pub mod watch;
 
 pub fn run() {
     tauri::Builder::default()

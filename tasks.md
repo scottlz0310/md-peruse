@@ -120,8 +120,8 @@
 ### 3-3 状態管理
 
 - [x] 永続化する状態と、最近使ったフォルダー・最後のワークスペースの復元の採否を決め、設定ファイルのスキーマと `schemaVersion` を定義する（いずれも初期版へ含める。スキーマの正本は `src-tauri/src/settings.rs`、`schemaVersion` は1。Frontendへは絶対パスを渡さず `UiSettings` を投影する。[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
-- [ ] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する
-- [ ] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する
+- [x] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する（ワークスペース単位の再帰監視とloose tab 1件ごとのファイル単体監視の2系統。切替時は旧Watcherを停止してから状態を破棄する。定数の正本は `src-tauri/src/watch.rs`。[design-decisions.md](./docs/design-decisions.md) 6.4）
+- [x] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する（`loaded` / `stale` / `deleted` の3状態。renameは追跡してパスを追従させ、置換直後の読込失敗は同一イベントにつき1回だけ再読込を許す（案B）。規則の正本は `src/state/tab-status.ts`。[design-decisions.md](./docs/design-decisions.md) 6.5）
 - [ ] 同時に開けるタブ数の上限と、複数ファイル引数の扱いを決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
 
 ### 3-4 UIとUX
@@ -145,7 +145,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる
 - [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
 - [x] 永続化する状態と保存先、スキーマが確定している
-- [ ] ファイル監視のライフサイクルが確定している
+- [x] ファイル監視のライフサイクルが確定している
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
 - [x] CSPとcapabilityの最終値が確定している
 - [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している
@@ -157,6 +157,9 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
+- [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
+- [ ] 文書読込の世代を実装し、置換直後の再読込（[design-decisions.md](./docs/design-decisions.md) 6.5）で先に開始した読込が後から完了しても、新しい内容を古い内容で上書きしないことを、完了順を反転させた回帰テストで固定する。読込の開始から完了までの間に変更イベントが届く順序（A開始 → B変更 → A完了 → B読込開始）と、タブを閉じて同じパスで開き直した後に旧タブの応答が届く順序も併せて固定する
+- [ ] `notify` のイベントを `watch::RawEvent` へ写像する処理とdebounce窓の時間管理を実装し、実ファイルに対するatomic replaceで開いているタブが `deleted` にならず再読込されることを、MSIX環境の実測列と突き合わせて確認する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）
 - [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、開発版で本番イベントを送らないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 - [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
