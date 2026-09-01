@@ -122,7 +122,7 @@
 - [x] 永続化する状態と、最近使ったフォルダー・最後のワークスペースの復元の採否を決め、設定ファイルのスキーマと `schemaVersion` を定義する（いずれも初期版へ含める。スキーマの正本は `src-tauri/src/settings.rs`、`schemaVersion` は1。Frontendへは絶対パスを渡さず `UiSettings` を投影する。[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
 - [x] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルを定義する（ワークスペース単位の再帰監視とloose tab 1件ごとのファイル単体監視の2系統。切替時は旧Watcherを停止してから状態を破棄する。定数の正本は `src-tauri/src/watch.rs`。[design-decisions.md](./docs/design-decisions.md) 6.4）
 - [x] 削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否を定義する（`loaded` / `stale` / `deleted` の3状態。renameは追跡してパスを追従させ、置換直後の読込失敗は同一イベントにつき1回だけ再読込を許す（案B）。規則の正本は `src/state/tab-status.ts`。[design-decisions.md](./docs/design-decisions.md) 6.5）
-- [ ] 同時に開けるタブ数の上限と、複数ファイル引数の扱いを決める（関連付け起動でワークスペース外のファイルを開いたときの状態は3-2で確定。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
+- [x] 同時に開けるタブ数の上限と、複数ファイル引数の扱いを決める（上限は20で、超過時は最終アクティブ時刻が最も古い非アクティブタブを閉じる。複数引数は対象拡張子をすべて開き、最後の1つをアクティブにする。正本は `src/state/tabs.ts` と `src-tauri/src/startup.rs`。[design-decisions.md](./docs/design-decisions.md) 9.1、9.2）
 
 ### 3-4 UIとUX
 

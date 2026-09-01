@@ -222,9 +222,9 @@ mod tests {
     use super::RawEventKind::{Created, Modified, Removed, RenamedFrom, RenamedTo};
     use super::*;
 
-    /// ツリーの対象は `.md` と `.markdown` に限る（design-decisions.md 6.3）。
+    /// ツリーの対象判定。除外対象（6.2）配下かどうかは、ここでは扱わない。
     fn is_markdown(path: &str) -> bool {
-        path.ends_with(".md") || path.ends_with(".markdown")
+        crate::file_kind::is_markdown_path(path)
     }
 
     fn modified_change(path: &str) -> FileChange {

@@ -1,6 +1,8 @@
+pub mod file_kind;
 pub mod ipc;
 pub mod limits;
 pub mod settings;
+pub mod startup;
 pub mod watch;
 
 pub fn run() {
