@@ -18,9 +18,16 @@ export type TabStatus =
 /**
  * ファイル変更イベントの適用対象となるタブ。
  *
- * 実際のタブはタイトルやスクロール位置も持つが、この規則が見るのはここに挙げた4つだけである。
+ * 実際のタブはタイトルやスクロール位置も持つが、この規則が見るのはここに挙げた5つだけである。
  */
 export type TrackedTab = {
+  /**
+   * タブのインスタンスID。タブを開くたびに採番し、閉じたタブのIDは再利用しない。
+   *
+   * 同じパスのタブを閉じて開き直すと、状態は初期値へ戻る。読込世代だけでは、閉じた
+   * タブの遅れた応答が新しいタブの世代と一致してしまう（design-decisions.md 6.5）。
+   */
+  readonly tabId: string;
   /**
    * このタブが属するスコープ（ワークスペース、またはloose tabの暗黙のルート）の不透明なID。
    *
@@ -89,15 +96,30 @@ export function applyFileChange<T extends TrackedTab>(
 }
 
 /**
- * 読込の開始を記録し、世代を進めたタブを返す。
+ * 進行中の読込を識別するトークン。
  *
- * 呼び出し側は戻り値の `loadGeneration` を控え、応答を受け取ったときに
- * `applyLoadResult` へ渡す。
+ * タブのインスタンスIDを含めるのは、世代だけでは同じパスのタブを閉じて開き直した場合を
+ * 区別できないためである。閉じたタブで始めた読込の応答が、同じ世代に戻った新しいタブへ
+ * 反映されてしまう（design-decisions.md 6.5）。
+ */
+export type LoadToken = {
+  readonly tabId: string;
+  readonly generation: number;
+};
+
+/**
+ * 読込の開始を記録し、世代を進めたタブと、その読込のトークンを返す。
+ *
+ * 呼び出し側はトークンを控え、応答を受け取ったときに `applyLoadResult` へ渡す。
  */
 export function beginLoad<T extends TrackedTab>(
   tab: T,
-): Omit<T, keyof TrackedTab> & TrackedTab {
-  return { ...tab, loadGeneration: tab.loadGeneration + 1 };
+): { tab: Omit<T, keyof TrackedTab> & TrackedTab; token: LoadToken } {
+  const generation = tab.loadGeneration + 1;
+  return {
+    tab: { ...tab, loadGeneration: generation },
+    token: { tabId: tab.tabId, generation },
+  };
 }
 
 /** 読込の結果。失敗の原因はタブの状態とは別に保持する。 */
@@ -106,8 +128,9 @@ export type LoadOutcome = "succeeded" | "failed";
 /**
  * 読込の応答をタブへ適用する。
  *
- * 開始時の世代が最新でない応答は破棄する。読込は非同期であり、完了の順序は開始の順序と
- * 一致しない。世代が進むのは次の2つの場合であり、どちらも進行中の読込の応答を無効にする。
+ * トークンがタブの現在のインスタンスと世代の両方に一致する応答だけを反映する。読込は
+ * 非同期であり、完了の順序は開始の順序と一致しない。世代が進むのは次の2つの場合であり、
+ * どちらも進行中の読込の応答を無効にする。
  *
  * - 同じタブに対して次の読込を始めたとき。置換直後の再読込（6.5）は短い間隔で2回の読込を
  *   走らせるため、先に始めた読込が後から完了して新しい内容を古い内容で上書きしうる。
@@ -121,10 +144,11 @@ export type LoadOutcome = "succeeded" | "failed";
  */
 export function applyLoadResult<T extends TrackedTab>(
   tab: T,
-  generation: number,
+  token: LoadToken,
   outcome: LoadOutcome,
 ): Omit<T, keyof TrackedTab> & TrackedTab {
-  if (generation !== tab.loadGeneration) {
+  // 閉じたタブの応答は、同じパスで開き直した新しいタブへ反映しない。
+  if (token.tabId !== tab.tabId || token.generation !== tab.loadGeneration) {
     return tab;
   }
   // 読込中に削除が確定した場合は、届いた内容を反映しない。

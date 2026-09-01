@@ -10,13 +10,15 @@ import {
 } from "./tab-status";
 
 const WORKSPACE = "scope-workspace";
+const TAB = "tab-1";
 
 const tab = (
   path: string,
   status: TabStatus,
   scopeId = WORKSPACE,
   loadGeneration = 0,
-): TrackedTab => ({ scopeId, path, status, loadGeneration });
+  tabId = TAB,
+): TrackedTab => ({ tabId, scopeId, path, status, loadGeneration });
 
 const event = (change: FileChange, scopeId = WORKSPACE): FileChangeEvent => ({
   scopeId,
@@ -170,69 +172,76 @@ describe("applyFileChange", () => {
 
 describe("beginLoad / applyLoadResult", () => {
   test("読込の開始で世代が進む", () => {
-    expect(beginLoad(tab("docs/a.md", "stale")).loadGeneration).toBe(1);
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "stale"));
+    expect(started.loadGeneration).toBe(1);
+    expect(token).toEqual({ tabId: TAB, generation: 1 });
   });
 
-  test("最新の世代の応答は loaded として反映する", () => {
-    const started = beginLoad(tab("docs/a.md", "stale"));
-    expect(
-      applyLoadResult(started, started.loadGeneration, "succeeded"),
-    ).toEqual(tab("docs/a.md", "loaded", WORKSPACE, 1));
+  test("最新のトークンの応答は loaded として反映する", () => {
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "stale"));
+    expect(applyLoadResult(started, token, "succeeded")).toEqual(
+      tab("docs/a.md", "loaded", WORKSPACE, 1),
+    );
   });
 
   // 置換直後の再読込（6.5）は同じタブに対して短い間隔で2回の読込を走らせる。
   // 先に始めた読込Aが後から完了しても、新しい内容を古い内容で上書きしない。
   test("完了順が反転しても古い世代の応答は破棄する", () => {
     const a = beginLoad(tab("docs/a.md", "stale"));
-    const b = beginLoad(a);
-    const afterB = applyLoadResult(b, b.loadGeneration, "succeeded");
+    const b = beginLoad(a.tab);
+    const afterB = applyLoadResult(b.tab, b.token, "succeeded");
     expect(afterB.status).toBe("loaded");
 
-    const afterA = applyLoadResult(afterB, a.loadGeneration, "succeeded");
+    const afterA = applyLoadResult(afterB, a.token, "succeeded");
     expect(afterA).toBe(afterB);
   });
 
   // 読込Aを開始したあと、次の読込を始める前に変更Bが届く窓がある。ここで世代を
   // 進めないと、Aの応答（Bより前の内容）を最新として受理してしまう。
   test("読込中に届いた変更は進行中の読込を無効化する", () => {
-    const started = beginLoad(tab("docs/a.md", "stale"));
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "stale"));
     const changed = applyFileChange(
       started,
       event({ kind: "fileModified", path: "docs/a.md" }),
     );
     expect(changed.loadGeneration).not.toBe(started.loadGeneration);
-    expect(applyLoadResult(changed, started.loadGeneration, "succeeded")).toBe(
-      changed,
-    );
+    expect(applyLoadResult(changed, token, "succeeded")).toBe(changed);
     expect(changed.status).toBe("stale");
   });
 
   test("読込中に届いたrenameも進行中の読込を無効化する", () => {
-    const started = beginLoad(tab("docs/a.md", "loaded"));
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "loaded"));
     const renamed = applyFileChange(
       started,
       event({ kind: "fileRenamed", path: "docs/b.md", oldPath: "docs/a.md" }),
     );
-    expect(applyLoadResult(renamed, started.loadGeneration, "succeeded")).toBe(
-      renamed,
+    expect(applyLoadResult(renamed, token, "succeeded")).toBe(renamed);
+  });
+
+  // タブを閉じて同じパスで開き直すと世代は初期値へ戻る。世代だけで判定すると、
+  // 閉じたタブで始めた読込の応答が新しいタブへ反映される（design-decisions.md 6.5）。
+  test("閉じたタブの応答は同じパスで開き直したタブへ反映しない", () => {
+    const closed = beginLoad(tab("docs/a.md", "stale", WORKSPACE, 0, "tab-1"));
+    const reopened = beginLoad(
+      tab("docs/a.md", "stale", WORKSPACE, 0, "tab-2"),
+    );
+    expect(closed.token.generation).toBe(reopened.token.generation);
+    expect(applyLoadResult(reopened.tab, closed.token, "succeeded")).toBe(
+      reopened.tab,
     );
   });
 
   test("失敗した応答では状態を変えない", () => {
-    const started = beginLoad(tab("docs/a.md", "stale"));
-    expect(applyLoadResult(started, started.loadGeneration, "failed")).toBe(
-      started,
-    );
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "stale"));
+    expect(applyLoadResult(started, token, "failed")).toBe(started);
   });
 
   test("読込中に削除が確定したタブへは反映しない", () => {
-    const started = beginLoad(tab("docs/a.md", "stale"));
+    const { tab: started, token } = beginLoad(tab("docs/a.md", "stale"));
     const deleted = applyFileChange(
       started,
       event({ kind: "fileRemoved", path: "docs/a.md" }),
     );
-    expect(applyLoadResult(deleted, started.loadGeneration, "succeeded")).toBe(
-      deleted,
-    );
+    expect(applyLoadResult(deleted, token, "succeeded")).toBe(deleted);
   });
 });

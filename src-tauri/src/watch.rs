@@ -91,8 +91,17 @@ impl RawEvent {
 /// | `RenamedTo P` があり、rename元が対象外 | `FileModified P`（置換） |
 /// | `RenamedTo P` があり、rename元 `S` が対象で `Removed P` がない | `FileRenamed { old_path: S, path: P }` |
 /// | `RenamedTo P` に `Removed P` が先行し、元 `S` が対象（上書きrename） | `FileRemoved S` と `FileModified P` |
+/// | 対象のファイルが対象外の名前へ移された | `FileRemoved` |
+/// | 対のrename先が届かないrename元 | `FileRemoved` |
 /// | `Removed P` があり、同じ窓で `P` が作り直されない | `FileRemoved P` |
 /// | `Created P` または `Modified P` だけ | `FileModified P` |
+///
+/// rename元が同時に2件以上保留になった窓では、どの元がどの先に対応するかをイベントの
+/// 順序から決められない。誤った対応付けは無関係な2つのタブを互いのパスへ移すため、
+/// その窓ではrenameの追跡をやめ、削除と置換へ倒す。
+///
+/// renameを確定するとき、同じ窓で受けた旧パスの変更は新パスへ引き継ぐ。旧パスのまま
+/// 残すと、タブが新パスへ移った後に変更を取りこぼす。
 ///
 /// 対象外のパスに対する変更は返さない。ツリーの更新に必要な `DirectoryChanged` は、
 /// ここで確定した作成・削除・renameの親ディレクトリに対してPhase 4で別途生成する。
@@ -101,30 +110,57 @@ pub fn coalesce(events: &[RawEvent], is_tracked: impl Fn(&str) -> bool) -> Vec<F
     // 削除は、同じ窓の中で置換やrename先として復活しうるため、窓を閉じるまで確定させない。
     let mut removed: Vec<String> = Vec::new();
     let mut modified: Vec<String> = Vec::new();
-    let mut rename_source: Option<String> = None;
+    // 対のrename先をまだ受け取っていないrename元。
+    let mut pending_from: Vec<String> = Vec::new();
+    // 保留中のrename元が2件以上になった窓では、どの元がどの先に対応するかをイベントの
+    // 順序から決められない。誤って対応付けると無関係な2つのタブが互いのパスへ移るため、
+    // 以後この窓ではrenameの追跡をやめ、削除と置換へ倒す。
+    let mut ambiguous_rename = false;
 
     for event in events {
         match event.kind {
-            RawEventKind::RenamedFrom => rename_source = Some(event.path.clone()),
+            RawEventKind::RenamedFrom => {
+                push_once(&mut pending_from, &event.path);
+                if pending_from.len() > 1 {
+                    ambiguous_rename = true;
+                }
+            }
             RawEventKind::RenamedTo => {
-                let source = rename_source.take().filter(|s| is_tracked(s));
+                let source = if ambiguous_rename {
+                    // 入れ替え（`a`→`b` と `b`→`a`）では、rename先が保留中のrename元に
+                    // 現れる。失われてはいないため、保留から外して削除にしない。
+                    remove_first(&mut pending_from, &event.path);
+                    None
+                } else {
+                    pending_from.pop()
+                };
+                let source = source.filter(|s| is_tracked(s));
                 if !is_tracked(&event.path) {
                     // 対象のファイルが対象外の名前へ移された場合は、消えたものとして扱う。
                     if let Some(source) = source {
+                        remove_first(&mut modified, &source);
                         push_once(&mut removed, &source);
                     }
                     continue;
                 }
                 let replaced = remove_first(&mut removed, &event.path);
                 match source {
-                    Some(source) if !replaced => changes.push(FileChange::FileRenamed {
-                        path: event.path.clone(),
-                        old_path: source,
-                    }),
+                    Some(source) if !replaced => {
+                        // 同じ窓で旧パスの変更を受けていた場合は、新パスの変更として引き継ぐ。
+                        // 旧パスのまま残すと、タブが新パスへ移った後に変更を取りこぼす。
+                        if remove_first(&mut modified, &source) {
+                            push_once(&mut modified, &event.path);
+                        }
+                        changes.push(FileChange::FileRenamed {
+                            path: event.path.clone(),
+                            old_path: source,
+                        });
+                    }
                     // 対象のファイルを既存のファイルへ上書きrenameした場合。
                     // 移動元は失われるため、置換と削除の両方を通知する。
                     Some(source) => {
-                        changes.push(FileChange::FileRemoved { path: source });
+                        remove_first(&mut modified, &source);
+                        push_once(&mut removed, &source);
                         push_once(&mut modified, &event.path);
                     }
                     None => push_once(&mut modified, &event.path),
@@ -142,6 +178,16 @@ pub fn coalesce(events: &[RawEvent], is_tracked: impl Fn(&str) -> bool) -> Vec<F
                     push_once(&mut modified, &event.path);
                 }
             }
+        }
+    }
+
+    // 対のrename先が届かなかったrename元は、監視範囲外への移動やイベントの取りこぼしで
+    // ある。いずれも旧パスからは失われているため、削除として確定する。捨ててしまうと、
+    // 開いているタブが `loaded` のまま残り、ツリーも削除を反映できない。
+    for path in pending_from {
+        if is_tracked(&path) {
+            remove_first(&mut modified, &path);
+            push_once(&mut removed, &path);
         }
     }
 
@@ -265,6 +311,112 @@ mod tests {
                     RawEvent::new(Modified, "a.md.tmp"),
                 ],
                 vec![],
+            ),
+        ];
+
+        for (name, events, expected) in cases {
+            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn coalesce_handles_incomplete_and_multiple_renames() {
+        let cases: [(&str, Vec<RawEvent>, Vec<FileChange>); 5] = [
+            (
+                // 監視範囲外への移動やイベントの取りこぼしでrename先が届かない場合。
+                // 旧パスからは失われているため、削除として確定する。
+                "対のrename先が届かないrename元は削除として確定する",
+                vec![RawEvent::new(RenamedFrom, "a.md")],
+                vec![removed_change("a.md")],
+            ),
+            (
+                "rename先が届かないrename元は同じ窓の変更も打ち消す",
+                vec![
+                    RawEvent::new(Modified, "a.md"),
+                    RawEvent::new(RenamedFrom, "a.md"),
+                ],
+                vec![removed_change("a.md")],
+            ),
+            (
+                // 対応付けを誤ると、無関係な2つのタブが互いのパスへ移る。
+                // 入れ替えではパスが元に戻るため、両方を変更として扱う。
+                "同一窓の入れ替えrenameは両方の変更として扱う",
+                vec![
+                    RawEvent::new(RenamedFrom, "a.md"),
+                    RawEvent::new(RenamedFrom, "b.md"),
+                    RawEvent::new(RenamedTo, "b.md"),
+                    RawEvent::new(RenamedTo, "a.md"),
+                ],
+                vec![modified_change("b.md"), modified_change("a.md")],
+            ),
+            (
+                "同一窓の複数renameは削除と作成へ倒す",
+                vec![
+                    RawEvent::new(RenamedFrom, "a.md"),
+                    RawEvent::new(RenamedFrom, "b.md"),
+                    RawEvent::new(RenamedTo, "c.md"),
+                    RawEvent::new(RenamedTo, "d.md"),
+                ],
+                vec![
+                    removed_change("a.md"),
+                    removed_change("b.md"),
+                    modified_change("c.md"),
+                    modified_change("d.md"),
+                ],
+            ),
+            (
+                // 複数のatomic replaceが同じ窓に入る場合。rename元はいずれも対象外の
+                // 一時ファイルであり、削除として確定させてはならない。
+                "同一窓の複数atomic replaceはそれぞれの置換先の変更になる",
+                vec![
+                    RawEvent::new(Removed, "a.md"),
+                    RawEvent::new(Removed, "b.md"),
+                    RawEvent::new(RenamedFrom, "a.md.tmp"),
+                    RawEvent::new(RenamedFrom, "b.md.tmp"),
+                    RawEvent::new(RenamedTo, "a.md"),
+                    RawEvent::new(RenamedTo, "b.md"),
+                ],
+                vec![modified_change("a.md"), modified_change("b.md")],
+            ),
+        ];
+
+        for (name, events, expected) in cases {
+            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+        }
+    }
+
+    /// renameと同じ窓で受けた旧パスの変更を、新パスへ引き継ぐことを固定する。
+    ///
+    /// 旧パスのまま返すと、Frontendはタブを新パスへ移したあとに旧パスの変更を捨て、
+    /// 変更後の内容を再読込しない。
+    #[test]
+    fn coalesce_carries_modification_to_the_new_path() {
+        let cases: [(&str, Vec<RawEvent>, Vec<FileChange>); 2] = [
+            (
+                "変更のあとにrenameされた場合",
+                vec![
+                    RawEvent::new(Modified, "a.md"),
+                    RawEvent::new(RenamedFrom, "a.md"),
+                    RawEvent::new(RenamedTo, "b.md"),
+                ],
+                vec![
+                    FileChange::FileRenamed {
+                        path: "b.md".to_owned(),
+                        old_path: "a.md".to_owned(),
+                    },
+                    modified_change("b.md"),
+                ],
+            ),
+            (
+                "変更がなければrenameだけを返す",
+                vec![
+                    RawEvent::new(RenamedFrom, "a.md"),
+                    RawEvent::new(RenamedTo, "b.md"),
+                ],
+                vec![FileChange::FileRenamed {
+                    path: "b.md".to_owned(),
+                    old_path: "a.md".to_owned(),
+                }],
             ),
         ];
 
