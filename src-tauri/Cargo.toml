@@ -27,7 +27,7 @@ ts-rs = "12.0.1"
 [dev-dependencies]
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
 # muda と同じ系列へ解決させる（cargo は semver 互換なら1つへ統一する）。
-muda = "0.19"
+muda = "0.19.3"
 
 [profile.release]
 codegen-units = 1
