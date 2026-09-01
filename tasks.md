@@ -157,6 +157,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
+- [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
+- [ ] 文書読込の世代を実装し、置換直後の再読込（[design-decisions.md](./docs/design-decisions.md) 6.5）で先に開始した読込が後から完了しても、新しい内容を古い内容で上書きしないことを、完了順を反転させた回帰テストで固定する
 - [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、開発版で本番イベントを送らないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 - [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）

@@ -78,6 +78,26 @@ pub struct FileContent {
 ///
 /// Rust側でdebounceし、atomic replaceを削除と誤判定しないよう確定させたうえで通知する
 /// （design-decisions.md 6.4）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct FileChangeEvent {
+    /// 監視の発生元を表す不透明なID（design-decisions.md 6.4）。
+    ///
+    /// `path` はスコープからの相対パスであり、それだけでは通知先を一意にできない。
+    /// 暗黙のルートが異なる2つのloose tab（`C:\A\README.md` と `C:\B\README.md`）は
+    /// どちらも `README.md` になり、ワークスペースを切り替えた直後は新旧のルートが
+    /// 同じ相対パスを持つ。Frontendは自分が保持するスコープと一致しないイベントを
+    /// 破棄する。
+    ///
+    /// スコープはワークスペース、またはloose tabの暗黙のルートを単位として
+    /// Rust側が採番し、プロセスをまたいでは有効でない。画像resource IDのソルトと
+    /// 同じ単位である（design-decisions.md 5.4、9.1）。
+    pub scope_id: String,
+    pub change: FileChange,
+}
+
+/// ファイル監視が確定した変更の内容。
 ///
 /// 種別ごとに必要な情報が異なるため、種別と情報をtagged unionで表す。旧パスを
 /// 任意フィールドとして持つと、renameでないのに旧パスが入った状態や、renameなのに
@@ -85,12 +105,12 @@ pub struct FileContent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
-pub enum FileChangeEvent {
+pub enum FileChange {
     /// ファイルの内容が変わった。開いているタブはstaleにし、アクティブなら再読込する
     /// （design-decisions.md 6.5）。
     #[serde(rename_all = "camelCase")]
     FileModified {
-        /// 変更があった対象のワークスペース相対パス。
+        /// 変更があった対象の、スコープのルートからの相対パス。
         path: String,
     },
     /// ファイルが削除された。debounce期間内に置換もrenameも続かないことを確認済み。
@@ -101,9 +121,9 @@ pub enum FileChangeEvent {
     /// `FileRemoved` と `DirectoryChanged` として扱う（design-decisions.md 6.5）。
     #[serde(rename_all = "camelCase")]
     FileRenamed {
-        /// rename後のワークスペース相対パス。
+        /// rename後の、スコープのルートからの相対パス。
         path: String,
-        /// rename前のワークスペース相対パス。開いているタブの追従に使う。
+        /// rename前の、スコープのルートからの相対パス。開いているタブの追従に使う。
         old_path: String,
     },
     /// ディレクトリの子要素が増減した。展開済みなら、その階層だけを再取得する。
