@@ -128,7 +128,7 @@
 
 - [x] メニューをネイティブ実装とするかWebView内実装とするかを決め、メニュー、ショートカット、パンくずの操作仕様を定義する（ネイティブメニュー。コマンドとアクセラレータの正本は `src-tauri/src/menu.rs`。パンくずはツリーを展開して選択する。[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [x] スプリッターの幅範囲、刻み、設定保存と、文字サイズの範囲、刻みを定義する（幅は最小200 px・最大 `min(600 px, ウィンドウ幅の50 %)`・刻み16 px（`Shift` 併用64 px）、文字サイズは80〜200 %の8段階。正本は `src/state/sidebar-width.ts` と `src/state/font-scale.ts`。ショートカットは3-4の1つ目で確定。[design-decisions.md](./docs/design-decisions.md) 10.2、10.3）
-- [ ] 文書内検索とリンク遷移の戻る／進む操作の採否を決める
+- [x] 文書内検索とリンク遷移の戻る／進む操作の採否を決める（いずれも初期版へ含める。検索はWebView2標準の検索バーを使わずCSS Custom Highlight APIで自前実装し、戻る／進むはリンクを同じタブで開いたうえでHistory APIに載せずタブごとの独自スタックで持つ。正本は `src/state/find.ts` と `src/state/doc-history.ts`。[design-decisions.md](./docs/design-decisions.md) 8.6、9.3）
 - [ ] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める
 
 ### 3-5 Store向けテレメトリ（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）
@@ -162,6 +162,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] `notify` のイベントを `watch::RawEvent` へ写像する処理とdebounce窓の時間管理を実装し、実ファイルに対するatomic replaceで開いているタブが `deleted` にならず再読込されることを、MSIX環境の実測列と突き合わせて確認する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）
 - [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、開発版で本番イベントを送らないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
+- [ ] 文書内検索を実装し、プレビュー本文とコードブロックだけが対象になること、KaTeX出力の二重ヒットが起きないこと、一致位置とハイライトの範囲がずれないことをテストで固定する。`forced-colors` 有効時に `::highlight()` の一致が判読できることもあわせて確認する（[design-decisions.md](./docs/design-decisions.md) 8.6）
+- [ ] タブごとの戻る／進むを実装し、リンク遷移が同じタブで行われること、renameを追跡して履歴のパスが追従すること、読み込めない履歴項目が取り除かれること、WebViewのHistory APIへ何も積まれないままマウスのサイドボタンと `Alt+←` / `Alt+→` が自前のスタックだけを動かすことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 9.3）
 - [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 
 ### 完了条件
@@ -207,6 +209,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
 
 - [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
+- [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
 
 ## 未決事項の一覧
