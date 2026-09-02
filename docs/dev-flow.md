@@ -227,7 +227,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - Mermaidの非同期レンダリングとDOMPurifyによるSVG sanitize
 - lowlightによるコードブロックのシンタックスハイライトと言語の遅延登録
 - KaTeXによる数式表示（遅延ロード）
-- 採用が決定した場合のみfront matter表示、文書内検索、履歴操作
+- 文書内検索（[design-decisions.md](./design-decisions.md) 8.6）とタブごとの戻る／進む（同 9.3）
 - Markdown、Mermaid、数式、画像、リンクの安全な描画
 
 ### 6.3 UI/UX
