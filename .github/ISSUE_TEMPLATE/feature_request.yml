@@ -6,7 +6,9 @@ body:
     attributes:
       value: |
         `md-peruse` は閲覧専用のMarkdownビューワーです。
-        編集機能、ファイル書き込み、ネットワークアクセス、テレメトリはスコープ外です。
+        編集機能、ファイル書き込み、アプリ独自のネットワークアクセスはスコープ外です。
+        利用状況の計測は、Microsoft Store版でイベント名だけを送る5種類のカスタムイベントに限ります。
+        それ以外のテレメトリ、クラッシュレポートの送信、収集項目の追加はスコープ外です。
         スコープの定義は [docs/spec.md](https://github.com/scottlz0310/md-peruse/blob/main/docs/spec.md) を参照してください。
 
   - type: textarea
