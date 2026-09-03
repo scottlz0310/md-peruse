@@ -1547,7 +1547,7 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 - packaged classic appからカスタムイベントを送信できる。追加のcapabilityは不要で、`runFullTrust` だけで成立した。
 - マニフェストの `<Dependencies>` へ2つの `<PackageDependency>` が必要である。`Microsoft.Services.Store.Engagement`（MinVersion 10.0.23012.0、Publisher `CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US`）と `Microsoft.VCLibs.140.00`（MinVersion 14.0）である。後者は `Microsoft.Services.Store.Engagement.dll` が `vccorlib140_app.dll`、`MSVCP140_APP.dll`、`CONCRT140_APP.dll`、`VCRUNTIME140_APP.dll` を必要とするためで、宣言を欠くとクラスは解決されてもDLLのロードで失敗する。
 - **CSPとTauri capabilityの最終値には影響しない。** 送信はWinRTのin-process activationであり、WebViewからのHTTPS通信を伴わない。`connect-src` を広げる必要がなく、capabilityの追加も不要である。
-- パッケージIDを持たない実行（`bun run tauri dev` を含む）では `0x80040154` で失敗する。「開発版・テスト環境で本番イベントを送信しない」という要件は、呼び出し側が失敗を無視するだけで自然に満たされる。
+- パッケージIDを持たない実行（`bun run tauri dev` を含む）では `0x80040154` で失敗する。ただしこれは「開発版・テスト環境で本番イベントを送信しない」という要件を満たさない。上記のとおりEngagementとVCLibsの `PackageDependency` を宣言したパッケージでは送信が成功するため、開発用の自己署名MSIXやパッケージ化したE2E実行はこの経路を通る。要件は `Package.Current.SignatureKind` による明示的な判定で満たす（11.4）。
 - 失敗はHRESULTとして返るだけで、例外やプロセス終了にはならない。「テレメトリの送信失敗でファイル・フォルダー操作を失敗させない」という要件は呼び出し側で担保できる。
 
 未確認の事項は次のとおり。

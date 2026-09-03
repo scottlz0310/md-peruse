@@ -194,7 +194,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - 段階1（送信経路の実測）: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を確認し、成立可否・制約・CSPとcapabilityへの影響を記録する。**5.2の「CSPとTauri capabilityの最終値」を確定する前に実施する。** 送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値が変わるためである。
 - 段階2（要件の確定）: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）。全イベントの分母を `session_start` へ揃えることで、タブ起動時に `launch_by_association / session_start` が100%を超える読み違いを避ける。[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項が `open_md_fail` だけを「発生ごと」としていた点は、同じ理由がこのイベントにも当てはまるため、5つすべてをセッション単位へ揃えて確定した（[design-decisions.md](./design-decisions.md) 11.4）。
 
-計測定義（Usage reportの標準Sessions指標との照合、反映遅延、バージョン別フィルター、診断データのオプトインによる母集団の偏り）は、Partner Centerの実データを確認できるPhase 5で確定する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。あわせて「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。シングルインスタンス化に伴う同一構造の遷移で、別プロダクトのクラッシュ回帰の実績があるためである。
+計測定義のうち、実装前に確定できるもの（本設計の「セッション」がプロセス単位であること、標準Sessions指標との対応付けを行わないこと、比率をカスタムイベントどうしでのみ取ること）は段階2で確定した（[design-decisions.md](./design-decisions.md) 11.4）。実データがなければ決まらないもの（反映遅延、バージョン別フィルターの粒度、標準指標との件数差、診断データのオプトインによる母集団の偏り）だけをPhase 5で確認する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。あわせて「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。シングルインスタンス化に伴う同一構造の遷移で、別プロダクトのクラッシュ回帰の実績があるためである。
 
 ### 完了条件
 
@@ -327,4 +327,4 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 | 大規模ツリーでの監視範囲の縮退モード | Phase 4 |
 | Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | Phase 3-5（テレメトリ） |
 | Store向けカスタムイベントの要件（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2） | Phase 3-5（テレメトリ） |
-| カスタムイベントの計測定義とSessions指標との照合（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） | Phase 5 |
+| カスタムイベントの計測定義のうち実データを要する項目（反映遅延、バージョン別フィルターの粒度、標準Sessions指標との件数差、母集団の偏り）（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） | Phase 5 |
