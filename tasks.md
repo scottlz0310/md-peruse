@@ -129,7 +129,7 @@
 - [x] メニューをネイティブ実装とするかWebView内実装とするかを決め、メニュー、ショートカット、パンくずの操作仕様を定義する（ネイティブメニュー。コマンドとアクセラレータの正本は `src-tauri/src/menu.rs`。パンくずはツリーを展開して選択する。[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [x] スプリッターの幅範囲、刻み、設定保存と、文字サイズの範囲、刻みを定義する（幅は最小200 px・最大 `min(600 px, ウィンドウ幅の50 %)`・刻み16 px（`Shift` 併用64 px）、文字サイズは80〜200 %の8段階。正本は `src/state/sidebar-width.ts` と `src/state/font-scale.ts`。ショートカットは3-4の1つ目で確定。[design-decisions.md](./docs/design-decisions.md) 10.2、10.3）
 - [x] 文書内検索とリンク遷移の戻る／進む操作の採否を決める（いずれも初期版へ含める。検索はWebView2標準の検索バーを使わずCSS Custom Highlight APIで自前実装し、戻る／進むはリンクを同じタブで開いたうえでHistory APIに載せずタブごとの独自スタックで持つ。正本は `src/state/find.ts` と `src/state/doc-history.ts`。[design-decisions.md](./docs/design-decisions.md) 8.6、9.3）
-- [ ] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める
+- [x] 単一ファイルまたは単一フォルダーのドラッグ＆ドロップの扱いと、英語UIの採否を決める（いずれも初期版へ含める。ドロップはRust側が受け取り、ファイルは関連付け起動と同じ規則で開き、フォルダーはワークスペースとして開く。Frontendへは受け入れ可否だけを渡す。UI言語は日本語と英語とし、OS追従を既定に設定で切り替える。正本は `src-tauri/src/drop.rs` と `src-tauri/src/i18n.rs`。[design-decisions.md](./docs/design-decisions.md) 10.4、10.5）
 
 ### 3-5 Store向けテレメトリ（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）
 
@@ -163,6 +163,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
 - [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、開発版で本番イベントを送らないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 - [ ] 文書内検索を実装し、プレビュー本文とコードブロックだけが対象になること、KaTeX出力の二重ヒットが起きないこと、一致位置とハイライトの範囲がずれないことをテストで固定する。`forced-colors` 有効時に `::highlight()` の一致が判読できることもあわせて確認する（[design-decisions.md](./docs/design-decisions.md) 8.6）
+- [ ] UI言語の切り替えを実装し、メニューから `useJapanese` / `useEnglish` / `useSystemLanguage` を選んだときに、ネイティブメニューの項目名とWebView内の文言の両方が切り替わることをテストで固定する。`LanguageChangedEvent` を受け取らないままFrontendの文言が旧言語で残らないこと、`system` を選んでいる間はイベントが飛ばないこと、言語切替の直前に発行した要求の応答が旧言語で届いても表示が壊れないことも併せて固定する（[design-decisions.md](./docs/design-decisions.md) 10.5）
+- [ ] ドラッグ＆ドロップを実装し、`tauri://drag-enter` で判定した受け入れ可否が `DragState` としてFrontendへ届くこと、`drag-over` では判定し直さないこと、フォルダーとファイルが混在したドロップでワークスペースを先に開くこと、対象外だけのドロップで何も起きないことをテストで固定する。ドロップされた絶対パスがFrontendへ渡らないこともセキュリティ回帰として固定する（[design-decisions.md](./docs/design-decisions.md) 10.4）
 - [ ] タブごとの戻る／進むを実装し、リンク遷移が同じタブで行われること、renameを追跡して履歴のパスが追従すること、読み込めない履歴項目が取り除かれること、WebViewのHistory APIへ何も積まれないままマウスのサイドボタンと `Alt+←` / `Alt+→` が自前のスタックだけを動かすことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 9.3）
 - [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 

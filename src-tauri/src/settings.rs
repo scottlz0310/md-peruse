@@ -9,6 +9,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::i18n::{Language, LanguagePreference};
+
 /// 設定ファイルのスキーマ版。
 ///
 /// 読み込んだ値がこれより小さいときはマイグレーションし、大きいとき（新しい版で
@@ -98,6 +100,8 @@ pub struct WindowPlacement {
 pub struct Settings {
     pub schema_version: u32,
     pub theme: ThemePreference,
+    /// UIの表示言語。既定はOSの表示言語へ従う（10.5）。
+    pub language: LanguagePreference,
     pub sidebar_width: u32,
     /// サイドバーの表示状態。幅とは独立に保持する（10.2）。
     pub sidebar_visible: bool,
@@ -119,6 +123,7 @@ impl Default for Settings {
         Self {
             schema_version: SCHEMA_VERSION,
             theme: ThemePreference::default(),
+            language: LanguagePreference::default(),
             sidebar_width: DEFAULT_SIDEBAR_WIDTH,
             sidebar_visible: true,
             font_scale_percent: DEFAULT_FONT_SCALE_PERCENT,
@@ -154,6 +159,13 @@ pub struct RecentFolderView {
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct UiSettings {
     pub theme: ThemePreference,
+    /// 言語の選択。メニューのチェック状態に使う。
+    pub language: LanguagePreference,
+    /// 選択とOSの表示言語から決まった実際の表示言語（10.5）。
+    ///
+    /// これは起動時の値である。メニューからの切り替えはRust側が処理するため、
+    /// 切り替え後の値は `LanguageChangedEvent`（5.3）で通知する。
+    pub effective_language: Language,
     pub sidebar_width: u32,
     pub sidebar_visible: bool,
     pub font_scale_percent: u16,
@@ -214,6 +226,7 @@ mod tests {
         let json = r#"{"schemaVersion":1,"theme":"dark","futureKey":{"nested":true}}"#;
         let parsed: Settings = serde_json::from_str(json).expect("未知のキーがあっても読める");
         assert_eq!(parsed.theme, ThemePreference::Dark);
+        assert_eq!(parsed.language, LanguagePreference::System);
         assert_eq!(parsed.sidebar_width, DEFAULT_SIDEBAR_WIDTH);
         assert!(parsed.sidebar_visible);
         assert_eq!(parsed.window, None);
@@ -225,6 +238,7 @@ mod tests {
         let json = serde_json::to_string(&Settings::default()).expect("直列化できる");
         for key in [
             "\"schemaVersion\"",
+            "\"language\"",
             "\"sidebarWidth\"",
             "\"sidebarVisible\"",
             "\"fontScalePercent\"",

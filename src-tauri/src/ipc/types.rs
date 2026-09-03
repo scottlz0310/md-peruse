@@ -204,3 +204,44 @@ pub enum ImageResource {
         error: super::error::IpcError,
     },
 }
+
+/// ドラッグ中の受け入れ可否（design-decisions.md 10.4）。
+///
+/// ドロップされたパスはRust側が受け取り、Frontendへは渡さない。`tauri://drag-drop` は
+/// ネイティブ絶対パスを運ぶため、Frontendでlistenすると7.1の「ネイティブ絶対パスを
+/// Frontendへ露出しない」を破る。オーバーレイの表示に必要なのは可否だけであり、
+/// パスも座標も要らない。座標を渡さないのは、ドロップ先の領域によって処理を変えない
+/// ためでもある（10.4）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum DragState {
+    /// ドラッグしていない。オーバーレイを表示しない。
+    Idle,
+    /// 開けるものが含まれる。受け入れる旨のオーバーレイを表示する。
+    Acceptable,
+    /// 開けるものが含まれない。受け入れない旨のオーバーレイを表示する。
+    ///
+    /// ドラッグ中のカーソルは、対象外のファイルでも常に「コピー可」になる。wryの
+    /// Windows実装はCF_HDROPを取得できた時点で `DROPEFFECT_COPY` を返し、通知先の
+    /// 判断を待たないためである（実測）。拒否をカーソルで示せない分をUIで補う。
+    Rejected,
+}
+
+/// UIの表示言語が変わったときの通知（design-decisions.md 10.5）。
+///
+/// メニューからの切り替え（10.1）をRust側が処理するため、Frontendはコマンドを
+/// 受け取らない。起動時の値は `UiSettings` で渡すが、それだけではWebView内の文言が
+/// 旧言語のまま残る。
+///
+/// OSの表示言語は監視しない。変更にはサインアウトを要し、アプリの実行中に変わらない
+/// ためである。このイベントが飛ぶのはメニューからの切り替えのときだけである。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct LanguageChangedEvent {
+    /// 切り替え後の選択。メニューのチェック状態に使う。
+    pub preference: crate::i18n::LanguagePreference,
+    /// 選択から決まった実際の表示言語。
+    pub language: crate::i18n::Language,
+}
