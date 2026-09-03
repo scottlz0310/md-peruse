@@ -259,7 +259,7 @@ Bunはユーザー標準のパッケージマネージャー（pnpm）と異な�
 ### 5.3 Tauri IPC
 
 - 要求と応答にはTauri commandを使用する。
-- ファイル変更、テーマ変更、ドラッグ状態（10.4）などの通知にはTauri eventまたはchannelを使用する。
+- ファイル変更、テーマ変更、言語変更（10.5）、ドラッグ状態（10.4）などの通知にはTauri eventまたはchannelを使用する。
 - Frontendへ汎用ファイルシステムAPIを公開しない。
 - commandごとに必要なcapabilityだけを許可する。
 - Frontendから受け取ったパス、URL、resource IDはRust側で再検証する。
@@ -416,7 +416,7 @@ capabilityは `src-tauri/capabilities/default.json` に次の3つだけを置く
 
 | 権限 | 用途 |
 | --- | --- |
-| `core:event:allow-listen` | Rustから送るファイル変更イベント、テーマ変更イベント、ドラッグ状態（5.3、10.4）の受信 |
+| `core:event:allow-listen` | Rustから送るファイル変更イベント、テーマ変更イベント、言語変更イベント、ドラッグ状態（5.3、10.4、10.5）の受信 |
 | `core:event:allow-unlisten` | 上記の解除 |
 | `opener:allow-open-url`（`http://*`、`https://*` へ限定） | 外部リンクをOS既定ブラウザーで開く（7.2） |
 
@@ -1123,7 +1123,11 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 
 `LanguagePreference`（`system` / `ja` / `en`）を設定として保存し、既定は `system` とする。`system` のときはOSの表示言語の一次サブタグで決め、`ja` なら日本語、それ以外は英語とする。対応しない言語で英語へ倒すのは、その言語圏の利用者にとって英語のほうが読める見込みが高いためである。日本語を既定にすると、日本語を読めない利用者へ読めないUIが出る。
 
-選択はメニューから切り替える（10.1）。配色テーマと同じく、設定値（`LanguagePreference`）と実際の値（`Language`）を別の型で表す。実際の言語はFrontendへ `UiSettings.effectiveLanguage` として渡す。配色では実際の値を `ThemeChangedEvent` で渡す（5.3）が、言語ではイベントを設けない。OSの表示言語はサインアウトなしには変わらず、アプリの実行中に通知を受け取る場面がないためである。
+選択はメニューから切り替える（10.1）。配色テーマと同じく、設定値（`LanguagePreference`）と実際の値（`Language`）を別の型で表す。起動時の値はFrontendへ `UiSettings`（`language` と `effectiveLanguage`）として渡し、切り替えは `LanguageChangedEvent`（5.3）で通知する。
+
+イベントを設ける理由は、言語の切り替えをRust側で処理する（10.1）ためである。メニューの項目名を組み直す必要からRustが受け口になっており、Frontendはコマンドを受け取らない。起動時の投影だけではWebView内の文言が旧言語のまま残る。切り替えの契機がOSではなくアプリ内の操作である点で、配色の `ThemeChangedEvent`（OSの設定変更の通知）とは通知の向きが異なるが、Frontendから見れば「実効値が外から変わったので描き直す」という同じ扱いになる。
+
+OSの表示言語そのものは監視しない。変更にはサインアウトを要し、アプリの実行中に変わらないためである。したがって `LanguageChangedEvent` が飛ぶのはメニューからの切り替えのときだけであり、`system` を選んでいる間にイベントが飛ぶことはない。
 
 文言はRust側とFrontend側の双方が持つ。
 
@@ -1178,7 +1182,7 @@ MSIXマニフェストの `<Resource Language>` は `ja-JP` と `en-US` の両�
 
 | 状態 | Frontendへの渡し方 |
 | --- | --- |
-| テーマ、UI言語、サイドバー幅、サイドバー表示状態、文字サイズ | 値をそのまま渡す。UI言語は選択（`LanguagePreference`）と実際の言語（`Language`）の両方を渡す（10.5） |
+| テーマ、UI言語、サイドバー幅、サイドバー表示状態、文字サイズ | 値をそのまま渡す。UI言語は選択（`LanguagePreference`）と実際の言語（`Language`）の両方を渡す。切り替え後の値は `LanguageChangedEvent` で通知する（10.5） |
 | 最近使ったフォルダー | 不透明なIDと表示ラベル（`RecentFolderView`）を渡す。絶対パスは渡さない |
 | 最後のワークスペース | 渡さない。起動時にRust側が開き直す |
 | ウィンドウ位置とサイズ | 渡さない。Rust側がウィンドウへ適用する |

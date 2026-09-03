@@ -163,9 +163,8 @@ pub struct UiSettings {
     pub language: LanguagePreference,
     /// 選択とOSの表示言語から決まった実際の表示言語（10.5）。
     ///
-    /// 配色では実際の値を `ThemeChangedEvent` で渡す（5.3）のに対し、言語は投影へ
-    /// 含める。OSの表示言語はサインアウトなしには変わらず、アプリの実行中に通知を
-    /// 受け取る場面がないためである。
+    /// これは起動時の値である。メニューからの切り替えはRust側が処理するため、
+    /// 切り替え後の値は `LanguageChangedEvent`（5.3）で通知する。
     pub effective_language: Language,
     pub sidebar_width: u32,
     pub sidebar_visible: bool,
