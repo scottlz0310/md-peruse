@@ -25,7 +25,7 @@
   - MSIX（packaged classic app、`mediumIL`）でも同じように動作することを確認した（[design-decisions.md](./docs/design-decisions.md) 13.4）。プロセスの整合性レベルはエクスプローラーと同じ `Medium Mandatory Level` であり、UIPIによる遮断は起きない
 - 英語UIを初期版へ含めることを確定し、言語の型と解決規則を `src-tauri/src/i18n.rs` へ追加（[design-decisions.md](./docs/design-decisions.md) 10.5）。日本語と英語の2言語とする
   - `LanguagePreference`（`system` / `ja` / `en`）を設定へ追加し、既定は `system` とする。`system` のときはOSの表示言語の一次サブタグで決め、対応しない言語は英語へ倒す。その言語圏の利用者にとって英語のほうが読める見込みが高く、日本語を既定にすると日本語を読めない利用者へ読めないUIが出るためである
-  - 設定値（`LanguagePreference`）と実際の言語（`Language`）を別の型で表す。配色テーマと同じ関係である。実際の言語は `UiSettings.effectiveLanguage` で渡し、テーマのような変更イベントは設けない。OSの表示言語はサインアウトなしには変わらず、実行中に通知を受け取る場面がないためである
+  - 設定値（`LanguagePreference`）と実際の言語（`Language`）を別の型で表す。配色テーマと同じ関係である。起動時の値は `UiSettings`（`language` と `effectiveLanguage`）で渡し、メニューからの切り替えは `LanguageChangedEvent` で通知する
   - `IpcError.message` はRust側が現在の言語で組み立てる。ネイティブメニューとネイティブダイアログの文言をどのみちRust側が持ち、IPCが成立しない場面の表示もRust側で行うため、辞書を両側へ分けると同じ文言が二重になる。言語を切り替える直前に発行した要求の応答が旧言語で届きうる点は受け入れる
   - 言語の切り替えはメニューへ置き、Rust側で処理する（10.1）。項目名そのものを組み直す必要があるためである。テーマの切り替えがFrontendの担当であるのと対照的である
   - 言語の切り替えを `LanguageChangedEvent` でFrontendへ通知する。切り替えをRust側で処理する以上、起動時の投影（`UiSettings`）だけではWebView内の文言が旧言語のまま残るためである。OSの表示言語そのものは監視せず、このイベントが飛ぶのはメニューからの切り替えのときだけとする
