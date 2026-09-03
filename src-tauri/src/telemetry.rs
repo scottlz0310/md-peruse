@@ -50,6 +50,30 @@ impl TelemetryEvent {
     }
 }
 
+/// パッケージの署名種別。
+///
+/// WinRTの `Windows.ApplicationModel.PackageSignatureKind` に対応する。値の取得は
+/// Phase 4で `Package::Current()` から行う。パッケージIDを持たない実行では取得自体が
+/// 失敗するため、呼び出し側は `Option` として扱う。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackageSignatureKind {
+    None,
+    Developer,
+    Enterprise,
+    Store,
+    System,
+}
+
+/// カスタムイベントを送ってよいかを、パッケージの署名種別から判定する。
+///
+/// Storeから配布されたパッケージのときだけ送る。パッケージIDを持たない実行では
+/// 送信経路そのものが成立しない（13.5）が、それだけでは足りない。開発用の自己署名
+/// MSIXやパッケージ化したE2E実行は、Engagement と VCLibs の `PackageDependency` を
+/// 宣言していれば送信に成功してしまうためである（11.4）。
+pub fn should_send(signature_kind: Option<PackageSignatureKind>) -> bool {
+    matches!(signature_kind, Some(PackageSignatureKind::Store))
+}
+
 /// 1セッションで各イベントを1回だけ送るための記録。
 ///
 /// 5つすべてをセッション単位とすることで、どの率も `session_start` を分母として
@@ -134,6 +158,25 @@ mod tests {
         assert!(session.take(TelemetryEvent::OpenMdFail));
         assert!(!session.is_sent(TelemetryEvent::OpenMdOk));
         assert!(session.take(TelemetryEvent::OpenMdOk));
+    }
+
+    /// Store署名のパッケージだけが送信対象であることを固定する。
+    ///
+    /// 開発用の自己署名MSIXは `Developer` を返す。パッケージIDを持たない実行では
+    /// 署名種別を取得できず `None` になる。どちらも送らない。
+    #[test]
+    fn only_store_signed_packages_send_events() {
+        let cases = [
+            (None, false),
+            (Some(PackageSignatureKind::None), false),
+            (Some(PackageSignatureKind::Developer), false),
+            (Some(PackageSignatureKind::Enterprise), false),
+            (Some(PackageSignatureKind::System), false),
+            (Some(PackageSignatureKind::Store), true),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(should_send(kind), expected, "入力: {kind:?}");
+        }
     }
 
     /// 新しいセッションでは送信済みの記録を引き継がないことを固定する。
