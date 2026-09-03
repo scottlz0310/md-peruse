@@ -192,22 +192,22 @@ RustとTypeScript間のTauri command / eventについて、次の型とエラー
 Microsoft Store版の初回リリースから送るカスタムイベントを要件化する（[#21](https://github.com/scottlz0310/md-peruse/issues/21)）。本単位は2段階に分ける。
 
 - 段階1（送信経路の実測）: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を確認し、成立可否・制約・CSPとcapabilityへの影響を記録する。**5.2の「CSPとTauri capabilityの最終値」を確定する前に実施する。** 送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値が変わるためである。
-- 段階2（要件の確定）: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）。全イベントの分母を `session_start` へ揃えることで、タブ起動時に `launch_by_association / session_start` が100%を超える読み違いを避ける。
+- 段階2（要件の確定）: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./spec.md) のテレメトリ方針とIssueテンプレートの記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）。全イベントの分母を `session_start` へ揃えることで、タブ起動時に `launch_by_association / session_start` が100%を超える読み違いを避ける。[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項が `open_md_fail` だけを「発生ごと」としていた点は、同じ理由がこのイベントにも当てはまるため、5つすべてをセッション単位へ揃えて確定した（[design-decisions.md](./design-decisions.md) 11.4）。
 
 計測定義（Usage reportの標準Sessions指標との照合、反映遅延、バージョン別フィルター、診断データのオプトインによる母集団の偏り）は、Partner Centerの実データを確認できるPhase 5で確定する。実装はPhase 4で各機能の実装と同時に行う（発火条件が機能そのものに埋まるため、後付けでは「キャンセル時に成功イベントを送らない」条件を担保できない）。あわせて「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。シングルインスタンス化に伴う同一構造の遷移で、別プロダクトのクラッシュ回帰の実績があるためである。
 
 ### 完了条件
 
-- [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている。
-- [ ] IPCのversion、request ID、cancelの契約が定義されている。
-- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる。
-- [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる。
+- [x] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている。
+- [x] IPCのversion、request ID、cancelの契約が定義されている。
+- [x] TypeScriptとRustのwire契約が一致していることをCIで検証できる。
+- [x] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる。
 - [x] 永続化する状態と保存先、スキーマが確定している。
 - [x] ファイル監視の開始、停止、ワークスペース切り替え時のライフサイクルが確定している。
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない。
 - [x] CSPとcapabilityの最終値が確定している。
-- [ ] Store向けカスタムイベントの送信経路と要件が確定している（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1・2）。
-- [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している。
+- [x] Store向けカスタムイベントの送信経路と要件が確定している（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1・2）。
+- [x] P1の未決事項のうち、実装前に確定が必要なものが解消している。残るP1（lowlightの言語allowlist、260文字を超えるパス、監視範囲の縮退モード）はいずれもPhase 4へ割り当て済みであり、実装の中で確定する。
 
 ## 6. Phase 4: 機能実装
 

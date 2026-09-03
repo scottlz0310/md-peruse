@@ -19,7 +19,7 @@
 | Phase 0 | リポジトリ整備 | 完了 |
 | Phase 1 | MSIX技術スパイク | 完了 |
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
-| Phase 3 | 詳細設計 | 着手中 |
+| Phase 3 | 詳細設計 | 完了 |
 | Phase 4 | 機能実装 | 未着手 |
 | Phase 5 | 配布パイプラインとStore公開 | 未着手 |
 
@@ -136,20 +136,20 @@
 Microsoft Store版の初回リリースから送るカスタムイベントを要件化する。段階1は3-2の「CSPとTauri capabilityの最終値を確定する」より前に実施する。送信経路がWebViewからのHTTPS通信になる場合、`connect-src` とcapabilityの最終値へ影響するためである。
 
 - [x] 段階1: Tauri + MSIX packaged classic appから利用できるMicrosoft公式のイベント送信経路を実測し、成立可否・制約・CSPとcapabilityへの影響を [design-decisions.md](./docs/design-decisions.md) へ記録する（`StoreServicesCustomEventLogger` を呼べる。Engagement と VCLibs の `PackageDependency` が必要。CSPとcapabilityへは影響しない。[design-decisions.md](./docs/design-decisions.md) 13.5）
-- [ ] 段階2: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./docs/spec.md) のテレメトリ方針とIssueテンプレートの「テレメトリはスコープ外」の記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項）
+- [x] 段階2: イベント名、発火条件、データ最小化、送信失敗時の挙動、Store版限定条件を定義し、[spec.md](./docs/spec.md) のテレメトリ方針とIssueテンプレートの「テレメトリはスコープ外」の記述を更新する。送信単位はシングルインスタンス＋タブ起動を前提としてセッション単位へ統一する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項。5種類のイベントをすべて1セッション1回とし、`open_md_fail` も揃えた。正本は `src-tauri/src/telemetry.rs`。[design-decisions.md](./docs/design-decisions.md) 11.4）
 
 ### 完了条件
 
-- [ ] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている
-- [ ] IPCのversion、request ID、cancelの契約が定義されている
-- [ ] TypeScriptとRustのwire契約が一致していることをCIで検証できる
-- [ ] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
+- [x] IPCの入力、出力、失敗条件がTypeScriptとRustの両方で定義されている
+- [x] IPCのversion、request ID、cancelの契約が定義されている
+- [x] TypeScriptとRustのwire契約が一致していることをCIで検証できる
+- [x] エラーコード体系が定義され、Frontendが文字列比較なしで分岐できる
 - [x] 永続化する状態と保存先、スキーマが確定している
 - [x] ファイル監視のライフサイクルが確定している
 - [x] sanitize schemaの許可範囲が全列挙され、暗黙の許可が存在しない
 - [x] CSPとcapabilityの最終値が確定している
-- [ ] P1の未決事項のうち、実装前に確定が必要なものが解消している
-- [ ] Store向けカスタムイベントの送信経路と要件が確定している
+- [x] P1の未決事項のうち、実装前に確定が必要なものが解消している（残るP1はいずれもPhase 4へ割り当て済み）
+- [x] Store向けカスタムイベントの送信経路と要件が確定している
 
 ## Phase 4: 機能実装
 
