@@ -37,6 +37,12 @@ pub enum MenuCommand {
     UseLightTheme,
     /// 配色テーマをダークに固定する。
     UseDarkTheme,
+    /// UIの表示言語をOSの表示言語へ従わせる（10.5）。
+    UseSystemLanguage,
+    /// UIの表示言語を日本語に固定する。
+    UseJapanese,
+    /// UIの表示言語を英語に固定する。
+    UseEnglish,
     /// プレビュー本文の文字を大きくする（10.3）。
     IncreaseFontSize,
     /// プレビュー本文の文字を小さくする。

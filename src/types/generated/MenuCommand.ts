@@ -7,4 +7,4 @@
  * design-decisions.md 10.1 の表を正本とする。Frontendからメニューを操作しないため、
  * `menu` 系のcapabilityは追加しない（5.5）。
  */
-export type MenuCommand = "openFolder" | "openRecentFolder" | "closeWorkspace" | "closeTab" | "toggleSidebar" | "reloadDocument" | "useSystemTheme" | "useLightTheme" | "useDarkTheme" | "increaseFontSize" | "decreaseFontSize" | "resetFontSize" | "about" | "exit";
+export type MenuCommand = "openFolder" | "openRecentFolder" | "closeWorkspace" | "closeTab" | "toggleSidebar" | "reloadDocument" | "useSystemTheme" | "useLightTheme" | "useDarkTheme" | "useSystemLanguage" | "useJapanese" | "useEnglish" | "increaseFontSize" | "decreaseFontSize" | "resetFontSize" | "about" | "exit";
