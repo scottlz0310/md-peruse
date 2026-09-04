@@ -109,10 +109,20 @@ impl WorkspaceRoot {
 
     /// 絶対パスをワークスペース相対パスへ直す。
     ///
-    /// Frontendへ渡す `FileNode.path` などはこの形式である。境界外のパスには `None` を
-    /// 返し、ルート自身は空文字を返す。
+    /// Frontendへ渡す `FileNode.path` などはこの形式である。境界外のパスと実在しない
+    /// パスには `None` を返し、ルート自身は空文字を返す。
+    ///
+    /// 入力は `resolve` と同じく `canonicalize` を通してから判定する。字面のまま
+    /// 判定すると、境界外を指すjunctionを経由したパス（`root\to_outside\secret.md`）や
+    /// `..` を含むパス（`root\..\outside`）がルート配下に見え、境界外を相対パスとして
+    /// 返してしまう。`Path::components` は `..` を解決せずそのまま残すためである。
+    ///
+    /// 実在しないパスを相対化できないため、削除されたファイルのパスはこの関数では
+    /// 扱えない。監視イベント（design-decisions.md 6.4）の `deleted` を相対化する
+    /// 経路はPhase 4-1dで別に用意する。
     pub fn relativize(&self, absolute: &Path) -> Option<String> {
-        if !is_within(&self.path, absolute) {
+        let absolute = fs::canonicalize(absolute).ok()?;
+        if !is_within(&self.path, &absolute) {
             return None;
         }
         let segments: Vec<String> = absolute
@@ -382,8 +392,13 @@ mod tests {
     fn relativize_returns_none_outside_the_workspace() {
         let temp = TempDir::new("relativize");
         let root_dir = temp.path().join("root");
+        let outside = temp.path().join("outside");
         fs::create_dir_all(root_dir.join("docs")).unwrap();
+        fs::create_dir_all(&outside).unwrap();
         fs::create_dir_all(temp.path().join("rootx")).unwrap();
+        fs::write(root_dir.join("docs").join("a.md"), "# a").unwrap();
+        fs::write(outside.join("secret.md"), "# secret").unwrap();
+        create_junction(&root_dir.join("to_outside"), &outside);
         let root = WorkspaceRoot::open(&root_dir).unwrap();
 
         assert_eq!(root.relativize(root.path()).as_deref(), Some(""));
@@ -396,5 +411,20 @@ mod tests {
             root.relativize(&fs::canonicalize(temp.path().join("rootx")).unwrap()),
             None
         );
+
+        // 字面のまま判定すると、いずれもルート配下に見えてしまう。
+        assert_eq!(
+            root.relativize(&root.path().join("to_outside").join("secret.md")),
+            None
+        );
+        assert_eq!(root.relativize(&root.path().join("to_outside")), None);
+        assert_eq!(
+            root.relativize(&root.path().join("..").join("outside")),
+            None
+        );
+        assert_eq!(root.relativize(&root.path().join("..").join("rootx")), None);
+
+        // 実在しないパスは相対化できない。
+        assert_eq!(root.relativize(&root.path().join("missing.md")), None);
     }
 }
