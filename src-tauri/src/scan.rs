@@ -11,7 +11,7 @@ use std::path::Path;
 use crate::file_kind::is_markdown_path;
 use crate::ipc::types::{FileNode, FileNodeKind, ScanResult};
 use crate::natural_order::natural_cmp;
-use crate::path_guard::{ResolveError, WorkspaceRoot};
+use crate::path_guard::{ResolveError, WorkspaceRoot, is_valid_name};
 
 /// 走査から除外するフォルダー名（design-decisions.md 6.2）。
 ///
@@ -105,6 +105,13 @@ fn to_node(entry: &fs::DirEntry, parent: &str) -> Option<FileNode> {
     // 不正なUTF-16を含む名前は落とす。Frontendへ渡すパスは文字列であり、
     // 置換文字へ変換すると、その名前でファイルを開き直せなくなる。
     let name = entry.file_name().to_str()?.to_owned();
+    // `WorkspaceRoot::resolve` が拒否する名前は落とす。verbatimパス（`\\?\`）で作られた
+    // ファイルは末尾にドットや空白を持つ名前を実際に持ちえて、`read_dir` はその名前を
+    // そのまま返す（実測）。ツリーへ出すと、表示されるのに開くと `PathRejected` になる
+    // 項目が生じる。走査が返すパスは、そのまま走査と読込へ渡せるものに限る。
+    if !is_valid_name(&name) {
+        return None;
+    }
     if metadata.is_dir() {
         if is_excluded_directory(&name) {
             return None;
@@ -161,6 +168,11 @@ fn has_visible_child(directory: &Path) -> bool {
         let Some(name) = name.to_str() else {
             continue;
         };
+        // 数える対象を `to_node` が返す対象と一致させる。ここだけ緩いと、展開矢印が
+        // 出るのに展開しても空という食い違いが生じる。
+        if !is_valid_name(name) {
+            continue;
+        }
         if metadata.is_dir() {
             if !is_excluded_directory(name) {
                 return true;
@@ -217,6 +229,36 @@ mod tests {
             .output()
             .expect("attribを実行できない");
         assert!(output.status.success(), "属性を設定できない");
+    }
+
+    /// verbatimパス（`\\?\`）でファイルを作る。
+    ///
+    /// Win32のパス正規化が末尾のドットと空白を落とすため、通常のパスではこれらの名前を
+    /// 作れない。verbatimパスならば作成でき、`read_dir` はその名前をそのまま返す（実測）。
+    /// 区切りはエスケープの取り違えを避けるため文字コードから組み立てる。
+    fn write_with_verbatim_path(directory: &Path, name: &str) -> io::Result<()> {
+        let separator = char::from(92u8);
+        let mut path = std::ffi::OsString::from(format!(
+            "{separator}{separator}{}{separator}",
+            char::from(63u8)
+        ));
+        path.push(directory);
+        path.push(separator.to_string());
+        path.push(name);
+        fs::write(std::path::PathBuf::from(path), "# a")
+    }
+
+    /// verbatimパスで作ったファイルを消す。通常のパスでは名前が一致せず消せない。
+    fn remove_with_verbatim_path(directory: &Path, name: &str) {
+        let separator = char::from(92u8);
+        let mut path = std::ffi::OsString::from(format!(
+            "{separator}{separator}{}{separator}",
+            char::from(63u8)
+        ));
+        path.push(directory);
+        path.push(separator.to_string());
+        path.push(name);
+        let _ = fs::remove_file(std::path::PathBuf::from(path));
     }
 
     fn names(result: &ScanResult) -> Vec<&str> {
@@ -350,6 +392,65 @@ mod tests {
                 ("with-text", Some(false)),
             ]
         );
+    }
+
+    #[test]
+    fn scan_excludes_names_that_cannot_be_resolved() {
+        let temp = TempDir::new("invalid-names");
+        // 通常のパスでは作れない名前。verbatimパスなら作成でき、列挙にも現れる。
+        let invalid = ["trail.md.", "space.md "];
+        for name in invalid {
+            write_with_verbatim_path(temp.path(), name).expect("verbatimパスで作成できない");
+        }
+        fs::write(temp.path().join("keep.md"), "# a").unwrap();
+        let root = WorkspaceRoot::open(temp.path()).unwrap();
+
+        // 列挙には現れるが、そのパスで開き直せない。
+        let listed: Vec<String> = fs::read_dir(temp.path())
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        for name in invalid {
+            assert!(listed.contains(&name.to_owned()), "{name} が列挙に現れない");
+            assert!(
+                matches!(root.resolve(name), Err(ResolveError::Rejected(_))),
+                "{name} が解決できてしまう"
+            );
+        }
+
+        // 走査は開けない項目をツリーへ出さない。
+        let result = scan_directory(&root, "").unwrap();
+        assert_eq!(names(&result), ["keep.md"]);
+
+        for name in invalid {
+            remove_with_verbatim_path(temp.path(), name);
+        }
+    }
+
+    #[test]
+    fn has_children_ignores_names_that_cannot_be_resolved() {
+        let temp = TempDir::new("invalid-child");
+        let directory = temp.path().join("only-invalid");
+        fs::create_dir_all(&directory).unwrap();
+        write_with_verbatim_path(&directory, "trail.md.").expect("verbatimパスで作成できない");
+        let root = WorkspaceRoot::open(temp.path()).unwrap();
+
+        // 開けない名前しか持たないフォルダーは、展開しても空になる。展開矢印を出さない。
+        let result = scan_directory(&root, "").unwrap();
+        assert_eq!(
+            result.entries.first().map(|node| node.has_children),
+            Some(Some(false))
+        );
+        assert!(
+            scan_directory(&root, "only-invalid")
+                .unwrap()
+                .entries
+                .is_empty(),
+            "展開結果と `hasChildren` が食い違う"
+        );
+
+        remove_with_verbatim_path(&directory, "trail.md.");
     }
 
     #[test]

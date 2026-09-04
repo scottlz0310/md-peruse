@@ -11,6 +11,7 @@ use std::io;
 
 use tauri::State;
 
+use crate::i18n::Language;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{ScanRequest, ScanResult};
@@ -36,13 +37,24 @@ pub fn scan_directory_command(
     let Some(result) = result else {
         return Err(ipc_error(ErrorCode::WorkspaceNotFound, language, None));
     };
-    result.map_err(|error| {
-        ipc_error(
-            directory_error_code(&error),
-            language,
-            Some(request.path.clone()),
-        )
-    })
+    result.map_err(|error| scan_error(&error, &request.path, language))
+}
+
+/// 走査の失敗を `IpcError` へ写す。
+///
+/// `detail` へ載せるのは、形式の検証を通った要求パスだけとする。検証に落ちた入力は
+/// ワークスペース相対パスであるとは限らず、ネイティブ絶対パス、UNC表記、device pathが
+/// そのまま渡されている場合がある。それを応答へ載せると、`message` と `detail` へ
+/// ネイティブ絶対パスを含めないという契約（design-decisions.md 5.3、7.1）を破る。
+///
+/// 境界外（`PathOutsideWorkspace`）と、見つからない・アクセスできない場合は、形式の検証を
+/// 通っているためワークスペース相対パスである。どの項目で失敗したかを示すために載せる。
+fn scan_error(error: &ResolveError, requested_path: &str, language: Language) -> IpcError {
+    let detail = match error {
+        ResolveError::Rejected(PathRejection::Malformed) => None,
+        _ => Some(requested_path.to_owned()),
+    };
+    ipc_error(directory_error_code(error), language, detail)
 }
 
 /// ディレクトリ走査の失敗を `ErrorCode` へ写す。
@@ -94,6 +106,56 @@ mod tests {
         ];
         for (error, expected) in cases {
             assert_eq!(directory_error_code(&error), expected, "{error:?}");
+        }
+    }
+
+    #[test]
+    fn rejected_requests_do_not_echo_the_input_path() {
+        // Frontendから届いた文字列が相対パスとは限らない。形式の検証に落ちた入力は
+        // 応答へ載せない（design-decisions.md 5.3、7.1）。
+        let native_paths = [
+            r"C:\Users\someone\secret",
+            r"\\server\share\secret.md",
+            r"\\?\C:\Users\someone\secret.md",
+            "a.md:stream",
+        ];
+        for path in native_paths {
+            let error = scan_error(
+                &ResolveError::Rejected(PathRejection::Malformed),
+                path,
+                Language::Ja,
+            );
+            assert_eq!(error.code, ErrorCode::PathRejected);
+            assert_eq!(error.detail, None, "入力をそのまま返している: {path}");
+            assert!(
+                !error.message.contains(path),
+                "文言が入力を含む: {}",
+                error.message
+            );
+        }
+    }
+
+    #[test]
+    fn resolvable_requests_carry_the_relative_path() {
+        // 形式の検証を通った要求は、どの項目で失敗したかを示すために `detail` へ載せる。
+        let cases = [
+            (
+                ResolveError::Rejected(PathRejection::Outside),
+                ErrorCode::PathOutsideWorkspace,
+            ),
+            (
+                ResolveError::Io(io::Error::from(io::ErrorKind::NotFound)),
+                ErrorCode::DirectoryNotFound,
+            ),
+            (
+                ResolveError::Io(io::Error::from(io::ErrorKind::PermissionDenied)),
+                ErrorCode::DirectoryAccessDenied,
+            ),
+        ];
+        for (error, expected_code) in cases {
+            let ipc = scan_error(&error, "docs/sub", Language::Ja);
+            assert_eq!(ipc.code, expected_code);
+            assert_eq!(ipc.detail.as_deref(), Some("docs/sub"));
         }
     }
 }

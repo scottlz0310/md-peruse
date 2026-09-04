@@ -155,6 +155,17 @@ pub fn validate_relative_path(relative: &str) -> Result<Vec<&str>, PathRejection
     relative.split('/').map(validate_segment).collect()
 }
 
+/// ディレクトリの1要素の名前を、ワークスペース相対パスのセグメントとして使えるかを返す。
+///
+/// 走査（6.2）が使う。列挙で得た名前をそのまま `FileNode.path` へ組み込むと、`resolve`
+/// が拒否する名前を持つ項目がツリーへ出て、表示されるのに開けない状態になる。
+///
+/// verbatimパス（`\\?\`）で作られたファイルは、末尾にドットや空白を持つ名前を実際に
+/// 持ちうる。`read_dir` はその名前をそのまま返し、通常のパスでは開き直せない（実測）。
+pub fn is_valid_name(name: &str) -> bool {
+    validate_segment(name).is_ok()
+}
+
 fn validate_segment(segment: &str) -> Result<&str, PathRejection> {
     // 空のセグメントは、先頭・末尾・連続する区切りから生じる。ルート絶対表記（`/a.md`）も
     // ここで落ちる。IPCで渡すのは常にワークスペース相対であり、ルート基準の記法は
