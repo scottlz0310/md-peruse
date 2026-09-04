@@ -4,6 +4,7 @@ pub mod i18n;
 pub mod ipc;
 pub mod limits;
 pub mod menu;
+pub mod path_guard;
 pub mod settings;
 pub mod startup;
 pub mod telemetry;

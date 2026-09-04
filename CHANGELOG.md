@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- Phase 4（機能実装）へ着手し、ワークスペース境界の検証を `src-tauri/src/path_guard.rs` へ実装（[design-decisions.md](./docs/design-decisions.md) 7.1）。ワークスペース相対パスの形式検証、絶対パスへの解決、コンポーネント単位の境界判定を行う。Frontendから受け取るパスはすべてこの経路を通す
+  - 正規化を `std::fs::canonicalize` へ寄せた。7.1が挙げる正規化のうち、絶対パス化、`..` の解決、8.3形式の短い名前の解決（`VERYLO~1` → 長い名前）、大文字小文字の吸収（`A.MD` → `a.md`）、symlinkとjunctionの解決を、この1つのAPIがすべて行うことを実測した（Windows 11 26200、Rust 1.98.1）。境界外を指すjunctionは境界外の絶対パスを返すため、解決後の境界判定で逸脱を断てる
+  - **Unicode正規化（NFC / NFD）を行わない方針へ改めた。** NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は同一フォルダーに別のファイルとして共存する（実測）。ルートも対象も `canonicalize` を通した結果どうしで比較する以上、比較する2つの表記はいずれもファイルシステムが返したものであり、正規化の差はそもそも生じない。正規化を挟むと実在する別々のファイルを同一視する誤りを新たに作る。`unicode-normalization` の依存追加も不要になった。NFDで書かれたリンクの解決は別の判断として「検討待ち」へ積んだ
+  - 予約デバイス名（`CON`、`NUL`、`COM1` など）は拒否しない。Rustの標準ライブラリはverbatimパス（`\\?\`）でファイルを開くため、`CON.md` は通常のファイルとして作成でき、`read_dir` にも `canonicalize` にもそのまま現れる（実測）。拒否すると、ツリーに表示されるのに開けないファイルが生じる。逆に末尾のドットと空白は拒否する。Win32のパス正規化がこれらを落とし、`a.md.` が `a.md` を別名で指す経路になるためである（実測）
+  - ルート自身がjunctionやsymlinkであることは許容し、解決した先をルートとして扱う。利用者が明示的に選んだフォルダーであり、7.1が断つのは境界内から外への逸脱であって、境界そのものの置き場所ではない
+  - 境界判定のテストだけは、ファイルシステムをtraitで注入する方針（14.2）の対象外とした。検証しているのが `canonicalize` の解決挙動そのものであり、注入した実装へ差し替えると確認したい対象が消えるためである。junctionは特権も開発者モードも要さずに作成でき、CIでもそのまま実行できる
+  - 着手順を[dev-flow.md](./docs/dev-flow.md) 第6章へ追加した。Phase 4は層ごとに6.1から6.3の順で進め、Rust Coreは「パス境界 → 走査 → 読込 → 監視 → image protocol」の5単位へ分ける
 - Microsoft Store向けカスタムイベントの要件を確定し、イベントの集合と送信単位の規則を `src-tauri/src/telemetry.rs` へ追加（[design-decisions.md](./docs/design-decisions.md) 11.4、[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2）。`session_start` / `open_md_ok` / `open_md_fail` / `open_folder` / `launch_by_association` の5種類を初回リリースから固定し、増やさない
   - **5つすべてをセッション単位とし、1セッションにつき1回だけ送る。** どの率も `session_start` を分母としてそのまま読めるようにするためである。[#21](https://github.com/scottlz0310/md-peruse/issues/21) の決定事項は `open_md_fail` だけを「発生ごと」としていたが、発生ごとに送る系列が1つでも混ざるとその系列だけが100 %を超えうる。Partner Center側には件数しか残らないため、後から分母を推定し直すこともできない
   - シングルインスタンス（9.2）のため、2つ目以降のファイルは既存ウィンドウのタブとして開く。この経路では新しいセッションが始まらないので `session_start` と `launch_by_association` を送らない。タブ追加でも送ると、1回の起動で複数のファイルを関連付けから開いたときに `launch_by_association / session_start` が100 %を超える
