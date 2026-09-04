@@ -23,6 +23,9 @@ tauri-plugin-opener = "2.5.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 ts-rs = "12.0.1"
+# OSの表示言語の取得に使う（design-decisions.md 10.5）。Tauriが依存する版と揃えており、
+# 重複してコンパイルされない。
+windows = { version = "0.61.3", features = ["Win32_Globalization"] }
 
 [dev-dependencies]
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う

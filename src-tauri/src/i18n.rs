@@ -61,6 +61,30 @@ pub fn resolve_language(preference: LanguagePreference, os_language_tag: &str) -
     }
 }
 
+/// OSの表示言語をBCP 47の言語タグで返す。
+///
+/// 取得できなかった場合は空文字を返す。`resolve_language` はこれを受けて
+/// `FALLBACK_LANGUAGE` を選ぶ。
+///
+/// `GetUserDefaultLocaleName` はユーザーの既定ロケール名（`ja-JP` など）を返し、
+/// 終端のNULを含む文字数を返す。バッファは `LOCALE_NAME_MAX_LENGTH` に合わせる。
+///
+/// OSの表示言語そのものは監視しない。実行中に変わっても追従せず、次回の起動で反映する
+/// （design-decisions.md 10.5）。
+pub fn os_language_tag() -> String {
+    /// `LOCALE_NAME_MAX_LENGTH`。
+    const MAX_LENGTH: usize = 85;
+
+    let mut buffer = [0u16; MAX_LENGTH];
+    // SAFETY: バッファはAPIが要求する最大長で確保しており、戻り値の長さだけを読む。
+    let length = unsafe { windows::Win32::Globalization::GetUserDefaultLocaleName(&mut buffer) };
+    // 失敗すると0を返す。成功時の戻り値は終端のNULを含む。
+    let Ok(length) = usize::try_from(length) else {
+        return String::new();
+    };
+    String::from_utf16_lossy(&buffer[..length.saturating_sub(1)])
+}
+
 /// 言語タグの一次サブタグを小文字で返す。
 ///
 /// 区切りはハイフンのほか、`ja_JP` 形式で渡された場合に備えてアンダースコアも見る。
@@ -75,6 +99,20 @@ fn primary_subtag(language_tag: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn os_language_tag_is_usable_as_a_language_tag() {
+        let tag = os_language_tag();
+        println!("os_language_tag = {tag:?}");
+        // 値は実行環境に依存するため固定しない。終端のNULを取り込んでいないことと、
+        // `resolve_language` がそのまま解釈できる形であることを確認する。
+        assert!(!tag.contains('\0'), "終端のNULを含む: {tag:?}");
+        assert!(!tag.is_empty(), "OSの表示言語を取得できない");
+        assert_eq!(
+            resolve_language(LanguagePreference::System, &tag),
+            resolve_language(LanguagePreference::System, tag.trim()),
+        );
+    }
 
     #[test]
     fn resolve_language_follows_preference_and_os_tag() {
