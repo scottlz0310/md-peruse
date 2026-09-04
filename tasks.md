@@ -20,10 +20,10 @@
 | Phase 1 | MSIX技術スパイク | 完了 |
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
 | Phase 3 | 詳細設計 | 完了 |
-| Phase 4 | 機能実装 | 未着手 |
+| Phase 4 | 機能実装 | 着手中（4-1 Rust Core） |
 | Phase 5 | 配布パイプラインとStore公開 | 未着手 |
 
-着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」と第5章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
+着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」、第5章「着手順」、第6章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
 
 ## Phase 0: リポジトリ整備
 
@@ -153,7 +153,18 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 ## Phase 4: 機能実装
 
-- [ ] Rust Core（走査、読込、監視、パス検証、custom protocol）
+着手順は [dev-flow.md](./docs/dev-flow.md) 第6章「着手順」を正本とする。層ごとに6.1から6.3の順で進め、Rust Coreは5単位へ分けて単位ごとにPull Requestを分ける。
+
+### 4-1 Rust Core
+
+- [x] ワークスペースとパス境界。相対パスの形式検証と境界判定を `src-tauri/src/path_guard.rs` へ実装し、トラバーサル・区切り表記・代替データストリーム表記・末尾のドットや空白・境界外を指すjunctionの拒否をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 7.1）
+- [ ] ディレクトリ走査。1階層の取得、除外一覧と属性による除外、`hasChildren` の判定、アクセス拒否を項目単位で表示する応答を実装する（[design-decisions.md](./docs/design-decisions.md) 6.2、6.3）
+- [ ] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を実装する。260文字を超えるパスの扱いをここで確定する（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）
+- [ ] ファイル変更監視。`notify` のイベント写像、debounce、監視スコープの採番と破棄を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、`deleted` を相対化する経路をここで用意する
+- [ ] custom image protocol。resource IDの発行と世代、非同期の配信、Content-Typeの判定、上限の検証を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
+
+### 4-2以降
+
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
@@ -213,6 +224,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 - [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
 - [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
+- [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
 
 ## 未決事項の一覧
