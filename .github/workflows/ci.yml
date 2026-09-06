@@ -40,7 +40,7 @@ jobs:
         run: bun run test:coverage
 
       - name: カバレッジをアップロード
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           use_oidc: true
           files: coverage/lcov.info
@@ -110,7 +110,7 @@ jobs:
       # 非ASCIIを含む codecov.yml でデコードに失敗する。アップロードは Coverage ジョブ
       # （ubuntu）へ委ね、このジョブでは計測結果の受け渡しだけを行う。
       - name: カバレッジをartifactへ保存
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-lcov
           path: src-tauri/lcov.info
@@ -127,12 +127,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: rust-lcov
 
       - name: カバレッジをアップロード
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           use_oidc: true
           files: lcov.info
