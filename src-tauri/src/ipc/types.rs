@@ -41,6 +41,19 @@ pub struct ScanRequest {
     pub path: String,
 }
 
+/// ファイル1件の読込要求。
+///
+/// 対象はワークスペース相対パスであり、絶対パスもUNC表記も受け付けない（7.1）。
+/// 走査と同じく、要求へ世代を載せない。陳腐化した応答の破棄はFrontendが持つ
+/// タブごとの読込世代で行う（design-decisions.md 5.3、6.5）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct ReadRequest {
+    /// 読み込むファイルのワークスペース相対パス。
+    pub path: String,
+}
+
 /// 読み込んだファイルの文字コード。
 ///
 /// BOMで判定できるものだけを扱い、CP932などの推測変換は行わない

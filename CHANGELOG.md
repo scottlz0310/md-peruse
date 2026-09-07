@@ -14,6 +14,14 @@
 ## [Unreleased]
 
 ### Added
+- ファイル読込を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。BOMによる文字コード判定、10 MiB上限、改行のLF正規化を行う。境界の検証は走査と同じ `WorkspaceRoot::resolve` を通す
+  - **260文字を超えるパスは特別扱いしないと確定した。** Rustの標準ライブラリは絶対パスをverbatimパスへ変換してからWin32 APIを呼ぶため、`MAX_PATH` の制限を受けない。`WorkspaceRoot` が保持するルートも `canonicalize` を通したverbatimパスであり、そこから組み立てる対象のパスも同じ形式になる。260文字を超える対象について作成・解決・読込のいずれも成功することを実測で確認し、マニフェストの長パス対応（`longPathAware`）もパス長の事前検査も不要とした。P1の未決事項から落とした
+  - **共有モードは標準ライブラリの既定のままとし、こちらからは絞らない。** 既定は `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE` であり、閲覧している間にエディタが保存できなくなる事態が起きない。書込みで開かれたままのファイルを読めることを実測で確認した。逆に、共有を許さずに開かれているファイルは読めない。この共有違反は `FileLocked` として示す。`io::ErrorKind` では区別できないため `ERROR_SHARING_VIOLATION` と `ERROR_LOCK_VIOLATION` をOSのコードで判定する。自動での再試行は行わない（12章）
+  - 文字コードはBOMで判定できるものだけを扱う。BOMを持たないファイルはUTF-8として検証し、CP932などの推測変換は行わない。UTF-16は奇数バイトで終わる並びと、対にならないサロゲートを失敗とする。置換文字へ倒すと、壊れたファイルを「読めた」として表示することになるためである
+  - 上限はmetadataのサイズで先に落としたうえで、読み取りでも上限を1バイト超えるところまでしか読まない。オープンから読み取りまでの間に書き足された場合、metadataの値だけを信じると上限を超えた本文を通す
+  - 改行の正規化は、CRを含まない入力をそのまま返す。上限が10 MiBあり、変換の要否によらず全体を作り直すと無駄が大きい
+  - 読込の失敗は走査とは別の `ErrorCode`（`FileNotFound` / `FileAccessDenied` / `FileLocked` / `FileTooLarge` / `DecodeFailed`）へ写す。読込の失敗はタブの表示に影響し、走査の失敗はツリー項目へ表示するため、原因が同じ「アクセス拒否」でも扱いが異なる（5.3）。形式の検証に落ちた入力を `detail` へ載せないことは、走査と同じく回帰テストで固定した
+  - UTF-32 LEのBOMがUTF-16 LEのBOMを前置するため、UTF-32 LEのファイルをUTF-16 LEとして読んでしまう。原因を表示するべき経路であり、`tasks.md` の「検討待ち」へ積んだ
 - ディレクトリ走査を `src-tauri/src/scan.rs` へ実装し、`scan_directory` commandとして公開（[design-decisions.md](./docs/design-decisions.md) 6.2、6.3）。1階層だけを取得し、除外一覧・属性（隠し、システム、reparse point）・非Markdownファイルを走査の時点で落とす
   - **ツリーの並び順を確定した。** フォルダーを先、ファイルを後に置き、それぞれを自然順で並べる。`a2.md` が `a10.md` より前に来る。章番号を名前へ付けた文書（`01-intro.md`、`10-api.md`）を扱うMarkdownビューワーでは辞書順よりも期待に沿い、エクスプローラーとVS Codeの並びとも一致する。規則の正本は `src-tauri/src/natural_order.rs`
   - 規則はWindowsの `StrCmpLogicalW` を実測して定めた（`a001` < `a01` < `a1`、`a` < `a1`）。ただし `StrCmpLogicalW` 自体は呼ばない。ロケールとOSの版で結果が変わる比較をツリーの並びへ持ち込むと、同じフォルダーが環境によって違う順序で表示され、テストでも固定できないためである。数字列の比較だけを取り入れ、それ以外は小文字化したコードポイント順とする

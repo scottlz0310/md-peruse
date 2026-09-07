@@ -160,7 +160,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] ワークスペースとパス境界。相対パスの形式検証と境界判定を `src-tauri/src/path_guard.rs` へ実装し、トラバーサル・区切り表記・代替データストリーム表記・末尾のドットや空白・境界外を指すjunctionの拒否をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 7.1）
 - [x] ディレクトリ走査。1階層の取得、除外一覧と属性による除外、`hasChildren` の判定、アクセス拒否を項目単位で表示する応答を実装する（[design-decisions.md](./docs/design-decisions.md) 6.2、6.3）。あわせてワークスペース状態、`ErrorCode` の文言、`scan_directory` commandを実装した
 - [ ] 自作commandがcapabilityの列挙なしで呼べることをFrontendの結線時に確認する。Tauriのpermissionはプラグインとcoreのcommandを対象とし、`generate_handler!` で登録したアプリ自身のcommandは対象外という前提で `capabilities/default.json` を3権限のままにしている（[design-decisions.md](./docs/design-decisions.md) 5.5）。前提が誤っていた場合はここで権限を追加する
-- [ ] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を実装する。260文字を超えるパスの扱いをここで確定する（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）
+- [x] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開した（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。260文字を超えるパスは特別扱いしないことを確定した（7.1）
 - [ ] ファイル変更監視。`notify` のイベント写像、debounce、監視スコープの採番と破棄を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、`deleted` を相対化する経路をここで用意する
 - [ ] custom image protocol。resource IDの発行と世代、非同期の配信、Content-Typeの判定、上限の検証を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
 
@@ -227,6 +227,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
 - [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
+- [ ] UTF-32 LEのBOM（`FF FE 00 00`）がUTF-16 LEのBOM（`FF FE`）を前置しているため、UTF-32 LEのファイルをUTF-16 LEとしてデコードし、NUL文字が並んだ本文を「読めた」として表示する。[design-decisions.md](./docs/design-decisions.md) 6.3は未対応の文字コードについて「原因を表示する」と定めており、この経路だけがそれに反する。`FF FE 00 00` を先に判定して `DecodeFailed` とするかを決める（Phase 4-1cのファイル読込実装時に発見。UTF-32をエディタの既定にする経路がなく、優先度は低い）
 
 ## 未決事項の一覧
 
