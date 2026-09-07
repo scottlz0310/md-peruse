@@ -15,6 +15,7 @@
 
 ### Added
 - ファイル読込を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。BOMによる文字コード判定、10 MiB上限、改行のLF正規化を行う。境界の検証は走査と同じ `WorkspaceRoot::resolve` を通す
+  - **ファイルシステムへ触れるcommandを `async fn` とし、同期I/Oを `spawn_blocking` へ渡す。** Tauriは `async` を付けないcommandをメインスレッドで実行するため、同期のままでは応答の遅いストレージでI/Oが戻るまでウィンドウの操作が止まる。上限（10 MiB）はバイト数を縛るだけで待ち時間を縛らない。既存の `scan_directory` commandも同じ実行モデルへ揃えた。ワークスペースのルートは `WorkspaceHandle` のロックを保持したまま参照し、1回の要求が見るルートが1つである性質は変えていない（[design-decisions.md](./docs/design-decisions.md) 5.3）
   - **260文字を超えるパスは特別扱いしないと確定した。** Rustの標準ライブラリは絶対パスをverbatimパスへ変換してからWin32 APIを呼ぶため、`MAX_PATH` の制限を受けない。`WorkspaceRoot` が保持するルートも `canonicalize` を通したverbatimパスであり、そこから組み立てる対象のパスも同じ形式になる。260文字を超える対象について作成・解決・読込のいずれも成功することを実測で確認し、マニフェストの長パス対応（`longPathAware`）もパス長の事前検査も不要とした。P1の未決事項から落とした
   - **共有モードは標準ライブラリの既定のままとし、こちらからは絞らない。** 既定は `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE` であり、閲覧している間にエディタが保存できなくなる事態が起きない。書込みで開かれたままのファイルを読めることを実測で確認した。逆に、共有を許さずに開かれているファイルは読めない。この共有違反は `FileLocked` として示す。`io::ErrorKind` では区別できないため `ERROR_SHARING_VIOLATION` と `ERROR_LOCK_VIOLATION` をOSのコードで判定する。自動での再試行は行わない（12章）
   - 文字コードはBOMで判定できるものだけを扱う。BOMを持たないファイルはUTF-8として検証し、CP932などの推測変換は行わない。UTF-16は奇数バイトで終わる並びと、対にならないサロゲートを失敗とする。置換文字へ倒すと、壊れたファイルを「読めた」として表示することになるためである

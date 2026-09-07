@@ -180,6 +180,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] ドラッグ＆ドロップを実装し、`tauri://drag-enter` で判定した受け入れ可否が `DragState` としてFrontendへ届くこと、`drag-over` では判定し直さないこと、フォルダーとファイルが混在したドロップでワークスペースを先に開くこと、対象外だけのドロップで何も起きないことをテストで固定する。ドロップされた絶対パスがFrontendへ渡らないこともセキュリティ回帰として固定する（[design-decisions.md](./docs/design-decisions.md) 10.4）
 - [ ] タブごとの戻る／進むを実装し、リンク遷移が同じタブで行われること、renameを追跡して履歴のパスが追従すること、読み込めない履歴項目が取り除かれること、WebViewのHistory APIへ何も積まれないままマウスのサイドボタンと `Alt+←` / `Alt+→` が自前のスタックだけを動かすことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 9.3）
 - [ ] 「起動中に2つ目の `.md` を関連付けから開く」経路をE2E回帰項目として固定する。既存ウィンドウへのタブ追加では `session_start` と `launch_by_association` を送らず、`open_md_ok` もセッション内の最初の描画完了時だけであることを、コールドスタート経路と分けて検証する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
+- [ ] 応答の遅いストレージ（ネットワークドライブ、切断中のドライブ）をワークスペースにしたときに、走査と読込の待ち時間中もウィンドウの操作を続けられることをE2Eで確認する。commandは `spawn_blocking` でメインスレッドを解放しているが（[design-decisions.md](./docs/design-decisions.md) 5.3）、Frontendを結線するまで実機で確かめられない
 
 ### 完了条件
 

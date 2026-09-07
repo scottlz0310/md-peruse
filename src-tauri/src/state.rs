@@ -8,14 +8,14 @@
 //! Phase 4-1dである。
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
 use crate::path_guard::WorkspaceRoot;
 
 /// commandから参照するアプリの状態。
 pub struct AppState {
-    workspace: Mutex<Option<WorkspaceRoot>>,
+    workspace: Arc<Mutex<Option<WorkspaceRoot>>>,
     language: Mutex<Language>,
 }
 
@@ -26,7 +26,7 @@ impl AppState {
     /// （`LanguagePreference::System`）を渡す。
     pub fn new(preference: LanguagePreference) -> Self {
         Self {
-            workspace: Mutex::new(None),
+            workspace: Arc::new(Mutex::new(None)),
             language: Mutex::new(resolve_language(preference, &os_language_tag())),
         }
     }
@@ -53,13 +53,13 @@ impl AppState {
         *self.lock_workspace() = None;
     }
 
-    /// 開いているワークスペースのルートに対して処理を行う。
+    /// ワークスペースのハンドルを得る。
     ///
-    /// `WorkspaceRoot` を複製して返さないのは、ルートを持ち出した先で切り替えが起きると、
-    /// 古いルートに対する走査や読込が新しいワークスペースの結果として扱われうるためである。
-    /// ロックを保持したまま処理することで、1回の要求が見るルートを1つに固定する。
-    pub fn with_workspace<T>(&self, f: impl FnOnce(&WorkspaceRoot) -> T) -> Option<T> {
-        self.lock_workspace().as_ref().map(f)
+    /// 走査と読込はブロッキングスレッドで実行するため（design-decisions.md 5.3）、
+    /// `State` の借用を越えて持ち出せる形が要る。複製するのはハンドルだけであり、
+    /// `WorkspaceRoot` そのものはロックの内側から出さない。
+    pub fn workspace(&self) -> WorkspaceHandle {
+        WorkspaceHandle(Arc::clone(&self.workspace))
     }
 
     fn lock_workspace(&self) -> std::sync::MutexGuard<'_, Option<WorkspaceRoot>> {
@@ -70,6 +70,30 @@ impl AppState {
 
     fn lock_language(&self) -> std::sync::MutexGuard<'_, Language> {
         self.language.lock().expect("UI言語のロックに失敗")
+    }
+}
+
+/// ワークスペースのルートへ、`AppState` の借用を越えて到達するためのハンドル。
+///
+/// `Send + 'static` であることがこの型の要件である。走査と読込はブロッキングスレッドへ
+/// 渡すため（design-decisions.md 5.3）、`State<'_, AppState>` の借用のままでは持ち出せない。
+#[derive(Clone)]
+pub struct WorkspaceHandle(Arc<Mutex<Option<WorkspaceRoot>>>);
+
+impl WorkspaceHandle {
+    /// 開いているワークスペースのルートに対して処理を行う。開いていなければ `None` を返す。
+    ///
+    /// `WorkspaceRoot` を複製して返さないのは、ルートを持ち出した先で切り替えが起きると、
+    /// 古いルートに対する走査や読込が新しいワークスペースの結果として扱われうるためである。
+    /// ロックを保持したまま処理することで、1回の要求が見るルートを1つに固定する。
+    pub fn with<T>(&self, f: impl FnOnce(&WorkspaceRoot) -> T) -> Option<T> {
+        // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
+        // 毒される経路自体が生じないため、回復は試みない（12章）。
+        self.0
+            .lock()
+            .expect("ワークスペースのロックに失敗")
+            .as_ref()
+            .map(f)
     }
 }
 
@@ -111,23 +135,23 @@ mod tests {
         let state = AppState::new(LanguagePreference::System);
 
         // 起動直後はwelcome状態であり、ルートを持たない（6.1）。
-        assert_eq!(state.with_workspace(|root| root.path().to_owned()), None);
+        assert_eq!(state.workspace().with(|root| root.path().to_owned()), None);
 
         state.open_workspace(&first).unwrap();
         assert_eq!(
-            state.with_workspace(|root| root.path().to_owned()),
+            state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&first).unwrap())
         );
 
         // 別フォルダーを開くと完全に切り替える。
         state.open_workspace(&second).unwrap();
         assert_eq!(
-            state.with_workspace(|root| root.path().to_owned()),
+            state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&second).unwrap())
         );
 
         state.close_workspace();
-        assert_eq!(state.with_workspace(|root| root.path().to_owned()), None);
+        assert_eq!(state.workspace().with(|root| root.path().to_owned()), None);
     }
 
     #[test]
@@ -141,9 +165,26 @@ mod tests {
         // 開けなかったときに現在のワークスペースを失わない。
         assert!(state.open_workspace(&temp.path().join("missing")).is_err());
         assert_eq!(
-            state.with_workspace(|root| root.path().to_owned()),
+            state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&existing).unwrap())
         );
+    }
+
+    #[test]
+    fn the_workspace_handle_reaches_the_root_from_another_thread() {
+        // 走査と読込はブロッキングスレッドで実行する（design-decisions.md 5.3）。ハンドルが
+        // `Send + 'static` でなくなるとこれらをメインスレッドへ戻すしかなくなり、応答の遅い
+        // ストレージでUIが止まる。別スレッドから到達できることをここで固定する。
+        let temp = TempDir::new("thread");
+        let state = AppState::new(LanguagePreference::System);
+        state.open_workspace(temp.path()).unwrap();
+
+        let handle = state.workspace();
+        let seen = std::thread::spawn(move || handle.with(|root| root.path().to_owned()))
+            .join()
+            .expect("別スレッドでの参照に失敗");
+
+        assert_eq!(seen, Some(fs::canonicalize(temp.path()).unwrap()));
     }
 
     #[test]

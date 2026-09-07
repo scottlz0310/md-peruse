@@ -6,10 +6,16 @@
 //! commandの戻り値の失敗は `IpcError` とし、Frontendは `code` で分岐する。表示場所
 //! （ネイティブダイアログ、プレビュー領域、ツリー項目、文書内要素）はFrontendが呼び出しの
 //! 文脈から決めるため、応答へ含めない。
+//!
+//! ファイルシステムへ触れるcommandは `async fn` とし、同期I/Oを
+//! `async_runtime::spawn_blocking` へ渡す。Tauriは `async` を付けないcommandをメインスレッド
+//! で実行するため、同期のままではネットワークドライブや応答の遅いストレージでウィンドウの
+//! 操作が止まる。上限（10 MiB）はバイト数を縛るだけで待ち時間を縛らない（5.3）。
 
 use std::io;
 
 use tauri::State;
+use tauri::async_runtime::spawn_blocking;
 
 use crate::i18n::Language;
 use crate::ipc::error::{ErrorCode, IpcError};
@@ -26,19 +32,26 @@ use crate::state::AppState;
 ///
 /// 応答の陳腐化はFrontendが持つワークスペース世代とパス世代で判定する。要求へ世代を
 /// 載せないのは、`await invoke()` が要求と応答を対応付けるためである（5.3）。
+///
+/// 走査は `hasChildren` の判定でサブディレクトリを実際に読むため、1階層でも件数に応じた
+/// I/Oを伴う（6.2）。読込と同じくブロッキングスレッドで実行する。
 #[tauri::command]
-pub fn scan_directory_command(
+pub async fn scan_directory_command(
     state: State<'_, AppState>,
     request: ScanRequest,
 ) -> Result<ScanResult, IpcError> {
     let language = state.language();
-    let result = state.with_workspace(|root| scan_directory(root, &request.path));
+    let workspace = state.workspace();
+    let requested_path = request.path.clone();
+    let result = spawn_blocking(move || workspace.with(|root| scan_directory(root, &request.path)))
+        .await
+        .expect("走査タスクの実行に失敗");
     // ワークスペースを開いていない状態で走査を求められた場合。Frontendはwelcome状態で
     // ツリーを出さないため通常は起きないが、開いていないことをルートの不在として返す。
     let Some(result) = result else {
         return Err(ipc_error(ErrorCode::WorkspaceNotFound, language, None));
     };
-    result.map_err(|error| scan_error(&error, &request.path, language))
+    result.map_err(|error| scan_error(&error, &requested_path, language))
 }
 
 /// 走査の失敗を `IpcError` へ写す。
@@ -84,19 +97,26 @@ fn directory_error_code(error: &ResolveError) -> ErrorCode {
 /// 同じタブに対する複数の読込の競合は、Frontendが持つタブごとの読込世代で判定する
 /// （design-decisions.md 6.5）。要求と応答の対応付けは `await invoke()` が行うため、
 /// 要求へ世代を載せない（5.3）。
+///
+/// パスの解決からデコードまでをブロッキングスレッドで実行する。10 MiBの上限はバイト数を
+/// 縛るだけで待ち時間を縛らず、応答の遅いストレージではI/Oが戻るまで時間がかかるためである。
 #[tauri::command]
-pub fn read_file_command(
+pub async fn read_file_command(
     state: State<'_, AppState>,
     request: ReadRequest,
 ) -> Result<FileContent, IpcError> {
     let language = state.language();
-    let result = state.with_workspace(|root| read_file(root, &request.path));
+    let workspace = state.workspace();
+    let requested_path = request.path.clone();
+    let result = spawn_blocking(move || workspace.with(|root| read_file(root, &request.path)))
+        .await
+        .expect("読込タスクの実行に失敗");
     // ワークスペースを開いていない状態で読込を求められた場合。loose tab（9.1）は暗黙の
     // ルートを持つため、その経路は監視スコープとともにPhase 4-1dで用意する。
     let Some(result) = result else {
         return Err(ipc_error(ErrorCode::WorkspaceNotFound, language, None));
     };
-    result.map_err(|error| read_error(&error, &request.path, language))
+    result.map_err(|error| read_error(&error, &requested_path, language))
 }
 
 /// 読込の失敗を `IpcError` へ写す。
