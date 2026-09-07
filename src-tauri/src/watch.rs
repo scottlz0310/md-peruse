@@ -47,8 +47,11 @@ const _: () = assert!(REPLACE_RETRY_DELAY_MS < DEBOUNCE_MS);
 /// ためである（design-decisions.md 6.5）。
 ///
 /// 一方で静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。この上限で
-/// 強制的に閉じる。ただし対のrename先が届いていないrename元が残っている間は閉じない。
-/// 置換の途中で窓を切ると、上と同じ誤判定が起きるためである。
+/// 強制的に閉じる。ただし保留（作り直されていない `Removed`、対の届いていない
+/// `RenamedFrom`）がある間は、その保留が届いてから `DEBOUNCE_MS` まで待つ。置換の途中で
+/// 窓を切ると、上と同じ誤判定が起きるためである。待ちの合計は
+/// `MAX_WINDOW_MS + DEBOUNCE_MS` で必ず打ち切る。規則の詳細は `DebounceWindow::deadline_ms`
+/// を正本とする。
 pub const MAX_WINDOW_MS: u64 = 600;
 
 // 上限は静穏の窓より長くなければならない。短いと静穏による確定へ到達しない。
@@ -153,7 +156,8 @@ fn path_at(root: &Path, event: &Event, index: usize, kind: RawEventKind) -> Opti
 /// 窓の時間規則を実時間なしに検証できなくなる（14.2）。
 #[derive(Debug, Default)]
 pub struct DebounceWindow {
-    events: Vec<RawEvent>,
+    /// 受け取った時刻とイベントの対。時刻は保留の猶予を測るために要る。
+    events: Vec<(u64, RawEvent)>,
     opened_at_ms: u64,
     last_event_ms: u64,
 }
@@ -169,24 +173,42 @@ impl DebounceWindow {
             self.opened_at_ms = now_ms;
         }
         self.last_event_ms = now_ms;
-        self.events.push(event);
+        self.events.push((now_ms, event));
     }
 
     /// 窓を閉じる時刻。開いていなければ `None` を返す。
     ///
-    /// 基本は最後のイベントからの静穏で閉じる。書込みが続く間に窓が閉じず表示が更新
-    /// されないことを避けるため、開いてから `MAX_WINDOW_MS` でも閉じる。ただし対の
-    /// rename先が届いていないrename元が残っている間は、上限では閉じない。置換の途中で
-    /// 窓を切ると、先の窓が `FileRemoved` を確定させてタブを `deleted` にしてしまう。
+    /// 基本は最後のイベントからの静穏（`DEBOUNCE_MS`）で閉じる。書込みが続く間に窓が
+    /// 閉じず表示が更新されないことを避けるため、開いてから `MAX_WINDOW_MS` でも閉じる。
+    ///
+    /// ただし「保留」がある間は上限で閉じない。保留とは、この時点で窓を閉じると
+    /// `FileRemoved` を確定させてしまう状態であり、次の2つを指す。
+    ///
+    /// - 同じ窓で作り直されていない `Removed`。atomic replaceは `Removed` から始まるため、
+    ///   これを上限で切ると、続く `RenamedTo` が次の窓へ回り、タブが終端状態の `deleted`
+    ///   から戻らなくなる（design-decisions.md 6.5）。
+    /// - 対の `RenamedTo` が届いていない `RenamedFrom`。
+    ///
+    /// 保留の猶予は「最も古い保留が届いた時刻」から `DEBOUNCE_MS` とする。静穏の起点
+    /// （`last_event_ms`）に載せると、無関係なパスの更新が続く間ずっと窓が延び、通知が
+    /// 止まったままイベントが溜まり続ける。最も古い保留を起点にするのは、保留が次々に
+    /// 現れても猶予の起点が前へ動かないようにするためである。
+    ///
+    /// いずれにせよ窓は `MAX_WINDOW_MS + DEBOUNCE_MS` で閉じる。保留の解消と発生が
+    /// 重なり続ける列でも窓が閉じないことを避けるための絶対の上限であり、ここで切る
+    /// ときだけは置換を分断しうる。
     pub fn deadline_ms(&self) -> Option<u64> {
         if self.events.is_empty() {
             return None;
         }
         let quiet = self.last_event_ms + DEBOUNCE_MS;
-        if self.has_pending_rename() {
-            return Some(quiet);
+        let mut deadline = quiet.min(self.opened_at_ms + MAX_WINDOW_MS);
+        if let Some(pending_at) = self.oldest_pending_ms() {
+            deadline = deadline
+                .max(pending_at + DEBOUNCE_MS)
+                .min(self.opened_at_ms + MAX_WINDOW_MS + DEBOUNCE_MS);
         }
-        Some(quiet.min(self.opened_at_ms + MAX_WINDOW_MS))
+        Some(deadline)
     }
 
     /// 窓が閉じていれば、溜まったイベントを取り出す。閉じていなければ `None` を返す。
@@ -194,21 +216,55 @@ impl DebounceWindow {
         if now_ms < self.deadline_ms()? {
             return None;
         }
-        Some(std::mem::take(&mut self.events))
+        Some(
+            std::mem::take(&mut self.events)
+                .into_iter()
+                .map(|(_, event)| event)
+                .collect(),
+        )
     }
 
-    /// 対のrename先が届いていないrename元があるか。
+    /// 最も古い保留が届いた時刻。保留がなければ `None` を返す。
     ///
-    /// 個々の対応付けは見ず、件数だけで判断する。入れ替え（`a`→`b` と `b`→`a`）のように
-    /// 対応付けが定まらない列でも、対の数が揃っていれば置換の途中ではない。
-    fn has_pending_rename(&self) -> bool {
-        let count = |kind| {
-            self.events
-                .iter()
-                .filter(|event| event.kind == kind)
-                .count()
-        };
-        count(RawEventKind::RenamedFrom) > count(RawEventKind::RenamedTo)
+    /// 復活の規則は `coalesce` と揃える。`coalesce` が削除を取り消す事象（同じパスの
+    /// `Created`、`Modified`、`RenamedTo`）でここでも保留を外す。ここだけ緩いと、
+    /// `coalesce` が `FileRemoved` を返す状態のまま上限で窓を切ることになる。
+    ///
+    /// `is_tracked` は見ない。対象外のパスの削除を保留として数えても、上限を超えて待つ
+    /// 時間が `DEBOUNCE_MS` 延びるだけであり、置換を分断する側の誤りは起きない。
+    fn oldest_pending_ms(&self) -> Option<u64> {
+        let mut removed: Vec<(&str, u64)> = Vec::new();
+        let mut renamed_from: Vec<u64> = Vec::new();
+        for (at, event) in &self.events {
+            match event.kind {
+                RawEventKind::Removed => removed.push((&event.path, *at)),
+                RawEventKind::Created | RawEventKind::Modified => {
+                    remove_first_removal(&mut removed, &event.path);
+                }
+                RawEventKind::RenamedFrom => renamed_from.push(*at),
+                RawEventKind::RenamedTo => {
+                    remove_first_removal(&mut removed, &event.path);
+                    // 個々の対応付けは見ず、件数だけで対を消す。入れ替え（`a`→`b` と
+                    // `b`→`a`）のように対応付けが定まらない列でも、対の数が揃っていれば
+                    // 置換の途中ではない。
+                    if !renamed_from.is_empty() {
+                        renamed_from.remove(0);
+                    }
+                }
+            }
+        }
+        removed
+            .into_iter()
+            .map(|(_, at)| at)
+            .chain(renamed_from)
+            .min()
+    }
+}
+
+/// 保留中の削除から、そのパスの最初の1件を取り除く。
+fn remove_first_removal(removed: &mut Vec<(&str, u64)>, path: &str) {
+    if let Some(index) = removed.iter().position(|(removed, _)| *removed == path) {
+        removed.remove(index);
     }
 }
 
@@ -736,28 +792,93 @@ mod tests {
         assert!(window.take_due(MAX_WINDOW_MS).is_some(), "上限で閉じない");
     }
 
+    /// 上限の直前に届いた `Removed` を、atomic replaceの起点として保留する。
+    ///
+    /// 保留しないと、上限で窓を切った時点で `FileRemoved` が確定し、次の窓へ回った
+    /// `RenamedTo` の `FileModified` では終端状態の `deleted` から戻れない（6.5）。
     #[test]
-    fn the_upper_bound_does_not_cut_a_rename_in_progress() {
-        // 対のrename先が届いていない間に窓を切ると、先の窓が `FileRemoved` を確定させて
-        // タブを `deleted` にしてしまう。上限より静穏を優先する。
+    fn a_removal_near_the_upper_bound_waits_for_the_replacement() {
         let mut window = DebounceWindow::new();
-        window.push(0, RawEvent::new(RenamedFrom, "a.md.tmp"));
-        let mut now = DEBOUNCE_MS - 50;
-        while now <= MAX_WINDOW_MS {
-            window.push(now, RawEvent::new(Modified, "a.md.tmp"));
-            now += DEBOUNCE_MS - 50;
+        // 無関係なファイルの書込みが続き、窓が上限に達しようとしている。
+        for now in (0..=500).step_by(100) {
+            window.push(now, RawEvent::new(Modified, "busy.md"));
         }
-        let last = now - (DEBOUNCE_MS - 50);
+        window.push(599, RawEvent::new(Removed, "a.md"));
 
-        assert!(last >= MAX_WINDOW_MS, "テストの前提を満たしていない");
-        assert_eq!(window.deadline_ms(), Some(last + DEBOUNCE_MS));
         assert!(
             window.take_due(MAX_WINDOW_MS).is_none(),
-            "置換の途中で閉じている"
+            "置換の起点となる削除を上限で切っている"
         );
 
-        // 対が揃えば上限が効く。
-        window.push(last, RawEvent::new(RenamedTo, "a.md"));
+        window.push(601, RawEvent::new(RenamedFrom, "a.md.tmp"));
+        window.push(602, RawEvent::new(RenamedTo, "a.md"));
+
+        let events = window.take_due(602).expect("保留が解けても閉じない");
+        // 同じ窓に収まっているため、削除ではなく置換として確定する。
+        assert_eq!(
+            coalesce(&events, is_markdown),
+            vec![modified_change("busy.md"), modified_change("a.md")]
+        );
+    }
+
+    /// 対の届かないrenameの待ちを、無関係なパスの更新で延ばさない。
+    ///
+    /// 静穏の起点に載せると、更新が続く限り窓が閉じず、削除も他ファイルの変更も通知
+    /// できないままイベントが溜まり続ける。
+    #[test]
+    fn an_unpaired_rename_does_not_hold_the_window_open() {
+        let mut window = DebounceWindow::new();
+        // 監視範囲外への移動。対の `RenamedTo` は届かない。
+        window.push(0, RawEvent::new(RenamedFrom, "moved-out.md"));
+        let mut now = 100;
+        while now < MAX_WINDOW_MS {
+            window.push(now, RawEvent::new(Modified, "busy.md"));
+            now += 100;
+        }
+        window.push(MAX_WINDOW_MS, RawEvent::new(Modified, "busy.md"));
+
         assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
+        let events = window
+            .take_due(MAX_WINDOW_MS)
+            .expect("対の届かないrenameで窓が閉じない");
+        // 旧パスからは失われているため、削除として確定する。
+        assert_eq!(
+            coalesce(&events, is_markdown),
+            vec![removed_change("moved-out.md"), modified_change("busy.md")]
+        );
+    }
+
+    #[test]
+    fn a_pending_extends_the_upper_bound_only_by_the_quiet_period() {
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(Modified, "busy.md"));
+        window.push(599, RawEvent::new(RenamedFrom, "a.md.tmp"));
+
+        // 上限（600）ではなく、保留が届いた時刻からの猶予で決まる。
+        assert_eq!(window.deadline_ms(), Some(599 + DEBOUNCE_MS));
+
+        // 対が揃えば保留が消え、上限が効く。
+        window.push(600, RawEvent::new(RenamedTo, "a.md"));
+        assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
+    }
+
+    #[test]
+    fn the_window_always_closes_at_the_absolute_bound() {
+        // 保留の解消と発生が重なると、猶予の起点（最も古い保留）が前へ進む。
+        // 絶対の上限がないと、この繰り返しで窓が閉じなくなる。
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(Modified, "busy.md"));
+
+        window.push(599, RawEvent::new(Removed, "a.md"));
+        assert_eq!(window.deadline_ms(), Some(599 + DEBOUNCE_MS));
+
+        // `a.md` の保留が解け、同時に `b.md` の保留が生じる。起点は700へ進む。
+        window.push(700, RawEvent::new(RenamedTo, "a.md"));
+        window.push(700, RawEvent::new(Removed, "b.md"));
+
+        let absolute = MAX_WINDOW_MS + DEBOUNCE_MS;
+        assert!(700 + DEBOUNCE_MS > absolute, "テストの前提を満たしていない");
+        assert_eq!(window.deadline_ms(), Some(absolute));
+        assert!(window.take_due(absolute).is_some(), "絶対の上限で閉じない");
     }
 }

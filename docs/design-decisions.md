@@ -528,7 +528,13 @@ Modify(Name(To))   <root>\a.md
 
 単一の書込みに対しても `Create` と複数の `Modify` が届く。debounceは実装上の最適化ではなく、正しさのために必要である。
 
-窓は最後のイベントから `DEBOUNCE_MS` の静穏で閉じる。最初のイベントからの固定窓にはしない。atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓をまたぐと、先の窓が `fileRemoved` を確定させ、タブが終端状態の `deleted` になるためである（6.5）。一方で静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。そのため窓を開いてから `MAX_WINDOW_MS` でも閉じる。ただし対のrename先が届いていないrename元が残っている間は、上限では閉じない。置換の途中で窓を切ると上と同じ誤判定が起きるためである。値の正本は `src-tauri/src/watch.rs` とする。
+窓は最後のイベントから `DEBOUNCE_MS` の静穏で閉じる。最初のイベントからの固定窓にはしない。atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓をまたぐと、先の窓が `fileRemoved` を確定させ、タブが終端状態の `deleted` になるためである（6.5）。一方で静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。そのため窓を開いてから `MAX_WINDOW_MS` でも閉じる。
+
+上限で閉じる例外として「保留」を置く。保留とは、その時点で窓を閉じると `fileRemoved` を確定させてしまう状態であり、同じ窓で作り直されていない `Remove` と、対の `Modify(Name(To))` が届いていない `Modify(Name(From))` の2つを指す。atomic replaceは `Remove` から始まるため、rename元がまだ届いていない削除も保留に含める。ここを外すと、上限の直前に届いた `Remove` が置換の途中でも削除として確定する。
+
+保留の猶予は「最も古い保留が届いた時刻」から `DEBOUNCE_MS` とする。静穏の起点に載せてはならない。無関係なパスの更新が続く間ずっと窓が延び、対の届かないrename（監視範囲外への移動）と組み合わさると、削除も他ファイルの変更も通知できないままイベントが溜まり続けるためである。起点を最も古い保留に固定するのは、保留が次々に現れても猶予の起点が前へ動かないようにするためである。いずれにせよ窓は `MAX_WINDOW_MS + DEBOUNCE_MS` で閉じる。保留の解消と発生が重なり続ける列に対する絶対の上限であり、ここで切るときだけは置換を分断しうる。
+
+値と規則の正本は `src-tauri/src/watch.rs` の `DebounceWindow::deadline_ms` とする。
 
 `notify` のイベントは、そのまま扱わず自前の生イベントへ写す（6.5）。写像の正本は `src-tauri/src/watch.rs` の `map_event` とする。`Create` を `Created`、`Remove` を `Removed`、`Modify(Name(From))` と `Modify(Name(To))` をそれぞれのrenameへ写し、`Access` は内容もツリーも変えないため捨てる。分類できない種別（`Modify` のその他、`Any`、`Other`）は `Modified` へ倒す。`Removed` へ倒すとタブが終端状態の `deleted` になり、実際にはファイルが残っていても復帰できない。`Modified` なら再読込が走り、本当に失われていれば読込の失敗として原因が出る。
 
