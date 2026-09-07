@@ -16,7 +16,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 /// Windowsのファイル名に使えない文字（design-decisions.md 7.1、7.2）。
 ///
@@ -118,8 +118,8 @@ impl WorkspaceRoot {
     /// 返してしまう。`Path::components` は `..` を解決せずそのまま残すためである。
     ///
     /// 実在しないパスを相対化できないため、削除されたファイルのパスはこの関数では
-    /// 扱えない。監視イベント（design-decisions.md 6.4）の `deleted` を相対化する
-    /// 経路はPhase 4-1dで別に用意する。
+    /// 扱えない。監視イベント（design-decisions.md 6.4）が運ぶパスは
+    /// `relativize_literal` で相対化する。
     pub fn relativize(&self, absolute: &Path) -> Option<String> {
         let absolute = fs::canonicalize(absolute).ok()?;
         if !is_within(&self.path, &absolute) {
@@ -132,6 +132,46 @@ impl WorkspaceRoot {
             .collect();
         Some(segments.join("/"))
     }
+}
+
+/// 監視イベントが運ぶ絶対パスを、スコープのルートからの相対パスへ字面で直す。
+///
+/// 削除とrename元のパスは、変更が確定した時点で実在しない。`canonicalize` は実在しない
+/// パスを解決できないため、`WorkspaceRoot::relativize` ではこれらを扱えない
+/// （design-decisions.md 6.4）。ここは字面のまま判定する。
+///
+/// 字面の判定は `canonicalize` を通す判定より弱く、junctionを経由したパスや `..` を含む
+/// パスがルート配下に見える。そのため `..` と `.` を含む入力を拒否したうえで、コンポーネント
+/// 単位で境界を判定する。監視イベントのパスは、`canonicalize` 済みのルートを `notify` へ
+/// 渡した結果としてOSが返すものであり、Frontendから届く入力とは出所が異なる。7.1が断つのは
+/// 境界内から外への逸脱であり、この経路にはそれを作る余地がない。
+///
+/// 走査（6.2）が落とす名前はここでも落とす。監視が返すパスは、そのまま走査と読込へ渡せる
+/// ものに限る。ここだけ緩いと、通知されたのに開けないパスが生じる。
+///
+/// ルート自身は空文字を返す。境界外と、扱えない名前には `None` を返す。
+pub fn relativize_literal(root: &Path, absolute: &Path) -> Option<String> {
+    // `Path::components` は `..` を解決せずそのまま残す。字面の前方一致の前に落とす。
+    if absolute
+        .components()
+        .any(|component| matches!(component, Component::ParentDir | Component::CurDir))
+    {
+        return None;
+    }
+    if !is_within(root, absolute) {
+        return None;
+    }
+    let mut segments = Vec::new();
+    for component in absolute.components().skip(root.components().count()) {
+        // 不正なUTF-16を含む名前は落とす。置換文字へ変換すると、その名前でファイルを
+        // 開き直せなくなる（走査と同じ扱い）。
+        let name = component.as_os_str().to_str()?;
+        if !is_valid_name(name) {
+            return None;
+        }
+        segments.push(name);
+    }
+    Some(segments.join("/"))
 }
 
 /// ワークスペース相対パスの形式を検証し、セグメント列を返す。
@@ -437,5 +477,63 @@ mod tests {
 
         // 実在しないパスは相対化できない。
         assert_eq!(root.relativize(&root.path().join("missing.md")), None);
+    }
+
+    /// 監視イベント用の字面の相対化（design-decisions.md 6.4）。
+    ///
+    /// 実ファイルを作らないのは、この関数がファイルシステムへ問い合わせないためである。
+    /// 削除が確定したパスを扱えることが存在理由であり、実在を前提にすると検証にならない。
+    #[test]
+    fn relativize_literal_handles_paths_that_no_longer_exist() {
+        let root = Path::new(r"C:\root");
+        let cases = [
+            ("ルート自身は空文字", root.to_path_buf(), Some("")),
+            (
+                "実在しない削除済みのパスも相対化できる",
+                root.join("docs").join("gone.md"),
+                Some("docs/gone.md"),
+            ),
+            ("ルート直下", root.join("a.md"), Some("a.md")),
+            // コンポーネント単位で判定する。前方一致では `C:\rootx` を配下と誤判定する。
+            (
+                "隣接する名前は配下ではない",
+                PathBuf::from(r"C:\rootx\a.md"),
+                None,
+            ),
+            ("境界外", PathBuf::from(r"C:\other\a.md"), None),
+            // `Path::components` は `..` を解決しない。字面の判定の前に落とす。
+            (
+                "親参照を含むパスは拒否する",
+                root.join("..").join("outside").join("a.md"),
+                None,
+            ),
+            // 走査が落とす名前はここでも落とす。通知されたのに開けないパスを作らない。
+            ("末尾のドットを持つ名前は拒否する", root.join("a.md."), None),
+            (
+                "代替データストリーム表記は拒否する",
+                root.join("a.md:stream"),
+                None,
+            ),
+        ];
+        for (name, absolute, expected) in cases {
+            assert_eq!(
+                relativize_literal(root, &absolute).as_deref(),
+                expected,
+                "{name}: {}",
+                absolute.display()
+            );
+        }
+    }
+
+    /// 大文字小文字の差はルートの表記と対象の表記の双方で吸収する。
+    ///
+    /// `notify` が返すパスの表記は、監視へ渡したルートの表記に従う。ルートは
+    /// `canonicalize` 済みだが、判定を表記の一致へ依存させない（7.1）。
+    #[test]
+    fn relativize_literal_ignores_case_in_the_root() {
+        assert_eq!(
+            relativize_literal(Path::new(r"C:\Root"), Path::new(r"C:\root\docs\a.md")).as_deref(),
+            Some("docs/a.md")
+        );
     }
 }

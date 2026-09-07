@@ -528,6 +528,12 @@ Modify(Name(To))   <root>\a.md
 
 単一の書込みに対しても `Create` と複数の `Modify` が届く。debounceは実装上の最適化ではなく、正しさのために必要である。
 
+窓は最後のイベントから `DEBOUNCE_MS` の静穏で閉じる。最初のイベントからの固定窓にはしない。atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓をまたぐと、先の窓が `fileRemoved` を確定させ、タブが終端状態の `deleted` になるためである（6.5）。一方で静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。そのため窓を開いてから `MAX_WINDOW_MS` でも閉じる。ただし対のrename先が届いていないrename元が残っている間は、上限では閉じない。置換の途中で窓を切ると上と同じ誤判定が起きるためである。値の正本は `src-tauri/src/watch.rs` とする。
+
+`notify` のイベントは、そのまま扱わず自前の生イベントへ写す（6.5）。写像の正本は `src-tauri/src/watch.rs` の `map_event` とする。`Create` を `Created`、`Remove` を `Removed`、`Modify(Name(From))` と `Modify(Name(To))` をそれぞれのrenameへ写し、`Access` は内容もツリーも変えないため捨てる。分類できない種別（`Modify` のその他、`Any`、`Other`）は `Modified` へ倒す。`Removed` へ倒すとタブが終端状態の `deleted` になり、実際にはファイルが残っていても復帰できない。`Modified` なら再読込が走り、本当に失われていれば読込の失敗として原因が出る。
+
+イベントが運ぶ絶対パスは、スコープのルートからの相対パスへ字面で直す（`src-tauri/src/path_guard.rs` の `relativize_literal`）。削除とrename元のパスは確定した時点で実在せず、`canonicalize` を通せないためである。字面の判定は7.1の判定より弱いが、これらのパスはFrontendから届く入力ではなく、`canonicalize` 済みのルートを渡した結果としてOSが返すものである。`..` を含む入力を拒否したうえでコンポーネント単位に境界を判定し、走査（6.2）が落とす名前はここでも落とす。相対化できないパスを運ぶイベントは捨てる。通知してもそのまま走査と読込へ渡せないためである。
+
 大規模ツリーでのイベント量に上限を設けるか、監視範囲を縮退させるモードを設けるかは未決とする。
 
 #### Watcherのライフサイクル

@@ -161,7 +161,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] ディレクトリ走査。1階層の取得、除外一覧と属性による除外、`hasChildren` の判定、アクセス拒否を項目単位で表示する応答を実装する（[design-decisions.md](./docs/design-decisions.md) 6.2、6.3）。あわせてワークスペース状態、`ErrorCode` の文言、`scan_directory` commandを実装した
 - [ ] 自作commandがcapabilityの列挙なしで呼べることをFrontendの結線時に確認する。Tauriのpermissionはプラグインとcoreのcommandを対象とし、`generate_handler!` で登録したアプリ自身のcommandは対象外という前提で `capabilities/default.json` を3権限のままにしている（[design-decisions.md](./docs/design-decisions.md) 5.5）。前提が誤っていた場合はここで権限を追加する
 - [x] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開した（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。260文字を超えるパスは特別扱いしないことを確定した（7.1）
-- [ ] ファイル変更監視。`notify` のイベント写像、debounce、監視スコープの採番と破棄を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、`deleted` を相対化する経路をここで用意する
+- [x] ファイル変更監視（前半）。`notify` を導入し、`notify::Event` から `RawEvent` への写像、監視イベント用のパス相対化、debounce窓の時間管理を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、字面で相対化する `relativize_literal` を用意した
+- [ ] ファイル変更監視（後半）。Watcherのライフサイクル、監視スコープの採番と破棄、`DirectoryChanged` の生成、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4）。`DEBOUNCE_MS` と `REPLACE_RETRY_DELAY_MS` の実測確定、監視範囲の縮退モードの要否（15章 P1）もここで判断する
 - [ ] custom image protocol。resource IDの発行と世代、非同期の配信、Content-Typeの判定、上限の検証を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
 
 ### 4-2以降

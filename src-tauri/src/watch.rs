@@ -1,9 +1,16 @@
-//! ファイル監視の時間に関する定数と、debounce窓の畳み込み規則。
+//! ファイル監視の時間に関する定数、`notify` のイベントの写像、debounce窓の畳み込み規則。
 //!
-//! ライフサイクルは design-decisions.md 6.4、6.5 を正本とする。`notify` のイベントを
-//! ここの生イベントへ写像する処理と、窓を閉じる時間管理はPhase 4で行う。
+//! ライフサイクルは design-decisions.md 6.4、6.5 を正本とする。Watcherの起動と停止、
+//! 監視スコープの採番は4-1dの後半で行う。ここが持つのは、実際の監視から切り離して
+//! 検証できる部分に限る。時計は呼び出し側が渡し、このモジュールは時刻を読まない。
+
+use std::path::Path;
+
+use notify::Event;
+use notify::event::{EventKind, ModifyKind, RenameMode};
 
 use crate::ipc::types::FileChange;
+use crate::path_guard::relativize_literal;
 
 /// debounceの窓（ミリ秒）。
 ///
@@ -31,6 +38,21 @@ pub const REPLACE_RETRY_DELAY_MS: u64 = 100;
 // 確定した後に前の再読込を開始することになる。両方の値をPhase 4で実測して差し替える
 // ため、関係をコンパイル時に固定する。
 const _: () = assert!(REPLACE_RETRY_DELAY_MS < DEBOUNCE_MS);
+
+/// 1つの窓を開いていられる最長時間（ミリ秒）。
+///
+/// 窓は最後のイベントから `DEBOUNCE_MS` の静穏で閉じる。最初のイベントからの固定窓に
+/// しないのは、atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓を
+/// またぐと、先の窓が `FileRemoved` を確定させてタブを終端状態の `deleted` にしてしまう
+/// ためである（design-decisions.md 6.5）。
+///
+/// 一方で静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。この上限で
+/// 強制的に閉じる。ただし対のrename先が届いていないrename元が残っている間は閉じない。
+/// 置換の途中で窓を切ると、上と同じ誤判定が起きるためである。
+pub const MAX_WINDOW_MS: u64 = 600;
+
+// 上限は静穏の窓より長くなければならない。短いと静穏による確定へ到達しない。
+const _: () = assert!(MAX_WINDOW_MS > DEBOUNCE_MS);
 
 /// debounce窓へ入る生イベントの種別。
 ///
@@ -61,6 +83,132 @@ impl RawEvent {
             kind,
             path: path.to_owned(),
         }
+    }
+}
+
+/// `notify` のイベントを、窓へ入れる生イベントへ写す。
+///
+/// `root` はスコープのルートであり、`canonicalize` 済みの絶対パスである。相対化できない
+/// パス（境界外、走査が落とす名前、不正なUTF-16）を運ぶイベントは捨てる。通知しても
+/// そのまま走査と読込へ渡せないためである。
+///
+/// | `EventKind` | 生イベント |
+/// | --- | --- |
+/// | `Create(_)` | `Created` |
+/// | `Remove(_)` | `Removed` |
+/// | `Modify(Name(From))` | `RenamedFrom` |
+/// | `Modify(Name(To))` | `RenamedTo` |
+/// | `Modify(Name(Both))` | `RenamedFrom` と `RenamedTo`（`paths` の順） |
+/// | `Modify(その他)`、`Any`、`Other` | `Modified` |
+/// | `Access(_)` | 捨てる |
+///
+/// 分類できない種別を `Modified` へ倒すのは、`Removed` へ倒すとタブが終端状態の `deleted`
+/// になり、実際にはファイルが残っていても復帰できないためである（design-decisions.md 6.5）。
+/// `Modified` なら再読込が走り、本当に失われていれば読込の失敗として原因が出る。`Access`
+/// だけは内容もツリーも変えないため捨てる。
+pub fn map_event(root: &Path, event: &Event) -> Vec<RawEvent> {
+    match event.kind {
+        EventKind::Create(_) => all_paths(root, event, RawEventKind::Created),
+        EventKind::Remove(_) => all_paths(root, event, RawEventKind::Removed),
+        EventKind::Modify(ModifyKind::Name(RenameMode::From)) => {
+            all_paths(root, event, RawEventKind::RenamedFrom)
+        }
+        EventKind::Modify(ModifyKind::Name(RenameMode::To)) => {
+            all_paths(root, event, RawEventKind::RenamedTo)
+        }
+        // 1つのイベントが旧パスと新パスの両方を運ぶ場合。`paths` は旧・新の順である。
+        EventKind::Modify(ModifyKind::Name(RenameMode::Both)) => [
+            path_at(root, event, 0, RawEventKind::RenamedFrom),
+            path_at(root, event, 1, RawEventKind::RenamedTo),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+        EventKind::Modify(_) | EventKind::Any | EventKind::Other => {
+            all_paths(root, event, RawEventKind::Modified)
+        }
+        EventKind::Access(_) => Vec::new(),
+    }
+}
+
+/// イベントが運ぶすべてのパスを、同じ種別の生イベントへ写す。
+fn all_paths(root: &Path, event: &Event, kind: RawEventKind) -> Vec<RawEvent> {
+    event
+        .paths
+        .iter()
+        .filter_map(|path| relativize_literal(root, path))
+        .map(|path| RawEvent { kind, path })
+        .collect()
+}
+
+/// イベントが運ぶ `index` 番目のパスを生イベントへ写す。
+fn path_at(root: &Path, event: &Event, index: usize, kind: RawEventKind) -> Option<RawEvent> {
+    let path = relativize_literal(root, event.paths.get(index)?)?;
+    Some(RawEvent { kind, path })
+}
+
+/// debounce窓（design-decisions.md 6.4）。
+///
+/// 時刻は呼び出し側が単調増加するミリ秒として渡す。ここが `Instant::now()` を読むと、
+/// 窓の時間規則を実時間なしに検証できなくなる（14.2）。
+#[derive(Debug, Default)]
+pub struct DebounceWindow {
+    events: Vec<RawEvent>,
+    opened_at_ms: u64,
+    last_event_ms: u64,
+}
+
+impl DebounceWindow {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 窓へイベントを入れる。空の窓なら、このイベントで窓が開く。
+    pub fn push(&mut self, now_ms: u64, event: RawEvent) {
+        if self.events.is_empty() {
+            self.opened_at_ms = now_ms;
+        }
+        self.last_event_ms = now_ms;
+        self.events.push(event);
+    }
+
+    /// 窓を閉じる時刻。開いていなければ `None` を返す。
+    ///
+    /// 基本は最後のイベントからの静穏で閉じる。書込みが続く間に窓が閉じず表示が更新
+    /// されないことを避けるため、開いてから `MAX_WINDOW_MS` でも閉じる。ただし対の
+    /// rename先が届いていないrename元が残っている間は、上限では閉じない。置換の途中で
+    /// 窓を切ると、先の窓が `FileRemoved` を確定させてタブを `deleted` にしてしまう。
+    pub fn deadline_ms(&self) -> Option<u64> {
+        if self.events.is_empty() {
+            return None;
+        }
+        let quiet = self.last_event_ms + DEBOUNCE_MS;
+        if self.has_pending_rename() {
+            return Some(quiet);
+        }
+        Some(quiet.min(self.opened_at_ms + MAX_WINDOW_MS))
+    }
+
+    /// 窓が閉じていれば、溜まったイベントを取り出す。閉じていなければ `None` を返す。
+    pub fn take_due(&mut self, now_ms: u64) -> Option<Vec<RawEvent>> {
+        if now_ms < self.deadline_ms()? {
+            return None;
+        }
+        Some(std::mem::take(&mut self.events))
+    }
+
+    /// 対のrename先が届いていないrename元があるか。
+    ///
+    /// 個々の対応付けは見ず、件数だけで判断する。入れ替え（`a`→`b` と `b`→`a`）のように
+    /// 対応付けが定まらない列でも、対の数が揃っていれば置換の途中ではない。
+    fn has_pending_rename(&self) -> bool {
+        let count = |kind| {
+            self.events
+                .iter()
+                .filter(|event| event.kind == kind)
+                .count()
+        };
+        count(RawEventKind::RenamedFrom) > count(RawEventKind::RenamedTo)
     }
 }
 
@@ -423,5 +571,193 @@ mod tests {
         for (name, events, expected) in cases {
             assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
         }
+    }
+
+    /// `notify` のイベントを組み立てる。`paths` はスコープのルート配下の絶対パスとする。
+    fn notify_event(kind: EventKind, root: &Path, names: &[&str]) -> Event {
+        Event {
+            kind,
+            paths: names.iter().map(|name| root.join(name)).collect(),
+            attrs: notify::event::EventAttributes::new(),
+        }
+    }
+
+    #[test]
+    fn notify_events_map_to_raw_events() {
+        use notify::event::{AccessKind, CreateKind, DataChange, MetadataKind, RemoveKind};
+
+        let root = Path::new(r"C:\root");
+        let cases: [(&str, EventKind, Vec<&str>, Vec<RawEvent>); 8] = [
+            (
+                "作成",
+                EventKind::Create(CreateKind::File),
+                vec!["a.md"],
+                vec![RawEvent::new(Created, "a.md")],
+            ),
+            (
+                "削除",
+                EventKind::Remove(RemoveKind::File),
+                vec!["docs/a.md"],
+                vec![RawEvent::new(Removed, "docs/a.md")],
+            ),
+            (
+                "内容の変更",
+                EventKind::Modify(ModifyKind::Data(DataChange::Content)),
+                vec!["a.md"],
+                vec![RawEvent::new(Modified, "a.md")],
+            ),
+            (
+                "rename元",
+                EventKind::Modify(ModifyKind::Name(RenameMode::From)),
+                vec!["a.md"],
+                vec![RawEvent::new(RenamedFrom, "a.md")],
+            ),
+            (
+                "rename先",
+                EventKind::Modify(ModifyKind::Name(RenameMode::To)),
+                vec!["b.md"],
+                vec![RawEvent::new(RenamedTo, "b.md")],
+            ),
+            (
+                // 1つのイベントが旧パスと新パスの両方を運ぶ場合。`paths` は旧・新の順。
+                "旧新を1件で運ぶrename",
+                EventKind::Modify(ModifyKind::Name(RenameMode::Both)),
+                vec!["a.md", "b.md"],
+                vec![
+                    RawEvent::new(RenamedFrom, "a.md"),
+                    RawEvent::new(RenamedTo, "b.md"),
+                ],
+            ),
+            (
+                // 内容もツリーも変えないため捨てる。
+                "読み取りアクセス",
+                EventKind::Access(AccessKind::Read),
+                vec!["a.md"],
+                vec![],
+            ),
+            (
+                // 分類できない種別は `Modified` へ倒す。`Removed` へ倒すとタブが終端状態の
+                // `deleted` になり、ファイルが残っていても復帰できない（6.5）。
+                "分類できない変更",
+                EventKind::Modify(ModifyKind::Metadata(MetadataKind::Any)),
+                vec!["a.md"],
+                vec![RawEvent::new(Modified, "a.md")],
+            ),
+        ];
+
+        for (name, kind, names, expected) in cases {
+            let event = notify_event(kind, root, &names);
+            assert_eq!(map_event(root, &event), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn events_outside_the_scope_are_dropped() {
+        let root = Path::new(r"C:\root");
+        // 相対化できないパスは通知しない。通知してもそのまま走査と読込へ渡せない。
+        let cases: [(&str, Vec<std::path::PathBuf>); 3] = [
+            ("境界外", vec![std::path::PathBuf::from(r"C:\other\a.md")]),
+            (
+                "隣接する名前",
+                vec![std::path::PathBuf::from(r"C:\rootx\a.md")],
+            ),
+            ("走査が落とす名前", vec![root.join("a.md.")]),
+        ];
+        for (name, paths) in cases {
+            let event = Event {
+                kind: EventKind::Modify(ModifyKind::Any),
+                paths,
+                attrs: notify::event::EventAttributes::new(),
+            };
+            assert_eq!(map_event(root, &event), Vec::new(), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_empty_window_has_no_deadline() {
+        let mut window = DebounceWindow::new();
+        assert_eq!(window.deadline_ms(), None);
+        assert_eq!(window.take_due(u64::MAX), None);
+    }
+
+    #[test]
+    fn the_window_closes_after_a_quiet_period() {
+        let mut window = DebounceWindow::new();
+        window.push(1_000, RawEvent::new(Modified, "a.md"));
+
+        assert_eq!(window.deadline_ms(), Some(1_000 + DEBOUNCE_MS));
+        assert_eq!(window.take_due(1_000 + DEBOUNCE_MS - 1), None);
+
+        let events = window
+            .take_due(1_000 + DEBOUNCE_MS)
+            .expect("静穏で窓が閉じない");
+        assert_eq!(events, vec![RawEvent::new(Modified, "a.md")]);
+        // 取り出したあとは窓が空になり、次のイベントで開き直す。
+        assert_eq!(window.deadline_ms(), None);
+    }
+
+    #[test]
+    fn each_event_extends_the_window() {
+        // 固定窓にすると、atomic replaceの列が窓をまたいだときに先の窓が
+        // `FileRemoved` を確定させ、タブが終端状態の `deleted` になる（6.5）。
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(Removed, "a.md"));
+        assert_eq!(window.deadline_ms(), Some(DEBOUNCE_MS));
+
+        window.push(100, RawEvent::new(RenamedFrom, "a.md.tmp"));
+        window.push(100, RawEvent::new(RenamedTo, "a.md"));
+        assert_eq!(window.deadline_ms(), Some(100 + DEBOUNCE_MS));
+
+        assert!(window.take_due(100 + DEBOUNCE_MS - 1).is_none());
+        assert_eq!(
+            window
+                .take_due(100 + DEBOUNCE_MS)
+                .map(|events| events.len()),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn a_busy_window_closes_at_the_upper_bound() {
+        // 静穏だけを条件にすると、書込みが続く間は窓が閉じず表示が更新されない。
+        let mut window = DebounceWindow::new();
+        let mut now = 0;
+        while now < MAX_WINDOW_MS {
+            window.push(now, RawEvent::new(Modified, "a.md"));
+            assert!(
+                window.take_due(now).is_none(),
+                "上限より前に閉じている: {now}"
+            );
+            now += DEBOUNCE_MS - 50;
+        }
+        window.push(MAX_WINDOW_MS, RawEvent::new(Modified, "a.md"));
+
+        assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
+        assert!(window.take_due(MAX_WINDOW_MS).is_some(), "上限で閉じない");
+    }
+
+    #[test]
+    fn the_upper_bound_does_not_cut_a_rename_in_progress() {
+        // 対のrename先が届いていない間に窓を切ると、先の窓が `FileRemoved` を確定させて
+        // タブを `deleted` にしてしまう。上限より静穏を優先する。
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(RenamedFrom, "a.md.tmp"));
+        let mut now = DEBOUNCE_MS - 50;
+        while now <= MAX_WINDOW_MS {
+            window.push(now, RawEvent::new(Modified, "a.md.tmp"));
+            now += DEBOUNCE_MS - 50;
+        }
+        let last = now - (DEBOUNCE_MS - 50);
+
+        assert!(last >= MAX_WINDOW_MS, "テストの前提を満たしていない");
+        assert_eq!(window.deadline_ms(), Some(last + DEBOUNCE_MS));
+        assert!(
+            window.take_due(MAX_WINDOW_MS).is_none(),
+            "置換の途中で閉じている"
+        );
+
+        // 対が揃えば上限が効く。
+        window.push(last, RawEvent::new(RenamedTo, "a.md"));
+        assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
     }
 }

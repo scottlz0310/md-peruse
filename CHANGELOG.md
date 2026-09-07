@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- ファイル変更監視の前半として、`notify` の導入、イベントの写像、debounce窓の時間管理を実装（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。Watcherのライフサイクルと監視スコープの採番は後半で実装するため、この時点でFrontendから観測できる変化はない
+  - **窓は最後のイベントからの静穏で閉じる。** 最初のイベントからの固定窓にすると、atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓をまたいだときに、先の窓が `fileRemoved` を確定させてタブを終端状態の `deleted` にしてしまう。一方で静穏だけを条件にすると書込みが続く間は窓が閉じないため、開いてから `MAX_WINDOW_MS` でも閉じる。ただし対のrename先が届いていないrename元が残っている間は上限では閉じない。置換の途中で窓を切ると同じ誤判定が起きる
+  - **分類できない `notify` の種別は `Modified` へ倒す。** `Removed` へ倒すとタブが終端状態の `deleted` になり、実際にはファイルが残っていても復帰できない。`Modified` なら再読込が走り、本当に失われていれば読込の失敗として原因が出る。`Access` だけは内容もツリーも変えないため捨てる
+  - 監視イベントが運ぶ絶対パスを字面で相対化する `relativize_literal` を `src-tauri/src/path_guard.rs` へ追加した。削除とrename元のパスは確定した時点で実在せず、`canonicalize` を通せないため `WorkspaceRoot::relativize` では扱えない。字面の判定は7.1の判定より弱いが、これらのパスはFrontendから届く入力ではなく、`canonicalize` 済みのルートを渡した結果としてOSが返すものである。`..` を含む入力を拒否したうえでコンポーネント単位に境界を判定し、走査が落とす名前はここでも落とす
+  - 窓の時刻は呼び出し側が単調増加するミリ秒として渡す。`DebounceWindow` が `Instant::now()` を読むと、窓の時間規則を実時間なしに検証できなくなる（14.2）
+  - `notify` は 8.2.0 を `default-features = false` で追加した。既定機能はmacOS向けのFSEventsであり、Windowsのバックエンド（ReadDirectoryChangesW）はこれに依存しない。`notify-debouncer-full` は使わない。畳み込みは6.5で自前に確定しており（`coalesce`）、debouncer側も独自のrename追跡を持つため二重になる
+  - `dev-flow.md` 6.1へ、ファイル変更監視を2つのPull Requestへ分けることと、単位が大きい場合はその中でさらに分けてよいことを追記した
 - ファイル読込を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。BOMによる文字コード判定、10 MiB上限、改行のLF正規化を行う。境界の検証は走査と同じ `WorkspaceRoot::resolve` を通す
   - **ファイルシステムへ触れるcommandを `async fn` とし、同期I/Oを `spawn_blocking` へ渡す。** Tauriは `async` を付けないcommandをメインスレッドで実行するため、同期のままでは応答の遅いストレージでI/Oが戻るまでウィンドウの操作が止まる。上限（10 MiB）はバイト数を縛るだけで待ち時間を縛らない。既存の `scan_directory` commandも同じ実行モデルへ揃えた。ワークスペースのルートは `WorkspaceHandle` のロックを保持したまま参照し、1回の要求が見るルートが1つである性質は変えていない（[design-decisions.md](./docs/design-decisions.md) 5.3）
   - **260文字を超えるパスは特別扱いしないと確定した。** Rustの標準ライブラリは絶対パスをverbatimパスへ変換してからWin32 APIを呼ぶため、`MAX_PATH` の制限を受けない。`WorkspaceRoot` が保持するルートも `canonicalize` を通したverbatimパスであり、そこから組み立てる対象のパスも同じ形式になる。260文字を超える対象について作成・解決・読込のいずれも成功することを実測で確認し、マニフェストの長パス対応（`longPathAware`）もパス長の事前検査も不要とした。P1の未決事項から落とした
