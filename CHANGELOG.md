@@ -14,6 +14,16 @@
 ## [Unreleased]
 
 ### Added
+- ファイル変更監視の前半として、`notify` の導入、イベントの写像、debounce窓の時間管理を実装（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。Watcherのライフサイクルと監視スコープの採番は後半で実装するため、この時点でFrontendから観測できる変化はない
+  - **窓は最後のイベントからの静穏で閉じる。** 最初のイベントからの固定窓にすると、atomic replaceの列（`Remove` のあとに `Modify(Name(To))` が続く）が窓をまたいだときに、先の窓が `fileRemoved` を確定させてタブを終端状態の `deleted` にしてしまう。一方で静穏だけを条件にすると書込みが続く間は窓が閉じないため、開いてから `MAX_WINDOW_MS` でも閉じる
+  - **通知の期限と削除の確定を分ける。** 上限で窓を閉じても、未確定の削除は確定させず、「保留」に関わるイベントを次の窓へ持ち越す。保留とは、その時点で確定させると `fileRemoved` になってしまう状態であり、同じ窓で作り直されていない `Remove` と、対の届いていない `Modify(Name(From))` の2つを指す。atomic replaceは `Remove` から始まるため、rename元がまだ届いていない削除も保留に含める
+  - **保留の猶予は保留ごとに測る。** 窓全体で1つの猶予を持たせると、古い保留が新しい削除の猶予を食い、上限の直前に届いた `Remove` が置換の途中でも確定する。同じ理由で猶予を静穏の起点に載せてもならない。無関係なパスの更新が続く間ずっと窓が延び、対の届かないrename（監視範囲外への移動）と組み合わさると、削除も他ファイルの変更も通知できないままイベントが溜まり続ける。猶予を過ぎた保留はそのまま確定させるため、持ち越しが続くこともなく、溜まるイベントは直近 `DEBOUNCE_MS` の範囲に収まる
+  - **持ち越した後の窓は、保留が届いた時刻を起点として測り直す。** 持ち越したイベントのうち最も古いものを起点にすると、同じパスの古い変更（`Modified a.md` のあとに `Removed a.md` が来る列）まで持ち越したときに起点が過去のまま残り、期限が前へ進まない。窓が同じ時刻で閉じ続けて空の結果を返し、呼び出し側のタイマーが即時再実行を繰り返す。保留は猶予の内側にあるため、保留を起点にすれば静穏も上限も必ず現在時刻より後になる
+  - **分類できない `notify` の種別は `Modified` へ倒す。** `Removed` へ倒すとタブが終端状態の `deleted` になり、実際にはファイルが残っていても復帰できない。`Modified` なら再読込が走り、本当に失われていれば読込の失敗として原因が出る。`Access` だけは内容もツリーも変えないため捨てる
+  - 監視イベントが運ぶ絶対パスを字面で相対化する `relativize_literal` を `src-tauri/src/path_guard.rs` へ追加した。削除とrename元のパスは確定した時点で実在せず、`canonicalize` を通せないため `WorkspaceRoot::relativize` では扱えない。字面の判定は7.1の判定より弱いが、これらのパスはFrontendから届く入力ではなく、`canonicalize` 済みのルートを渡した結果としてOSが返すものである。`..` を含む入力を拒否したうえでコンポーネント単位に境界を判定し、走査が落とす名前はここでも落とす
+  - 窓の時刻は呼び出し側が単調増加するミリ秒として渡す。`DebounceWindow` が `Instant::now()` を読むと、窓の時間規則を実時間なしに検証できなくなる（14.2）
+  - `notify` は 8.2.0 を `default-features = false` で追加した。既定機能はmacOS向けのFSEventsであり、Windowsのバックエンド（ReadDirectoryChangesW）はこれに依存しない。`notify-debouncer-full` は使わない。畳み込みは6.5で自前に確定しており（`coalesce`）、debouncer側も独自のrename追跡を持つため二重になる
+  - `dev-flow.md` 6.1へ、ファイル変更監視を2つのPull Requestへ分けることと、単位が大きい場合はその中でさらに分けてよいことを追記した
 - ファイル読込を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。BOMによる文字コード判定、10 MiB上限、改行のLF正規化を行う。境界の検証は走査と同じ `WorkspaceRoot::resolve` を通す
   - **ファイルシステムへ触れるcommandを `async fn` とし、同期I/Oを `spawn_blocking` へ渡す。** Tauriは `async` を付けないcommandをメインスレッドで実行するため、同期のままでは応答の遅いストレージでI/Oが戻るまでウィンドウの操作が止まる。上限（10 MiB）はバイト数を縛るだけで待ち時間を縛らない。既存の `scan_directory` commandも同じ実行モデルへ揃えた。ワークスペースのルートは `WorkspaceHandle` のロックを保持したまま参照し、1回の要求が見るルートが1つである性質は変えていない（[design-decisions.md](./docs/design-decisions.md) 5.3）
   - **260文字を超えるパスは特別扱いしないと確定した。** Rustの標準ライブラリは絶対パスをverbatimパスへ変換してからWin32 APIを呼ぶため、`MAX_PATH` の制限を受けない。`WorkspaceRoot` が保持するルートも `canonicalize` を通したverbatimパスであり、そこから組み立てる対象のパスも同じ形式になる。260文字を超える対象について作成・解決・読込のいずれも成功することを実測で確認し、マニフェストの長パス対応（`longPathAware`）もパス長の事前検査も不要とした。P1の未決事項から落とした

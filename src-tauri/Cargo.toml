@@ -26,6 +26,11 @@ ts-rs = "12.0.1"
 # OSの表示言語の取得に使う（design-decisions.md 10.5）。Tauriが依存する版と揃えており、
 # 重複してコンパイルされない。
 windows = { version = "0.62.2", features = ["Win32_Globalization"] }
+# ファイル変更監視（design-decisions.md 6.4）。Windowsでは ReadDirectoryChangesW を使う。
+# `default-features = false` はmacOS向けのFSEventsを外すためであり、Windowsの
+# バックエンドは既定機能に依存しない。畳み込みは自前の規則で行うため
+# （6.5、`src/watch.rs` の `coalesce`）、notify-debouncer-full は使わない。
+notify = { version = "8.2.0", default-features = false }
 
 [dev-dependencies]
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
