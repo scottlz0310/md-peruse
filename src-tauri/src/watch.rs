@@ -209,23 +209,31 @@ impl DebounceWindow {
     ///
     /// 持ち越すのは、猶予中の保留と同じパスを持つイベントすべてとする。保留を作った
     /// イベントだけを残すと、同じ窓で受けた同じパスの変更が先に確定してしまう。
+    ///
+    /// 持ち越した後の窓は、**保留が届いた時刻**を起点として測り直す。持ち越したイベントの
+    /// うち最も古いものを起点にすると、同じパスの古い変更（`Modified a.md` のあとに
+    /// `Removed a.md` が来る列）まで持ち越したときに起点が過去のまま残り、期限が前へ
+    /// 進まない。期限が動かないと `take_due` は同じ時刻で空の結果を返し続け、呼び出し側の
+    /// タイマーが即時再実行を繰り返す。保留は猶予の内側にあるため、この起点なら静穏も
+    /// 上限も必ず `now_ms` より後になる。
+    ///
+    /// 確定させるものがなく持ち越しだけが残る場合は、空の列を返す。窓が閉じたことと
+    /// 確定したものがないことは別であり、呼び出し側は次の期限まで待てばよい。
     pub fn take_due(&mut self, now_ms: u64) -> Option<Vec<RawEvent>> {
         if now_ms < self.deadline_ms()? {
             return None;
         }
-        let held = self.paths_in_grace(now_ms);
+        let pending = self.pending_in_grace(now_ms);
         let (retained, due): (Vec<_>, Vec<_>) = std::mem::take(&mut self.events)
             .into_iter()
-            .partition(|(_, event)| held.contains(&event.path));
-        // 持ち越したイベントが次の窓を形作る。時刻はもとのままとし、静穏も上限もその
-        // イベントが届いた時点から測り直す。
-        self.opened_at_ms = retained.first().map_or(0, |(at, _)| *at);
+            .partition(|(_, event)| pending.iter().any(|(path, _)| *path == event.path));
+        self.opened_at_ms = pending.iter().map(|(_, at)| *at).min().unwrap_or_default();
         self.last_event_ms = retained.last().map_or(0, |(at, _)| *at);
         self.events = retained;
         Some(due.into_iter().map(|(_, event)| event).collect())
     }
 
-    /// 猶予の内側にある保留のパス。
+    /// 猶予の内側にある保留のパスと、それが届いた時刻。
     ///
     /// 復活の規則は `coalesce` と揃える。`coalesce` が削除を取り消す事象（同じパスの
     /// `Created`、`Modified`、`RenamedTo`）でここでも保留を外す。ここだけ緩いと、
@@ -233,7 +241,7 @@ impl DebounceWindow {
     ///
     /// `is_tracked` は見ない。対象外のパスの削除を保留として数えても、そのイベントの
     /// 確定が `DEBOUNCE_MS` 遅れるだけであり、置換を分断する側の誤りは起きない。
-    fn paths_in_grace(&self, now_ms: u64) -> Vec<String> {
+    fn pending_in_grace(&self, now_ms: u64) -> Vec<(String, u64)> {
         let mut removed: Vec<(&str, u64)> = Vec::new();
         let mut renamed_from: Vec<(&str, u64)> = Vec::new();
         for (at, event) in &self.events {
@@ -258,7 +266,7 @@ impl DebounceWindow {
             .into_iter()
             .chain(renamed_from)
             .filter(|(_, at)| now_ms < at + DEBOUNCE_MS)
-            .map(|(path, _)| path.to_owned())
+            .map(|(path, at)| (path.to_owned(), at))
             .collect()
     }
 }
@@ -891,6 +899,82 @@ mod tests {
         window.push(599, RawEvent::new(Removed, "a.md"));
 
         assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
+    }
+
+    /// 同じパスの古い変更まで持ち越しても、次の期限は必ず前へ進む。
+    ///
+    /// 持ち越したイベントのうち最も古いものを起点にすると、この列では起点が0のまま残り、
+    /// 期限が上限（600）から動かない。`take_due` が同じ時刻で空の結果を返し続け、
+    /// 呼び出し側のタイマーが即時再実行を繰り返す。
+    #[test]
+    fn carrying_an_older_event_of_the_same_path_still_advances_the_deadline() {
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(Modified, "a.md"));
+        window.push(599, RawEvent::new(Removed, "a.md"));
+
+        // 両方とも `a.md` なので、確定させるものはなく持ち越しだけが残る。
+        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        assert_eq!(due, Vec::new());
+
+        // 起点は保留（599）へ寄せる。期限は必ず `now` より後になる。
+        let deadline = window.deadline_ms().expect("窓が空になっている");
+        assert_eq!(deadline, 599 + DEBOUNCE_MS);
+        assert!(deadline > MAX_WINDOW_MS, "期限が前へ進んでいない");
+        assert!(
+            window.take_due(MAX_WINDOW_MS).is_none(),
+            "同じ時刻で繰り返し閉じている"
+        );
+
+        // 猶予が切れれば、変更と削除をまとめて削除として確定する。
+        let due = window.take_due(deadline).expect("猶予が切れても閉じない");
+        assert_eq!(coalesce(&due, is_markdown), vec![removed_change("a.md")]);
+        assert_eq!(window.deadline_ms(), None, "窓が空にならない");
+    }
+
+    /// 持ち越しが起きるどの列でも、次の期限が `now` より後であることを固定する。
+    #[test]
+    fn the_deadline_always_moves_forward_after_carrying() {
+        let cases: [(&str, Vec<(u64, RawEvent)>); 4] = [
+            (
+                "同じパスの変更と削除",
+                vec![
+                    (0, RawEvent::new(Modified, "a.md")),
+                    (599, RawEvent::new(Removed, "a.md")),
+                ],
+            ),
+            (
+                "無関係な更新と削除",
+                vec![
+                    (0, RawEvent::new(Modified, "busy.md")),
+                    (599, RawEvent::new(Removed, "a.md")),
+                ],
+            ),
+            (
+                "対の届かないrenameと同じパスの変更",
+                vec![
+                    (0, RawEvent::new(Modified, "a.md")),
+                    (599, RawEvent::new(RenamedFrom, "a.md")),
+                ],
+            ),
+            (
+                "複数の保留",
+                vec![
+                    (0, RawEvent::new(Modified, "a.md")),
+                    (598, RawEvent::new(Removed, "a.md")),
+                    (599, RawEvent::new(Removed, "b.md")),
+                ],
+            ),
+        ];
+
+        for (name, events) in cases {
+            let mut window = DebounceWindow::new();
+            for (at, event) in events {
+                window.push(at, event);
+            }
+            window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+            let deadline = window.deadline_ms().expect("持ち越しが消えている");
+            assert!(deadline > MAX_WINDOW_MS, "{name}: 期限が前へ進んでいない");
+        }
     }
 
     /// 持ち越しは保留ごとの猶予で切れる。対の届かないrenameでも持ち越し続けない。
