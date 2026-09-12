@@ -1,21 +1,27 @@
 //! アプリの実行時状態。
 //!
-//! ワークスペースのルート（6.1）と現在のUI言語（10.5）を持つ。Tauriのmanaged stateとして
-//! 登録し、commandから参照する。
+//! ワークスペースのルート（6.1）、そのルートを監視するWatcher（6.4）、現在のUI言語（10.5）を
+//! 持つ。Tauriのmanaged stateとして登録し、commandから参照する。
 //!
 //! ワークスペースの切り替えと終了は、Watcher・探索キャッシュ・通常タブ・loose tabの破棄を
-//! 伴う（6.1）。ここが持つのはルートだけであり、破棄の対象が増えるのはWatcherを実装する
-//! Phase 4-1dである。
+//! 伴う（6.1）。ここが持つのはルートとWatcherであり、探索キャッシュとタブはFrontendが持つ。
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
 use crate::path_guard::WorkspaceRoot;
+use crate::watch_runtime::{ChangeSink, WorkspaceWatcher};
 
 /// commandから参照するアプリの状態。
 pub struct AppState {
     workspace: Arc<Mutex<Option<WorkspaceRoot>>>,
+    /// 開いているワークスペースを監視するWatcher。
+    ///
+    /// ルートと別のロックにするのは、走査と読込が保持する `workspace` のロックを、監視の
+    /// 開始・停止が待たないようにするためである。両者を1つのロックにすると、応答の遅い
+    /// ストレージに対する走査の最中はワークスペースを閉じられない。
+    watcher: Mutex<Option<WorkspaceWatcher>>,
     language: Mutex<Language>,
 }
 
@@ -27,6 +33,7 @@ impl AppState {
     pub fn new(preference: LanguagePreference) -> Self {
         Self {
             workspace: Arc::new(Mutex::new(None)),
+            watcher: Mutex::new(None),
             language: Mutex::new(resolve_language(preference, &os_language_tag())),
         }
     }
@@ -41,16 +48,41 @@ impl AppState {
         *self.lock_language() = language;
     }
 
-    /// ワークスペースを開く。既に開いている場合は切り替える。
-    pub fn open_workspace(&self, path: &Path) -> std::io::Result<()> {
+    /// ワークスペースを開き、監視を開始する。既に開いている場合は切り替える。
+    ///
+    /// 監視の開始に失敗した場合はワークスペースを開かない。監視のないワークスペースは、
+    /// ツリーもタブも変更に追従しないまま「開けている」ように見える。利用者からは
+    /// 区別できないため、開けなかったものとして原因を示す（12章）。
+    ///
+    /// `sink` を引数で受けるのは、送出先が `tauri::AppHandle` に由来し、この型を
+    /// 構築する時点では手に入らないためである。後から差し込む形にすると、差し込み忘れが
+    /// 「イベントが届かない」という静かな失敗になる。
+    pub fn open_workspace(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> std::io::Result<()> {
         let root = WorkspaceRoot::open(path)?;
+        // 旧Watcherを停止してから状態を破棄する（6.4）。順序を逆にすると、停止前に届いた
+        // イベントが新しいワークスペースの状態へ適用されうる。
+        self.close_workspace();
+        let watcher = WorkspaceWatcher::start(root.path(), sink).map_err(std::io::Error::other)?;
+        *self.lock_watcher() = Some(watcher);
         *self.lock_workspace() = Some(root);
         Ok(())
     }
 
     /// ワークスペースを閉じる。welcome状態へ戻す（6.1）。
     pub fn close_workspace(&self) {
+        // Watcherを先に落とす。`Drop` が停止を指示し、監視スレッドの終了まで待つ（6.4）。
+        *self.lock_watcher() = None;
         *self.lock_workspace() = None;
+    }
+
+    /// 開いているワークスペースの監視スコープID。閉じていれば `None` を返す。
+    ///
+    /// Frontendは、自分が保持するスコープと一致しない通知を破棄する（6.4）。ワークスペースを
+    /// 開いた応答へ載せるのはこの値である。
+    pub fn scope_id(&self) -> Option<String> {
+        self.lock_watcher()
+            .as_ref()
+            .map(|watcher| watcher.scope_id().to_owned())
     }
 
     /// ワークスペースのハンドルを得る。
@@ -66,6 +98,10 @@ impl AppState {
         // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
         // 毒される経路自体が生じないため、回復は試みない（12章）。
         self.workspace.lock().expect("ワークスペースのロックに失敗")
+    }
+
+    fn lock_watcher(&self) -> std::sync::MutexGuard<'_, Option<WorkspaceWatcher>> {
+        self.watcher.lock().expect("Watcherのロックに失敗")
     }
 
     fn lock_language(&self) -> std::sync::MutexGuard<'_, Language> {
@@ -100,7 +136,22 @@ impl WorkspaceHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ipc::error::ErrorCode;
+    use crate::ipc::types::FileChangeEvent;
     use std::fs;
+
+    /// 送出を捨てる `ChangeSink`。ここで確かめるのはライフサイクルであり、送出の内容は
+    /// `watch_runtime` のテストで固定する。
+    struct DiscardingSink;
+
+    impl ChangeSink for DiscardingSink {
+        fn file_change(&self, _event: FileChangeEvent) {}
+        fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+    }
+
+    fn sink() -> Arc<dyn ChangeSink> {
+        Arc::new(DiscardingSink)
+    }
 
     /// テスト用の一時フォルダー。終了時に削除する。
     struct TempDir(std::path::PathBuf);
@@ -134,24 +185,32 @@ mod tests {
         fs::create_dir_all(&second).unwrap();
         let state = AppState::new(LanguagePreference::System);
 
-        // 起動直後はwelcome状態であり、ルートを持たない（6.1）。
+        // 起動直後はwelcome状態であり、ルートもスコープも持たない（6.1）。
         assert_eq!(state.workspace().with(|root| root.path().to_owned()), None);
+        assert_eq!(state.scope_id(), None);
 
-        state.open_workspace(&first).unwrap();
+        state.open_workspace(&first, sink()).unwrap();
         assert_eq!(
             state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&first).unwrap())
         );
+        let first_scope = state.scope_id().expect("スコープが採番されない");
 
         // 別フォルダーを開くと完全に切り替える。
-        state.open_workspace(&second).unwrap();
+        state.open_workspace(&second, sink()).unwrap();
         assert_eq!(
             state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&second).unwrap())
         );
 
+        // 切り替えのたびにスコープを採番し直す。旧Watcherが停止の直前に送出した
+        // イベントは、Frontendがスコープの不一致で破棄する（6.4）。
+        let second_scope = state.scope_id().expect("スコープが採番されない");
+        assert_ne!(first_scope, second_scope);
+
         state.close_workspace();
         assert_eq!(state.workspace().with(|root| root.path().to_owned()), None);
+        assert_eq!(state.scope_id(), None);
     }
 
     #[test]
@@ -160,10 +219,14 @@ mod tests {
         let existing = temp.path().join("existing");
         fs::create_dir_all(&existing).unwrap();
         let state = AppState::new(LanguagePreference::System);
-        state.open_workspace(&existing).unwrap();
+        state.open_workspace(&existing, sink()).unwrap();
 
         // 開けなかったときに現在のワークスペースを失わない。
-        assert!(state.open_workspace(&temp.path().join("missing")).is_err());
+        assert!(
+            state
+                .open_workspace(&temp.path().join("missing"), sink())
+                .is_err()
+        );
         assert_eq!(
             state.workspace().with(|root| root.path().to_owned()),
             Some(fs::canonicalize(&existing).unwrap())
@@ -177,7 +240,7 @@ mod tests {
         // ストレージでUIが止まる。別スレッドから到達できることをここで固定する。
         let temp = TempDir::new("thread");
         let state = AppState::new(LanguagePreference::System);
-        state.open_workspace(temp.path()).unwrap();
+        state.open_workspace(temp.path(), sink()).unwrap();
 
         let handle = state.workspace();
         let seen = std::thread::spawn(move || handle.with(|root| root.path().to_owned()))

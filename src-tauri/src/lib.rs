@@ -13,6 +13,7 @@ pub mod startup;
 pub mod state;
 pub mod telemetry;
 pub mod watch;
+pub mod watch_runtime;
 
 use i18n::LanguagePreference;
 use state::AppState;

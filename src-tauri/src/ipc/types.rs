@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+use crate::ipc::error::IpcError;
+
 /// ツリーへ表示する要素の種別。
 ///
 /// 非Markdownファイルは表示しないため、この2値で足りる
@@ -142,6 +144,25 @@ pub enum FileChange {
     /// ディレクトリの子要素が増減した。展開済みなら、その階層だけを再取得する。
     #[serde(rename_all = "camelCase")]
     DirectoryChanged { path: String },
+}
+
+/// 監視が追従できなくなったことの通知（design-decisions.md 6.4）。
+///
+/// `FileChange` と分けるのは、対象のパスを持たないためである。`FileChange` の各variantは
+/// いずれも対象の相対パスを持ち、ツリーとタブのどこを更新するかを示す。追従の断念は
+/// スコープ全体に及び、示すべきパスがない。
+///
+/// `scope_id` を持つ理由は `FileChangeEvent` と同じで、Frontendは自分が保持するスコープと
+/// 一致しない通知を破棄する。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct WatcherErrorEvent {
+    pub scope_id: String,
+    /// `watcherOverflow`（変更が多すぎて個別に追えない）または `watcherStopped`
+    /// （監視そのものが止まった）。どちらも展開済みディレクトリの再取得とアクティブ文書の
+    /// 再読込へフォールバックし、原因を表示する。
+    pub error: IpcError,
 }
 
 /// 配色テーマ。
