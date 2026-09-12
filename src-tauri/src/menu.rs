@@ -1,11 +1,15 @@
 //! ネイティブメニューの構成とアクセラレータ。
 //!
 //! メニューはTauriのメニューAPIでRust側が構築する（design-decisions.md 10.1）。
-//! ここに置くのはコマンドの識別子と割り当てだけであり、メニューの組み立てと
-//! 選択の処理はPhase 4で行う。
+//! ここに置くのはコマンドの識別子、割り当て、表示名、メニューの組み立てである。選択の
+//! 処理は `crate::open_folder` などコマンドごとの担当が持つ。
 
 use serde::{Deserialize, Serialize};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{Manager, Runtime};
 use ts_rs::TS;
+
+use crate::i18n::Language;
 
 /// メニュー項目が表すコマンド。
 ///
@@ -95,10 +99,116 @@ pub fn accelerator_of(command: MenuCommand) -> Option<&'static str> {
         .map(|(_, accelerator)| *accelerator)
 }
 
+impl MenuCommand {
+    /// メニュー項目のID。Frontendへ渡す識別子（camelCase）と同じ文字列にする。
+    pub fn id(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_owned))
+            .expect("MenuCommand は文字列へ直列化される")
+    }
+
+    /// メニュー項目のIDからコマンドを引く。アプリが作っていない項目のIDには `None` を返す。
+    pub fn from_id(id: &str) -> Option<Self> {
+        serde_json::from_value(serde_json::Value::String(id.to_owned())).ok()
+    }
+}
+
+/// 現在メニューへ載せているコマンド。
+///
+/// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
+/// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
+pub const IMPLEMENTED: [MenuCommand; 2] = [MenuCommand::OpenFolder, MenuCommand::Exit];
+
+/// コマンドの表示名。
+///
+/// `IMPLEMENTED` に載せるコマンドだけが対象である。載せていないコマンドの表示名は、
+/// 実装するときに10.1の表から足す。
+fn label(command: MenuCommand, language: Language) -> &'static str {
+    match (command, language) {
+        (MenuCommand::OpenFolder, Language::Ja) => "フォルダーを開く(&O)...",
+        (MenuCommand::OpenFolder, Language::En) => "&Open Folder...",
+        (MenuCommand::Exit, Language::Ja) => "終了(&X)",
+        (MenuCommand::Exit, Language::En) => "E&xit",
+        _ => unreachable!("メニューへ載せていないコマンドの表示名: {command:?}"),
+    }
+}
+
+fn file_menu_label(language: Language) -> &'static str {
+    match language {
+        Language::Ja => "ファイル(&F)",
+        Language::En => "&File",
+    }
+}
+
+/// メニューを組み立てる。
+///
+/// 終了は `PredefinedMenuItem::quit` を使わず、自前の項目にする。コマンドの識別子を
+/// 1つの経路（`MenuCommand::from_id`）で扱い、メニューの選択をすべて同じ場所で処理する
+/// ためである。
+pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> tauri::Result<Menu<R>> {
+    let item = |command: MenuCommand| {
+        MenuItem::with_id(
+            manager,
+            command.id(),
+            label(command, language),
+            true,
+            accelerator_of(command),
+        )
+    };
+    let file = Submenu::with_items(
+        manager,
+        file_menu_label(language),
+        true,
+        &[
+            &item(MenuCommand::OpenFolder)?,
+            &PredefinedMenuItem::separator(manager)?,
+            &item(MenuCommand::Exit)?,
+        ],
+    )?;
+    Menu::with_items(manager, &[&file])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use muda::accelerator::Accelerator;
+
+    /// メニュー項目のIDとコマンドは往復できる。
+    #[test]
+    fn command_ids_round_trip() {
+        for command in IMPLEMENTED {
+            assert_eq!(MenuCommand::from_id(&command.id()), Some(command));
+        }
+        assert_eq!(MenuCommand::OpenFolder.id(), "openFolder");
+        // アプリが作っていないID（Tauriの既定項目など）はコマンドにならない。
+        assert_eq!(MenuCommand::from_id("quit"), None);
+    }
+
+    /// 載せたコマンドはすべて両言語の表示名を持つ。
+    #[test]
+    fn implemented_commands_have_labels() {
+        for command in IMPLEMENTED {
+            for language in [Language::Ja, Language::En] {
+                assert!(!label(command, language).is_empty());
+            }
+        }
+    }
+
+    /// `mock_app` 上でメニューを組み立てられ、載せたコマンドだけが項目になる。
+    #[test]
+    fn the_menu_contains_only_implemented_commands() {
+        let app = tauri::test::mock_app();
+        let menu = build(app.handle(), Language::Ja).expect("メニューを組み立てられない");
+        // `Menu::get` はサブメニューの中を探さないため、ファイルメニューから引く。
+        let items = menu.items().expect("メニューの項目を取れない");
+        let file = items[0].as_submenu().expect("先頭がサブメニューではない");
+
+        for command in IMPLEMENTED {
+            assert!(file.get(&command.id()).is_some(), "{command:?} が無い");
+        }
+        assert!(file.get(&MenuCommand::CloseTab.id()).is_none());
+    }
 
     /// すべての割り当てが実際のパーサーを通ることを固定する。
     ///

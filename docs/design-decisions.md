@@ -464,7 +464,9 @@ capabilityは `src-tauri/capabilities/default.json` に次の3つだけを置く
 - `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突する。`core:tray:default` はトレイアイコンを使わないため付与しない。
 - `core:window:default`、`core:webview:default`、`core:app:default` も付与しない。参照系が中心とはいえ、`core:webview:default` には `allow-internal-toggle-devtools` が含まれ、`core:app:default` はアプリ識別子やバンドル種別をFrontendへ公開する。現時点で呼ぶ予定がなく、必要になった時点で個別の権限を足す。
 - `core:event:allow-emit` は付与しない。FrontendからRustへの通信はcommandで行い、Frontend発のイベントを使わない（5.3）。
-- ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。フォルダー選択と読込はRust側のcommandで行う。
+- ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。フォルダー選択はネイティブメニューからRust側のダイアログで行い（10.1）、読込はRust側のcommandで行う。
+- アプリ自身のcommand（`generate_handler!` で登録したもの）はcapabilityへ列挙しなくても呼べる。Tauriのpermissionが対象とするのはプラグインとcoreのcommandである。Frontendを結線した実機（`tauri dev`、Windows 11 26200）で、`scan_directory_command` と `read_file_command` を3権限のまま呼べることを確認した。
+- ダイアログは `tauri-plugin-dialog` をRust側からだけ使い、`dialog` 系の権限を付与しない。JSのパッケージも入れない。このプラグインは初期化時にWebViewへ `window.alert` / `window.confirm` を `plugin:dialog|message` / `plugin:dialog|confirm` のinvokeへ置き換えるスクリプトを注入し、`tauri-plugin-fs` をコンパイル時の依存に持つ。権限を付与しないためFrontendからの呼び出しは失敗し、fsプラグインは初期化されない。`rfd` を直接使えばどちらも避けられるが、親ウィンドウの指定やメインスレッドへの振り分けを自前で持つことになり、Tauri本体と揃った更新から外れるため採らない。
 - ドラッグ＆ドロップ（10.4）のためにcapabilityを足さない。`tauri://drag-drop` はネイティブ絶対パスを運ぶため、Frontendではlistenせず、Rust側の `on_window_event` で受ける。この方針の下でも、Frontendが `tauri://drag-drop` をlistenできてしまうことは変わらない。`core:event:allow-listen` にイベント名の絞り込みがないためである。付与済みの権限で防げない以上、Frontendがdragイベントをlistenしないことをコードレビューで保つ。
 
 ## 6. ワークスペースとファイルツリー
@@ -1159,6 +1161,8 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 **ネイティブメニューを採る。** 標準タイトルバーを使う方針、OSのアクセシビリティ機構との統合、キーボード操作（`Alt` アクセスキー、矢印、`Esc`、ポップアップのフォーカス管理）の実装コストの点で優位である。`uimock.html` のHTMLメニューバーは視覚上の参考であり、実装方式を決めない。見た目はアプリのテーマ（Light / Dark）ではなくOSの配色に従う。
 
 メニューはRust側が構築し、Frontendからメニューを操作しない。`menu` 系のcapabilityを追加せず、5.5で絞り込んだ集合を保つためである。
+
+メニューには処理を実装したコマンドだけを載せ、実装が進むたびに下の表へ近づける（正本は `src-tauri/src/menu.rs` の `IMPLEMENTED`）。未実装の項目を無効表示で並べないのは、押しても何も起きない項目を見せないためである。「フォルダーを開く」は選ばれるとRust側でフォルダー選択ダイアログをメインウィンドウを親として開き、開けたら `WorkspaceOpenedEvent`（スコープIDと表示名。絶対パスは含めない）をFrontendへ送り、開けなければネイティブダイアログで原因を示す（`src-tauri/src/open_folder.rs`）。親を指定しないと、ダイアログはメインウィンドウと別のディスプレイに非モーダルで開いた（実測）。
 
 コマンドの識別子とアクセラレータの正本は `src-tauri/src/menu.rs` とする。
 
