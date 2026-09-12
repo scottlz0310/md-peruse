@@ -162,7 +162,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 自作commandがcapabilityの列挙なしで呼べることをFrontendの結線時に確認する。Tauriのpermissionはプラグインとcoreのcommandを対象とし、`generate_handler!` で登録したアプリ自身のcommandは対象外という前提で `capabilities/default.json` を3権限のままにしている（[design-decisions.md](./docs/design-decisions.md) 5.5）。前提が誤っていた場合はここで権限を追加する
 - [x] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開した（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。260文字を超えるパスは特別扱いしないことを確定した（7.1）
 - [x] ファイル変更監視（前半）。`notify` を導入し、`notify::Event` から `RawEvent` への写像、監視イベント用のパス相対化、debounce窓の時間管理を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、字面で相対化する `relativize_literal` を用意した
-- [ ] ファイル変更監視（後半）。Watcherのライフサイクル、監視スコープの採番と破棄、`DirectoryChanged` の生成、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4）。`DEBOUNCE_MS` と `REPLACE_RETRY_DELAY_MS` の実測確定、監視範囲の縮退モードの要否（15章 P1）もここで判断する
+- [x] ファイル変更監視（後半・設計の確定）。`notify` のWindowsバックエンドを実測し、`DEBOUNCE_MS`（150）、`MAX_WINDOW_MS`（600）、`REPLACE_RETRY_DELAY_MS`（100）を据え置きで確定した。ディレクトリとファイルがイベントから区別できないこと、バッファあふれと監視停止が通知されないことを確認し、`DirectoryChanged` の生成と窓ごとのイベント数による縮退を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4）。監視範囲の縮退モードは設けないと確定し、15章 P1から落とした
+- [ ] ファイル変更監視（後半・Tauri統合）。Watcherのライフサイクル、ルートの親の非再帰監視による `WatcherStopped` の検知、監視スコープの採番と破棄、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を実装する（[design-decisions.md](./docs/design-decisions.md) 6.4）
 - [ ] custom image protocol。resource IDの発行と世代、非同期の配信、Content-Typeの判定、上限の検証を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
 
 ### 4-2以降
@@ -225,6 +226,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
 
+- [ ] Tauri commandの本体がテストから到達できない。`ipc/commands.rs` の `scan_directory_command` と `read_file_command` は `tauri::State` とappインスタンスを要するため、22行が未カバーのまま残っている。エラー写像（`scan_error` / `read_error` / `*_error_code`）は単体テスト済みであり、未カバーなのは引数を組み立ててspawn_blockingへ渡す部分である。`tauri::test` の `mock_app` を dev-dependency として入れれば埋まる。テスト専用の依存を1つ増やすことと、到達できない22行を残すことのどちらを採るかを決める（Phase 4-1cのファイル読込実装時に発見。PR [#57](https://github.com/scottlz0310/md-peruse/pull/57) のサマリコメントにのみ記録があった）
+- [ ] `WorkspaceRoot::relativize` の呼び出し元がテストしかない。監視イベントのパス相対化は字面で行う `relativize_literal` が担うことになり（[design-decisions.md](./docs/design-decisions.md) 6.4）、`canonicalize` を通す `relativize` は製品コードから呼ばれていない。削除するか、使い道を決める。候補はドラッグ＆ドロップのパス変換（10.4）であり、Phase 4-2のドラッグ＆ドロップ実装時に使わないと確定したら削除する（Phase 4-1dの前半で発見）
 - [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
 - [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
 - [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する
