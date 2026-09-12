@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- Tauriに触れるコードのテスト手段を用意し、残っていたテストの穴を埋めた（[design-decisions.md](./docs/design-decisions.md) 14.2）。製品の振る舞いは変えていない
+  - **`tauri::test::mock_app` を導入した。** dev-dependencyで `tauri` の `test` featureを有効にする。これまで到達できなかったTauri command本体（`ipc/commands.rs`）とTauri eventの送出（`TauriChangeSink`）をテストで固定した。`tasks.md` の「検討待ち」にあったTauri commandのtest harnessの項目を閉じた
+  - **feature を有効にすると、テストが1件も走らないまま起動時に落ちる。** libが comctl32 v6 の関数（`TaskDialogIndirect`、`SetWindowSubclass` など）を参照するようになるが、v6 を読み込むにはアプリケーションマニフェストの依存宣言が要り、cargoが作るテストバイナリはマニフェストを持たない。既定の v5 が読まれ `STATUS_ENTRYPOINT_NOT_FOUND` になる。`build.rs` からリンカへ `/MANIFESTDEPENDENCY` を渡して宣言した
+  - **宣言を `RUSTFLAGS` や `.cargo/config.toml` へ置くとCIで効かない。** CIのカバレッジ計測は `cargo llvm-cov` で行い、これが `RUSTFLAGS` を設定する。`RUSTFLAGS` が設定されるとcargoは `.cargo/config.toml` の `rustflags` を無視するため、カバレッジ計測のときだけ宣言が消える。`RUSTFLAGS` を設定した状態でテストが通ることを実測で確認した。テストターゲットだけを対象にする `rustc-link-arg-tests` はcargo 1.98.1が受け付けないため、全ターゲットへ効く `rustc-link-arg` を使う。製品バイナリのマニフェストが変わらないことも実測で確認した
+  - **`TauriChangeSink` をruntimeで型引数化した。** `mock_app` が返すのは `AppHandle<MockRuntime>` であり、製品が使う `AppHandle<Wry>` とは別の型になる。既定を `Wry` としたため製品側の記述は変わらない
+  - **文言をUI言語で組み立てる規則を `watcher_error_event` として切り出した。** 検証したい規則そのものはTauriの外へ出す。`TauriChangeSink` に残るのは送出の配線だけになり、言語追従の契約（10.5）はTauriなしで固定できる
+  - `drain` の縮退経路（`WindowOutcome::Overflowed` を `WatcherOverflow` として送出し、個別の変更は送らない）をテストで固定した。PR [#64](https://github.com/scottlz0310/md-peruse/pull/64) のカバレッジ確認で、契約に対する振る舞いテストが無いことが分かったため
 - ファイル変更監視のWatcherを `src-tauri/src/watch_runtime.rs` へ実装し、ワークスペースの開閉へ結び付けた（[design-decisions.md](./docs/design-decisions.md) 6.4）。Frontendの結線はPhase 4-2で行うため、この時点で画面から観測できる変化はない
   - **ワークスペース側のWatcherは2つある。** ルートの再帰監視に加えて、ルートの親を非再帰で監視する。ルート自身の削除とrenameは、そのルートを監視するWatcherには届かないためである（実測）。親からは `Remove(Any)` と `Modify(Name(From))` として届き、これを `WatcherStopped` とする。親を再帰にするとルート配下のイベントを二重に受けるため非再帰とした。ルートがドライブ直下のときだけ親が `None` で、この場合は検知経路を持たない
   - **停止は監視スレッドの終了まで待つ。** ワークスペースの切り替えは「旧Watcherを停止してから状態を破棄する」ことを要する（6.4）。待たずに戻ると、停止を指示した後にまだ生きている旧スレッドが、新しいワークスペースへ適用されうるイベントを送出する。`WorkspaceWatcher` の `Drop` が停止を指示して `join` する

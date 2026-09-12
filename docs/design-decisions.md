@@ -1707,6 +1707,21 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 
 境界判定（7.1）だけはこの注入の対象外とし、実ファイルで確認する。検証しているのは `canonicalize` がファイルシステムの表記へ解決する挙動そのものであり、注入した実装で置き換えると確認したい対象が消えるためである。文字列だけで判定できる形式の検証はテーブル駆動の単体テストで固定し、実ファイルを使うのは短い名前・大文字小文字・junctionの解決に限る。junctionは特権も開発者モードも要さずに作成できるため、CIでもそのまま実行できる。
 
+Watcherの写像・畳み込み・窓の時間規則（6.4）も注入の対象とし、時刻を呼び出し側から渡して実時間なしに検証する。一方でWatcherのライフサイクル（起動、親の監視、停止）は実ファイルと実OSイベントで確認する。確認したいのが `notify` のWindowsバックエンドの挙動そのものであり、注入した実装へ置き換えると対象が消えるためである。実イベントの到達は時間に依存するため、固定の待ち時間ではなく条件待ちのポーリングで書く。CIの `Rust` ジョブは `windows-latest` で走るため、Windows固有の前提（親の監視でルートの消失を拾う、イベント種別が `Any` に潰れる）をそのまま固定してよい。
+
+#### Tauriに触れるコードのテスト
+
+`tauri::test::mock_app` を使う。dev-dependencyで `tauri` の `test` featureを有効にする。対象は次の2つで、いずれも他の手段では到達できない。
+
+- Tauri command本体（`ipc/commands.rs`）。`State<'_, AppState>` はruntimeに依存しない型であり、mock appの managed state からそのまま取れる。commandは `async fn` のため `tauri::async_runtime::block_on` で待つ。
+- Tauri eventの送出（`watch_runtime.rs` の `TauriChangeSink`）。`mock_app` が返すのは `AppHandle<MockRuntime>` であり、製品が使う `AppHandle<Wry>` とは別の型になる。そのため `TauriChangeSink` はruntimeを型引数に取り、既定を `Wry` とする。
+
+送出の内容は `app.listen` で受けて検証する。ただし、検証したい規則そのものはできる限りTauriの外へ出す。文言をUI言語で組み立てる規則（10.5）は `watcher_error_event` として自由関数に切り出し、Tauriなしで固定している。`TauriChangeSink` に残るのは送出の配線だけである。
+
+**この featureを有効にすると、libが comctl32 v6 の関数（`TaskDialogIndirect`、`SetWindowSubclass` など）を参照する。** v6 を読み込むにはアプリケーションマニフェストの依存宣言が要るが、cargoが作るテストバイナリはマニフェストを持たない。宣言がないと既定の v5 が読まれ、テストは1件も走らないまま起動時に `STATUS_ENTRYPOINT_NOT_FOUND` で落ちる。`build.rs` からリンカへ `/MANIFESTDEPENDENCY` を渡して宣言する。
+
+宣言を `RUSTFLAGS` や `.cargo/config.toml` へ置いてはならない。CIのカバレッジ計測は `cargo llvm-cov` で行い、これが `RUSTFLAGS` を設定する。`RUSTFLAGS` が設定されるとcargoは `.cargo/config.toml` の `rustflags` を無視するため、カバレッジ計測のときだけ宣言が消えてテストが起動しなくなる。テストターゲットだけを対象にする `rustc-link-arg-tests` はcargo 1.98.1が受け付けないため、全ターゲットへ効く `rustc-link-arg` を使う。製品バイナリのマニフェストは `tauri_build` が同じ依存を既に宣言しており、この宣言を足しても内容が変わらないことを実測で確認した。
+
 ### 14.3 セキュリティ回帰
 
 悪意ある入力を模した固定のMarkdown一式をリポジトリへ置き、描画結果を検証する回帰テストを設ける。
