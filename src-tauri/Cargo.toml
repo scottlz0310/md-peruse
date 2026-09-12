@@ -56,6 +56,7 @@ imagesize = { version = "0.15.0", default-features = false, features = [
 getrandom = "0.4.3"
 hmac = "0.13.0"
 sha2 = "0.11.0"
+tauri-plugin-dialog = "2.7.3"
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。

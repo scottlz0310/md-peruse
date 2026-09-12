@@ -165,6 +165,24 @@ pub struct WatcherErrorEvent {
     pub error: IpcError,
 }
 
+/// ワークスペースを開いたことの通知（design-decisions.md 6.1、10.1）。
+///
+/// フォルダーの選択はネイティブメニューからRust側のダイアログで行うため、Frontendは
+/// 要求の応答ではなくeventで結果を受け取る。受け取ったら、探索キャッシュとタブを破棄して
+/// ルート直下を走査する（6.1）。
+///
+/// ネイティブ絶対パスは載せない（7.1）。表示には `label` を使う。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct WorkspaceOpenedEvent {
+    /// 開いたワークスペースの監視スコープID。以後の `FileChangeEvent` と
+    /// `WatcherErrorEvent` はこの値と一致するものだけを受け入れる（6.4）。
+    pub scope_id: String,
+    /// 表示名。最近使ったフォルダーと同じく末尾2コンポーネントに限る（11.1）。
+    pub label: String,
+}
+
 /// 配色テーマ。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

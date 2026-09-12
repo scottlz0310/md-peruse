@@ -20,7 +20,7 @@
 | Phase 1 | MSIX技術スパイク | 完了 |
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
 | Phase 3 | 詳細設計 | 完了 |
-| Phase 4 | 機能実装 | 着手中（4-1 Rust Coreは実装済み。残りはFrontend結線時の確認） |
+| Phase 4 | 機能実装 | 着手中（4-1 Rust Core完了、4-2 Frontend着手） |
 | Phase 5 | 配布パイプラインとStore公開 | 未着手 |
 
 着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」、第5章「着手順」、第6章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
@@ -159,7 +159,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 - [x] ワークスペースとパス境界。相対パスの形式検証と境界判定を `src-tauri/src/path_guard.rs` へ実装し、トラバーサル・区切り表記・代替データストリーム表記・末尾のドットや空白・境界外を指すjunctionの拒否をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 7.1）
 - [x] ディレクトリ走査。1階層の取得、除外一覧と属性による除外、`hasChildren` の判定、アクセス拒否を項目単位で表示する応答を実装する（[design-decisions.md](./docs/design-decisions.md) 6.2、6.3）。あわせてワークスペース状態、`ErrorCode` の文言、`scan_directory` commandを実装した
-- [ ] 自作commandがcapabilityの列挙なしで呼べることをFrontendの結線時に確認する。Tauriのpermissionはプラグインとcoreのcommandを対象とし、`generate_handler!` で登録したアプリ自身のcommandは対象外という前提で `capabilities/default.json` を3権限のままにしている（[design-decisions.md](./docs/design-decisions.md) 5.5）。前提が誤っていた場合はここで権限を追加する
+- [x] 自作commandがcapabilityの列挙なしで呼べることをFrontendの結線時に確認する。Tauriのpermissionはプラグインとcoreのcommandを対象とし、`generate_handler!` で登録したアプリ自身のcommandは対象外という前提で `capabilities/default.json` を3権限のままにしている（[design-decisions.md](./docs/design-decisions.md) 5.5）。Phase 4-2の最初の結線で、3権限のまま `scan_directory_command` と `read_file_command` を実機で呼べることを確認し、前提が正しいと確定した
 - [x] ファイル読込。BOMによる文字コード判定、10 MiB上限、共有モード、改行の正規化を `src-tauri/src/read.rs` へ実装し、`read_file` commandとして公開した（[design-decisions.md](./docs/design-decisions.md) 6.3、7.1）。260文字を超えるパスは特別扱いしないことを確定した（7.1）
 - [x] ファイル変更監視（前半）。`notify` を導入し、`notify::Event` から `RawEvent` への写像、監視イベント用のパス相対化、debounce窓の時間管理を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、字面で相対化する `relativize_literal` を用意した
 - [x] ファイル変更監視（後半・設計の確定）。`notify` のWindowsバックエンドを実測し、`DEBOUNCE_MS`（150）、`MAX_WINDOW_MS`（600）、`REPLACE_RETRY_DELAY_MS`（100）を据え置きで確定した。ディレクトリとファイルがイベントから区別できないこと、バッファあふれと監視停止が通知されないことを確認し、`DirectoryChanged` の生成と窓ごとのイベント数による縮退を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4）。監視範囲の縮退モードは設けないと確定し、15章 P1から落とした
@@ -170,6 +170,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 ### 4-2以降
 
+- [x] Rust Coreとの最小の結線。ネイティブメニュー（この時点では「フォルダーを開く」と「終了」だけ）、Rust側のフォルダー選択ダイアログ、`WorkspaceOpenedEvent`、Frontendの IPC ラッパー（`src/ipc/`）を置き、仮の画面でルート直下の走査と `.md` の読込を実機で通した（dev-flow 第6章、[design-decisions.md](./docs/design-decisions.md) 5.5、10.1）
+- [ ] メニューのアクセラレータ（`Ctrl+O`）がWebViewにフォーカスがある状態で効くことを実機で確認する。最小の結線の実機確認では、WebViewにフォーカスがある状態で `Ctrl+O` を送ってもダイアログが開かなかった。同じデスクトップで別のアプリが前面を取り合っており、キー入力がウィンドウへ届いていたかを切り分けられていない。メニューのクリックでは開くことを確認済み。効かない場合は、アクセラレータの処理をWebView内のキー処理へ寄せるか（10.1の「メニューに現れない操作」と同じ扱い）を決める（[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）

@@ -1,14 +1,156 @@
-import { describe, expect, test } from "bun:test";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "bun:test";
+import { emit } from "@tauri-apps/api/event";
+import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
+import type { FileContent } from "./types/generated/FileContent";
+import type { IpcError } from "./types/generated/IpcError";
+import type { ScanResult } from "./types/generated/ScanResult";
+import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
+
+type Handlers = {
+  scan: (path: string) => ScanResult | Promise<ScanResult>;
+  read?: (path: string) => FileContent | Promise<FileContent>;
+};
+
+/** Rust側のcommandを差し替え、eventを模擬できるようにする。 */
+function mockBackend(handlers: Handlers) {
+  mockIPC(
+    (command, payload) => {
+      const request = (payload as { request: { path: string } }).request;
+      if (command === "scan_directory_command")
+        return handlers.scan(request.path);
+      if (command === "read_file_command" && handlers.read)
+        return handlers.read(request.path);
+      throw new Error(`想定外のcommand: ${command}`);
+    },
+    { shouldMockEvents: true },
+  );
+}
+
+async function openWorkspace(opened: WorkspaceOpenedEvent) {
+  await act(async () => {
+    await emit("workspace-opened", opened);
+  });
+}
+
+const ROOT: ScanResult = {
+  path: "",
+  entries: [
+    { path: "docs", name: "docs", kind: "directory", hasChildren: true },
+    {
+      path: "README.md",
+      name: "README.md",
+      kind: "markdown",
+      hasChildren: null,
+    },
+  ],
+};
+
+afterEach(() => {
+  cleanup();
+  clearMocks();
+});
 
 describe("App", () => {
-  test("見出しと説明を描画する", () => {
+  test("ワークスペースを開くまでは案内を表示する", () => {
+    mockBackend({ scan: () => ROOT });
     render(<App />);
 
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "md-peruse",
     );
-    expect(screen.getByText("閲覧専用Markdownビューワー")).toBeTruthy();
+    expect(screen.getByText(/フォルダーを開く/)).toBeTruthy();
+  });
+
+  test("ワークスペースを開いたらルート直下を走査して表示する", async () => {
+    const scanned: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return ROOT;
+      },
+    });
+    render(<App />);
+    // 購読の完了を待つ。
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+
+    await openWorkspace({ scopeId: "scope-1", label: "src\\docs" });
+
+    await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "src\\docs",
+    );
+    expect(scanned).toEqual([""]);
+  });
+
+  test("Markdownを選ぶと読み込んだ本文を表示する", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => ({
+        path,
+        text: "# 見出し\n",
+        encoding: "utf8",
+        byteSize: 12,
+      }),
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
+
+    await act(async () => {
+      screen.getByRole("button", { name: "README.md" }).click();
+    });
+
+    await waitFor(() => expect(screen.getByText("# 見出し")).toBeTruthy());
+  });
+
+  test("走査の失敗は文言を表示する", async () => {
+    const failure: IpcError = {
+      code: "directoryAccessDenied",
+      message: "このフォルダーへアクセスできません。",
+      detail: null,
+    };
+    mockBackend({ scan: () => Promise.reject(failure) });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(failure.message),
+    );
+  });
+
+  test("切り替える前に要求した走査の応答は反映しない", async () => {
+    let releaseFirst: (result: ScanResult) => void = () => {};
+    let calls = 0;
+    // `mockIPC` を張り直すとeventの購読も消えるため、1つのモックで呼ばれた順に応答を変える。
+    // 1回目（1つ目のワークスペース）は保留し、2回目は空で即座に返す。
+    mockBackend({
+      scan: () => {
+        calls += 1;
+        if (calls > 1) return { path: "", entries: [] };
+        return new Promise<ScanResult>((resolve) => {
+          releaseFirst = resolve;
+        });
+      },
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "first" });
+    const pendingFirst = releaseFirst;
+
+    await openWorkspace({ scopeId: "scope-2", label: "second" });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+        "second",
+      ),
+    );
+
+    await act(async () => {
+      pendingFirst(ROOT);
+    });
+
+    expect(screen.queryByText("README.md")).toBeNull();
   });
 });
