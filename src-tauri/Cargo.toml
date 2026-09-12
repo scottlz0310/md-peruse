@@ -31,6 +31,18 @@ windows = { version = "0.62.2", features = ["Win32_Globalization"] }
 # バックエンドは既定機能に依存しない。畳み込みは自前の規則で行うため
 # （6.5、`src/watch.rs` の `coalesce`）、notify-debouncer-full は使わない。
 notify = { version = "8.2.0", default-features = false }
+# 画像ヘッダーからの形式判定と寸法取得（design-decisions.md 7.3）。デコーダーを持つcrateを
+# 使わないのは、上限の判定に必要なのが宣言された寸法だけであり、デコードすると上限で
+# 防ごうとしているメモリをその場で確保してしまうためである。機能は許可形式のものだけへ
+# 絞る。列挙にない形式は判定されず、そのまま拒否になる。
+imagesize = { version = "0.15.0", default-features = false, features = [
+  "bmp",
+  "gif",
+  "heif",
+  "jpeg",
+  "png",
+  "webp",
+] }
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。

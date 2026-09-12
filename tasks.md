@@ -164,7 +164,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] ファイル変更監視（前半）。`notify` を導入し、`notify::Event` から `RawEvent` への写像、監視イベント用のパス相対化、debounce窓の時間管理を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）。削除されたパスは `WorkspaceRoot::relativize` で相対化できない（実在しないパスは `canonicalize` を通せないため）ので、字面で相対化する `relativize_literal` を用意した
 - [x] ファイル変更監視（後半・設計の確定）。`notify` のWindowsバックエンドを実測し、`DEBOUNCE_MS`（150）、`MAX_WINDOW_MS`（600）、`REPLACE_RETRY_DELAY_MS`（100）を据え置きで確定した。ディレクトリとファイルがイベントから区別できないこと、バッファあふれと監視停止が通知されないことを確認し、`DirectoryChanged` の生成と窓ごとのイベント数による縮退を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4）。監視範囲の縮退モードは設けないと確定し、15章 P1から落とした
 - [x] ファイル変更監視（後半・Tauri統合）。Watcherのライフサイクル、ルートの親の非再帰監視による `WatcherStopped` の検知、監視スコープの採番と破棄、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を `src-tauri/src/watch_runtime.rs` へ実装し、`AppState` のワークスペース開閉へ結び付けた（[design-decisions.md](./docs/design-decisions.md) 6.4）。送出先は `ChangeSink` として抽象し、Tauriのアプリインスタンスなしでライフサイクルと送出内容を検証できるようにした
-- [ ] custom image protocol。resource IDの発行と世代、非同期の配信、Content-Typeの判定、上限の検証を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
+- [x] custom image protocol（前半・参照解決と上限検証）。Markdownの画像参照からワークスペース相対パスへの解決を `src-tauri/src/image/reference.rs` へ、内容による形式判定とバイト数・ピクセル寸法の上限検証を `src-tauri/src/image/format.rs` へ実装した（[design-decisions.md](./docs/design-decisions.md) 7.3）。SVGはピクセル寸法の上限の対象外とし、バイト数の上限だけで守ると確定した
+- [ ] custom image protocol（後半・発行と配信）。resource IDのソルトと変更世代、対応表の保持とワークスペース切替・バッファあふれでの無効化、発行command、非同期custom protocolによる配信とHTTPステータスへの写像を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
 
 ### 4-2以降
 

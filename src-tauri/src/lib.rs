@@ -1,6 +1,7 @@
 pub mod drop;
 pub mod file_kind;
 pub mod i18n;
+pub mod image;
 pub mod ipc;
 pub mod limits;
 pub mod menu;

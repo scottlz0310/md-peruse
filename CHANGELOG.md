@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- ローカル画像の参照解決と、形式・上限の検証を `src-tauri/src/image/` へ実装した（[design-decisions.md](./docs/design-decisions.md) 7.3）。resource IDの発行と配信は次のPull Requestで行うため、この時点で画面から観測できる変化はない
+  - **形式は拡張子ではなく内容で判定する。** 判定と寸法の取得は `imagesize` に委ねる。デコーダーを持つcrateを使わないのは、上限の判定に必要なのがヘッダーの宣言する寸法だけであり、デコードすると上限で防ごうとしているメモリをその場で確保してしまうためである。許可形式のうちラスタの6種（PNG、JPEG、GIF、WebP、AVIF、BMP）がいずれも実ファイルから判定でき、AVIFは同じHEIFコンテナのHEICと区別して取れることを確認した。機能はこの6種へ絞っており、ICOやTIFFは判定されないまま拒否になる
+  - **SVGはピクセル寸法の上限の対象外とし、バイト数の上限（32 MiB）だけで守る。** ベクター形式であり、`width` と `height` は省略も単位付きも割合指定もできるため、宣言された値がラスタライズの大きさを決めるとは限らない。抜けのある判定を持つより規則を一貫させた。引き換えに、巨大な intrinsic size を宣言するSVGは寸法の検証なしで通る
+  - **SVGはルート要素が `svg` であることで判定する。** 「どこかに `<svg` を含む」では、任意のテキストファイルがSVGとして配信され `Content-Type` が実体と食い違う。XMLの前書き（宣言、コメント、DOCTYPE）を読み飛ばし、次に現れる要素で判定する
+  - **画像参照の解決はリンクの解決（`src/markdown/link-target.ts`）と同じ規則にした。** セグメント単位のパーセント復号、ルート基準表記、`.` と `..` の扱い、クエリと断片の切り落としまで同じである。同じ文書の `[a](b.md)` と `![a](b.png)` が違う規則で解決されると、書き手から見た振る舞いを説明できない。異なるのは対象の拡張子を見ない点だけである
+  - **リモート画像、`data:` 画像、UNC表記、device path、ワークスペース外は解決しない。** 復号して現れた `/` と `\` を区切りとして扱わないことで、`..%2F..%2Fsecret.png` のように区切りをエンコードで隠したトラバーサルも成立しない。基点となる文書のパスもFrontendから届く値であるため併せて検証する
+  - テストは ffmpeg の合成ソースから生成した実ファイルで固定した（`src-tauri/src/image/fixtures/`）。手で組み立てたバイト列では、判定できたつもりのものが実ファイルで通らない
 - Tauriに触れるコードのテスト手段を用意し、残っていたテストの穴を埋めた（[design-decisions.md](./docs/design-decisions.md) 14.2）。製品の振る舞いは変えていない
   - **`tauri::test::mock_app` を導入した。** dev-dependencyで `tauri` の `test` featureを有効にする。これまで到達できなかったTauri command本体（`ipc/commands.rs`）とTauri eventの送出（`TauriChangeSink`）をテストで固定した。`tasks.md` の「検討待ち」にあったTauri commandのtest harnessの項目を閉じた
   - **feature を有効にすると、テストが1件も走らないまま起動時に落ちる。** libが comctl32 v6 の関数（`TaskDialogIndirect`、`SetWindowSubclass` など）を参照するようになるが、v6 を読み込むにはアプリケーションマニフェストの依存宣言が要り、cargoが作るテストバイナリはマニフェストを持たない。既定の v5 が読まれ `STATUS_ENTRYPOINT_NOT_FOUND` になる。`build.rs` からリンカへ `/MANIFESTDEPENDENCY` を渡して宣言した
