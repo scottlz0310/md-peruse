@@ -14,6 +14,13 @@
 ## [Unreleased]
 
 ### Added
+- 画像のcustom protocol（`http://mdperuse-img.localhost/<resource-id>`）による配信を実装した（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、7.4）。Rust Core（Phase 4-1）の5単位はこれで揃った。Frontendがまだ画像を描画しないため、この時点で画面から観測できる変化はない
+  - **発行済みのIDだけを配信し、配信時にもファイル全体を発行時と同じ規則で検証する。** 対応表に無いIDは404、ワークスペースを開き直した後の旧IDや、書き換えで世代が進んだ旧IDも404になる。発行後に置き換えられて許可形式や上限を外れた内容は配信しない
+  - **開いたhandleの最終パスでも境界を確かめる。** `WorkspaceRoot::open_file` を追加し、`GetFinalPathNameByHandleW` で引き直したパスがルート内にあることを確かめる。パスの解決とオープンの間に経路上のフォルダーを境界外へのjunctionへ差し替えられても、境界外のファイルは読まない（7.1）
+  - **ワークスペースのロックはhandleの取得までで離し、読込はロックの外で行う。** 走査と読込はロックを持ったままI/Oを行う（5.3）が、画像でそうすると最大32 MiBの読込の間、他の画像も走査もワークスペースの切り替えも待たされ、同時読込2件の上限が実質1件になる。5.3へ例外として記録した
+  - **同時読込は2件までとし、tokioの非同期セマフォで待たせる。** 待つ要求がブロッキングスレッドを占有しない。`tokio`（`sync` のみ）を依存へ加え、`windows` へ `Win32_Foundation` と `Win32_Storage_FileSystem` を加えた
+  - **応答ヘッダー**: 成功時は判定した形式の `Content-Type`、`nosniff`、SVGへの直接遷移に備えたCSP（`default-src 'none'; style-src 'unsafe-inline'; sandbox`）、長期キャッシュを返す。`Access-Control-Allow-Origin` は付けない。失敗時は本文なしの `no-store` とし、失敗の区分をHTTPのステータスへ写す
+  - 発行と配信で失敗の区分を共有するため、発行側の `IssueError` と `ErrorCode` への写像を `image::error::ImageError` へ移した
 - 画像resource IDの発行を実装した（[design-decisions.md](./docs/design-decisions.md) 5.4）。`issue_image_resources` commandが、文書の参照する画像へまとめてIDを発行し、要素ごとに成功と失敗を返す。custom protocolによる配信は次のPull Requestで行うため、この時点で画面から観測できる変化はない
   - **IDはワークスペースごとのソルトを鍵とする、相対パスと変更世代のHMAC-SHA256である。** `hmac`、`sha2`、`getrandom` を依存へ加えた。ソルトは推測されないことが要件のため、監視スコープIDのように `RandomState` から作らず、OSの乱数源から取る。ワークスペースを開くたびに作り直し、旧IDは新しい対応表で拒否される
   - **発行時はファイル全体を読まず、ヘッダーだけで形式と寸法を判定する。** `imagesize` のreader APIは寸法に関係しない区間をシークで読み飛ばし、1.3 MiBへ水増ししたJPEGでも読むのは2 KiB未満だった（実測）。判定の入口を `validate_reader` の1つにまとめ、配信時はバイト列に対して同じ判定を通す。SVGのルート要素は、発行時と配信時で結果を揃えるため先頭64 KiBの範囲で探す（7.3）

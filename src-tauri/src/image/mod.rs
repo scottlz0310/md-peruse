@@ -9,8 +9,12 @@
 //! | `format` | 発行時と配信時の両方が通る形式と上限の判定 |
 //! | `resource` | resource IDの生成、変更世代、対応表 |
 //! | `issue` | 参照1件に対する発行 |
+//! | `protocol` | custom protocolによる配信 |
+//! | `error` | 発行と配信が共有する失敗の区分 |
 
+pub mod error;
 pub mod format;
 pub mod issue;
+pub mod protocol;
 pub mod reference;
 pub mod resource;

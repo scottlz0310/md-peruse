@@ -20,7 +20,7 @@
 | Phase 1 | MSIX技術スパイク | 完了 |
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
 | Phase 3 | 詳細設計 | 完了 |
-| Phase 4 | 機能実装 | 着手中（4-1 Rust Core） |
+| Phase 4 | 機能実装 | 着手中（4-1 Rust Coreは実装済み。残りはFrontend結線時の確認） |
 | Phase 5 | 配布パイプラインとStore公開 | 未着手 |
 
 着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」、第5章「着手順」、第6章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
@@ -166,7 +166,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] ファイル変更監視（後半・Tauri統合）。Watcherのライフサイクル、ルートの親の非再帰監視による `WatcherStopped` の検知、監視スコープの採番と破棄、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を `src-tauri/src/watch_runtime.rs` へ実装し、`AppState` のワークスペース開閉へ結び付けた（[design-decisions.md](./docs/design-decisions.md) 6.4）。送出先は `ChangeSink` として抽象し、Tauriのアプリインスタンスなしでライフサイクルと送出内容を検証できるようにした
 - [x] custom image protocol（前半・参照解決と上限検証）。Markdownの画像参照からワークスペース相対パスへの解決を `src-tauri/src/image/reference.rs` へ、内容による形式判定とバイト数・ピクセル寸法の上限検証を `src-tauri/src/image/format.rs` へ実装した（[design-decisions.md](./docs/design-decisions.md) 7.3）。SVGはピクセル寸法の上限の対象外とし、バイト数の上限だけで守ると確定した
 - [x] custom image protocol（後半・発行）。resource IDのソルトと変更世代、対応表の保持とワークスペース切替・バッファあふれでの無効化、`issue_image_resources` commandを実装した（[design-decisions.md](./docs/design-decisions.md) 5.4）。発行時はヘッダーだけで形式と寸法を判定し、判定の入口を配信時と共有する `validate_reader` へまとめた
-- [ ] custom image protocol（後半・配信）。非同期custom protocolによる配信、同時読込2件の上限、handleベースの最終確認、`Content-Type`・CSP・`nosniff`・キャッシュの応答ヘッダー、HTTPステータスへの写像を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、7.4）
+- [x] custom image protocol（後半・配信）。非同期custom protocolによる配信、同時読込2件の上限、handleベースの最終確認、`Content-Type`・CSP・`nosniff`・キャッシュの応答ヘッダー、HTTPステータスへの写像を `src-tauri/src/image/protocol.rs` へ実装した（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、7.4）。ワークスペースのロックはhandleの取得までで離し、読込はロックの外で行うと確定した（5.3の例外）。WebView2の `img` 要素からの実際の取得は、Frontendの結線時に確認する
 
 ### 4-2以降
 
@@ -228,6 +228,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
 
+- [ ] Markdownの読込（`read.rs` の `read_file`）が、handleの最終パスによる境界の確認を行っていない。画像の配信は `WorkspaceRoot::open_file` で開いたhandleの最終パスを確かめるが、読込は `resolve` の後に `File::open` するだけであり、その間に経路上のフォルダーを境界外へのjunctionへ差し替えられると境界外を読みうる（[design-decisions.md](./docs/design-decisions.md) 7.1「可能な箇所ではhandleベースで最終確認する」）。読込も `open_file` へ寄せるかを決める。寄せる場合は `a_file_opened_without_sharing_is_reported_as_a_sharing_violation` など既存テストのエラー区分が変わらないことを確かめる（Phase 4-1eの配信実装時に発見）
 - [ ] 画像だけを書き換えても再描画の契機にならない。監視の通知（`FileChange`）はタブ向けの変更をMarkdownに絞っており（[design-decisions.md](./docs/design-decisions.md) 6.5）、画像の書き換えではFrontendへ何も届かない（atomic replaceでも親ディレクトリの `directoryChanged` だけ）。Rust側は変更世代を進めてIDを変えるが、再描画が起きないため古い画像が表示されたまま残る。Phase 4完了条件の「画像の更新の後に、古い画像がキャッシュから表示されない」に関わる。画像の変更を通知する変種を足すか、Frontendが参照中の画像を持って別の経路で再発行するかを、Frontendの描画単位（どの文書がどの画像を参照しているか）の持ち方と併せて決める（Phase 4-1eの発行実装時に発見。Phase 4-2で判断する）
 - [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
 - [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
