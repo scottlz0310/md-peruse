@@ -326,4 +326,162 @@ mod tests {
             assert_eq!(ipc.detail.as_deref(), Some("docs/note.md"));
         }
     }
+
+    /// command本体を `tauri::test::mock_app` の managed state 経由で呼ぶ。
+    ///
+    /// 上のテストはエラーの写像だけを見ており、引数の組み立て、`spawn_blocking` への受け渡し、
+    /// ワークスペース未オープンの分岐は通らない。`State<'_, AppState>` はruntimeに依存しない
+    /// 型のため、mock appの managed state からそのまま取れる（design-decisions.md 14.2）。
+    mod command_bodies {
+        use super::*;
+        use crate::i18n::LanguagePreference;
+        use crate::watch_runtime::ChangeSink;
+        use std::sync::Arc;
+        use tauri::Manager;
+        use tauri::async_runtime::block_on;
+
+        /// 送出を捨てる `ChangeSink`。ここで見るのはcommandの応答である。
+        struct DiscardingSink;
+
+        impl ChangeSink for DiscardingSink {
+            fn file_change(&self, _event: crate::ipc::types::FileChangeEvent) {}
+            fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+        }
+
+        /// テスト用の一時フォルダー。終了時に削除する。
+        struct TempDir(std::path::PathBuf);
+
+        impl TempDir {
+            fn new(name: &str) -> Self {
+                let path = std::env::temp_dir()
+                    .join(format!("md-peruse-command-{name}-{}", std::process::id()));
+                let _ = std::fs::remove_dir_all(&path);
+                std::fs::create_dir_all(&path).expect("一時フォルダーを作成できない");
+                Self(path)
+            }
+
+            fn path(&self) -> &std::path::Path {
+                &self.0
+            }
+        }
+
+        impl Drop for TempDir {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn mock_app_with_state(
+            language: LanguagePreference,
+        ) -> tauri::App<tauri::test::MockRuntime> {
+            let app = tauri::test::mock_app();
+            app.manage(AppState::new(language));
+            app
+        }
+
+        /// ワークスペースを開いていれば、走査と読込が応答を返す。
+        #[test]
+        fn the_commands_answer_for_an_open_workspace() {
+            let temp = TempDir::new("open");
+            std::fs::write(temp.path().join("note.md"), b"# note\n").expect("書込みに失敗");
+            std::fs::create_dir(temp.path().join("sub")).expect("フォルダーの作成に失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            app.state::<AppState>()
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+
+            let scan = block_on(scan_directory_command(
+                app.state::<AppState>(),
+                ScanRequest {
+                    path: String::new(),
+                },
+            ))
+            .expect("走査が失敗した");
+            let names: Vec<&str> = scan
+                .entries
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect();
+            // フォルダーが先、ファイルが後（6.2）。
+            assert_eq!(names, vec!["sub", "note.md"]);
+
+            let content = block_on(read_file_command(
+                app.state::<AppState>(),
+                ReadRequest {
+                    path: "note.md".to_owned(),
+                },
+            ))
+            .expect("読込が失敗した");
+            assert_eq!(content.text, "# note\n");
+        }
+
+        /// ワークスペースを開いていなければ、両commandとも `WorkspaceNotFound` を返す。
+        ///
+        /// ルートの不在は走査・読込それぞれの `ErrorCode` ではなくこのコードで表す。
+        #[test]
+        fn the_commands_report_a_missing_workspace() {
+            let app = mock_app_with_state(LanguagePreference::Ja);
+
+            let scan = block_on(scan_directory_command(
+                app.state::<AppState>(),
+                ScanRequest {
+                    path: String::new(),
+                },
+            ))
+            .expect_err("開いていないのに走査が成功した");
+            assert_eq!(scan.code, ErrorCode::WorkspaceNotFound);
+
+            let read = block_on(read_file_command(
+                app.state::<AppState>(),
+                ReadRequest {
+                    path: "note.md".to_owned(),
+                },
+            ))
+            .expect_err("開いていないのに読込が成功した");
+            assert_eq!(read.code, ErrorCode::WorkspaceNotFound);
+        }
+
+        /// 形式の検証に落ちた要求の `detail` に、受け取った文字列を載せない。
+        ///
+        /// ネイティブ絶対パスがそのまま渡されている場合があり、載せると「応答へ絶対パスを
+        /// 含めない」契約（5.3、7.1）を破る。エラー写像側でも固定しているが、command本体を
+        /// 通した経路でも崩れないことをここで見る。
+        #[test]
+        fn a_malformed_request_does_not_echo_the_input() {
+            let temp = TempDir::new("malformed");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            app.state::<AppState>()
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+
+            let error = block_on(read_file_command(
+                app.state::<AppState>(),
+                ReadRequest {
+                    path: r"C:\Windows\System32\drivers\etc\hosts".to_owned(),
+                },
+            ))
+            .expect_err("区切りが `\\` の要求が通っている");
+            assert_eq!(error.code, ErrorCode::PathRejected);
+            assert_eq!(error.detail, None);
+            assert!(!error.message.contains("System32"), "{}", error.message);
+        }
+
+        /// UI言語は応答の文言に反映される（10.5）。
+        #[test]
+        fn the_response_message_follows_the_language() {
+            let app = mock_app_with_state(LanguagePreference::En);
+
+            let error = block_on(scan_directory_command(
+                app.state::<AppState>(),
+                ScanRequest {
+                    path: String::new(),
+                },
+            ))
+            .expect_err("開いていないのに走査が成功した");
+            assert_eq!(
+                error.message,
+                crate::ipc::message::message(ErrorCode::WorkspaceNotFound, Language::En)
+            );
+        }
+    }
 }

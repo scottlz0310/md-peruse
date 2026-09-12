@@ -33,6 +33,9 @@ windows = { version = "0.62.2", features = ["Win32_Globalization"] }
 notify = { version = "8.2.0", default-features = false }
 
 [dev-dependencies]
+# `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。
+# dev-dependencies の feature は通常ビルドへ波及しないため、製品バイナリには入らない。
+tauri = { version = "2.11.5", features = ["test"] }
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
 # muda と同じ系列へ解決させる（cargo は semver 互換なら1つへ統一する）。
 muda = "0.19.3"

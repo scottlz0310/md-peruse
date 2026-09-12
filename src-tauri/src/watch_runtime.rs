@@ -18,6 +18,7 @@ use notify::{Event, RecursiveMode, Watcher};
 use tauri::{Emitter, Manager};
 
 use crate::file_kind::is_markdown_path;
+use crate::i18n::Language;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::message;
 use crate::ipc::types::{FileChangeEvent, WatcherErrorEvent};
@@ -277,39 +278,35 @@ fn stops_workspace(root: &Path, event: &Event) -> bool {
     }
 }
 
-/// Tauri eventとして送出する `ChangeSink`。
-pub struct TauriChangeSink {
-    app: tauri::AppHandle,
+/// 監視の断念を表すイベントを、指定のUI言語で組み立てる。
+///
+/// 送出から切り離すのは、「文言は送出の時点のUI言語で組み立てる」という契約（10.5）を
+/// Tauriのアプリインスタンスなしで固定するためである。
+fn watcher_error_event(scope_id: &str, code: ErrorCode, language: Language) -> WatcherErrorEvent {
+    WatcherErrorEvent {
+        scope_id: scope_id.to_owned(),
+        error: IpcError {
+            code,
+            message: message(code, language).to_owned(),
+            detail: None,
+        },
+    }
 }
 
-impl TauriChangeSink {
-    pub fn new(app: tauri::AppHandle) -> Self {
+/// Tauri eventとして送出する `ChangeSink`。
+///
+/// runtimeを型引数にしているのは、テストで `tauri::test::mock_app` の `MockRuntime` を
+/// 渡すためである。`mock_app` が返すのは `AppHandle<MockRuntime>` であり、製品が使う
+/// `AppHandle<Wry>` とは別の型になる（14.2）。既定は `Wry` のため、製品側の記述は変わらない。
+pub struct TauriChangeSink<R: tauri::Runtime = tauri::Wry> {
+    app: tauri::AppHandle<R>,
+}
+
+impl<R: tauri::Runtime> TauriChangeSink<R> {
+    pub fn new(app: tauri::AppHandle<R>) -> Self {
         Self { app }
     }
-}
 
-impl ChangeSink for TauriChangeSink {
-    fn file_change(&self, event: FileChangeEvent) {
-        self.emit(FILE_CHANGE_EVENT, event);
-    }
-
-    fn watcher_error(&self, scope_id: &str, code: ErrorCode) {
-        let language = self.app.state::<AppState>().language();
-        self.emit(
-            WATCHER_ERROR_EVENT,
-            WatcherErrorEvent {
-                scope_id: scope_id.to_owned(),
-                error: IpcError {
-                    code,
-                    message: message(code, language).to_owned(),
-                    detail: None,
-                },
-            },
-        );
-    }
-}
-
-impl TauriChangeSink {
     /// 送出の失敗は捨てる。
     ///
     /// 監視スレッドから呼ばれるため、伝播させる先がない。失敗するのはWebViewが閉じた後で
@@ -320,11 +317,29 @@ impl TauriChangeSink {
     }
 }
 
+impl<R: tauri::Runtime> ChangeSink for TauriChangeSink<R> {
+    fn file_change(&self, event: FileChangeEvent) {
+        self.emit(FILE_CHANGE_EVENT, event);
+    }
+
+    fn watcher_error(&self, scope_id: &str, code: ErrorCode) {
+        // 言語はここで引く。Watcherはワークスペースを開いている間ずっと生きるため、
+        // 開始時の言語を捕まえると切り替えた後もずっと旧言語で届く（10.5）。
+        let language = self.app.state::<AppState>().language();
+        self.emit(
+            WATCHER_ERROR_EVENT,
+            watcher_error_event(scope_id, code, language),
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::watch::{MAX_EVENTS_PER_WINDOW, MAX_WINDOW_MS, RawEvent, RawEventKind};
     use std::path::PathBuf;
     use std::sync::Mutex;
+    use tauri::Listener;
 
     /// 送出を記録する `ChangeSink`。
     #[derive(Default)]
@@ -607,5 +622,184 @@ mod tests {
         std::fs::write(temp.path().join("b.md"), b"# b\n").expect("書込みに失敗");
         std::thread::sleep(Duration::from_millis(800));
         assert_eq!(sink.changes().len(), after_stop, "停止後も送出している");
+    }
+
+    /// 期限を過ぎた時刻を起点として返す。
+    ///
+    /// 窓へ渡す時刻は呼び出し側が決める契約（`DebounceWindow`）であり、起点を過去へ
+    /// ずらせば実時間を待たずに期限を越えられる。
+    fn elapsed_origin(ms: u64) -> Instant {
+        Instant::now()
+            .checked_sub(Duration::from_millis(ms))
+            .expect("起点を過去へずらせない")
+    }
+
+    /// 縮退した窓は `WatcherOverflow` として送出し、個別の変更は送らない（6.4）。
+    ///
+    /// 縮退の結果は展開済みディレクトリの再取得とアクティブ文書の再読込である。個別の
+    /// 変更を併せて送ると、Frontendは取りこぼしのある一部の変更を全体だと解釈する。
+    #[test]
+    fn a_degraded_window_is_reported_as_an_overflow() {
+        let mut window = DebounceWindow::new();
+        for index in 0..=MAX_EVENTS_PER_WINDOW {
+            window.push(
+                0,
+                RawEvent::new(RawEventKind::Created, &format!("f{index}.md")),
+            );
+        }
+        let sink = RecordingSink::default();
+
+        drain(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-1",
+            &sink,
+        );
+
+        assert_eq!(
+            sink.errors(),
+            vec![("scope-1".to_owned(), ErrorCode::WatcherOverflow)]
+        );
+        assert!(
+            sink.changes().is_empty(),
+            "縮退した窓で個別の変更を送っている"
+        );
+    }
+
+    /// 縮退していない窓は、畳み込んだ変更をスコープIDとともに送る。
+    #[test]
+    fn a_due_window_is_reported_as_changes() {
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(RawEventKind::Created, "docs/a.md"));
+        let sink = RecordingSink::default();
+
+        drain(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-2",
+            &sink,
+        );
+
+        assert_eq!(
+            sink.changes(),
+            vec![
+                FileChangeEvent {
+                    scope_id: "scope-2".to_owned(),
+                    change: crate::ipc::types::FileChange::FileModified {
+                        path: "docs/a.md".to_owned()
+                    },
+                },
+                FileChangeEvent {
+                    scope_id: "scope-2".to_owned(),
+                    change: crate::ipc::types::FileChange::DirectoryChanged {
+                        path: "docs".to_owned()
+                    },
+                },
+            ]
+        );
+        assert!(sink.errors().is_empty());
+    }
+
+    /// 断念の文言は渡されたUI言語で組み立てる（10.5）。
+    ///
+    /// Watcherはワークスペースを開いている間ずっと生きるため、開始時の言語を捕まえる
+    /// 実装にすると、言語を切り替えた後もずっと旧言語で届く。ここでは言語ごとに別の
+    /// 文言になることだけを固定し、文言そのものは `ipc::message` を正本とする。
+    #[test]
+    fn the_watcher_error_message_follows_the_language() {
+        let japanese = watcher_error_event("scope", ErrorCode::WatcherOverflow, Language::Ja);
+        let english = watcher_error_event("scope", ErrorCode::WatcherOverflow, Language::En);
+
+        assert_eq!(japanese.scope_id, "scope");
+        assert_eq!(japanese.error.code, ErrorCode::WatcherOverflow);
+        assert_eq!(japanese.error.detail, None);
+        assert_eq!(
+            japanese.error.message,
+            message(ErrorCode::WatcherOverflow, Language::Ja)
+        );
+        assert_ne!(japanese.error.message, english.error.message);
+    }
+
+    /// `tauri::test::mock_app` を使い、実際のTauri eventとして届くことを固定する。
+    ///
+    /// `mock_app` が返すのは `AppHandle<MockRuntime>` であり、製品が使う `AppHandle<Wry>`
+    /// とは別の型になる。`TauriChangeSink` をruntimeで型引数化しているのはこのためである。
+    #[test]
+    fn the_tauri_sink_emits_both_events() {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new(crate::i18n::LanguagePreference::En));
+
+        let changes: Arc<Mutex<Vec<FileChangeEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        let errors: Arc<Mutex<Vec<WatcherErrorEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        {
+            let changes = changes.clone();
+            app.listen(FILE_CHANGE_EVENT, move |event| {
+                changes
+                    .lock()
+                    .expect("記録のロックに失敗")
+                    .push(serde_json::from_str(event.payload()).expect("変更を解釈できない"));
+            });
+            let errors = errors.clone();
+            app.listen(WATCHER_ERROR_EVENT, move |event| {
+                errors
+                    .lock()
+                    .expect("記録のロックに失敗")
+                    .push(serde_json::from_str(event.payload()).expect("断念を解釈できない"));
+            });
+        }
+
+        let sink = TauriChangeSink::new(app.handle().clone());
+        let change = FileChangeEvent {
+            scope_id: "scope-3".to_owned(),
+            change: crate::ipc::types::FileChange::FileModified {
+                path: "a.md".to_owned(),
+            },
+        };
+        sink.file_change(change.clone());
+        sink.watcher_error("scope-3", ErrorCode::WatcherStopped);
+
+        assert_eq!(*changes.lock().expect("記録のロックに失敗"), vec![change]);
+        // 送出の時点で `AppState` が持つ言語（ここでは英語）で組み立てる。
+        assert_eq!(
+            *errors.lock().expect("記録のロックに失敗"),
+            vec![watcher_error_event(
+                "scope-3",
+                ErrorCode::WatcherStopped,
+                Language::En
+            )]
+        );
+    }
+
+    /// UI言語を切り替えると、以後の送出がその言語に従う（10.5）。
+    #[test]
+    fn the_tauri_sink_follows_a_language_change() {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new(crate::i18n::LanguagePreference::Ja));
+        let errors: Arc<Mutex<Vec<WatcherErrorEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        {
+            let errors = errors.clone();
+            app.listen(WATCHER_ERROR_EVENT, move |event| {
+                errors
+                    .lock()
+                    .expect("記録のロックに失敗")
+                    .push(serde_json::from_str(event.payload()).expect("断念を解釈できない"));
+            });
+        }
+        let sink = TauriChangeSink::new(app.handle().clone());
+
+        sink.watcher_error("scope-4", ErrorCode::WatcherOverflow);
+        app.state::<AppState>().set_language(Language::En);
+        sink.watcher_error("scope-4", ErrorCode::WatcherOverflow);
+
+        let recorded = errors.lock().expect("記録のロックに失敗").clone();
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(
+            recorded[0].error.message,
+            message(ErrorCode::WatcherOverflow, Language::Ja)
+        );
+        assert_eq!(
+            recorded[1].error.message,
+            message(ErrorCode::WatcherOverflow, Language::En)
+        );
     }
 }
