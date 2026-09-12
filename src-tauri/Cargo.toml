@@ -23,9 +23,16 @@ tauri-plugin-opener = "2.5.5"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 ts-rs = "12.0.1"
-# OSの表示言語の取得に使う（design-decisions.md 10.5）。Tauriが依存する版と揃えており、
-# 重複してコンパイルされない。
-windows = { version = "0.62.2", features = ["Win32_Globalization"] }
+# OSの表示言語の取得（design-decisions.md 10.5）と、開いたhandleの最終パスの取得（7.1）に
+# 使う。Tauriが依存する版と揃えており、重複してコンパイルされない。
+windows = { version = "0.62.2", features = [
+  "Win32_Foundation",
+  "Win32_Globalization",
+  "Win32_Storage_FileSystem",
+] }
+# 画像配信の同時読込数の上限（design-decisions.md 7.3）。Tauriの非同期ランタイムはtokioであり、
+# 待つ側がブロッキングスレッドを占有しないよう非同期のセマフォを使う。Tauriが依存する版と揃える。
+tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
 # ファイル変更監視（design-decisions.md 6.4）。Windowsでは ReadDirectoryChangesW を使う。
 # `default-features = false` はmacOS向けのFSEventsを外すためであり、Windowsの
 # バックエンドは既定機能に依存しない。畳み込みは自前の規則で行うため

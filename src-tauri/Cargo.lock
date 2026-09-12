@@ -2084,6 +2084,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-opener",
+ "tokio",
  "ts-rs",
  "windows 0.62.2",
 ]

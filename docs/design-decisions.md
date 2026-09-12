@@ -286,6 +286,8 @@ Bunはユーザー標準のパッケージマネージャー（pnpm）と異な�
 
 ファイルシステムへ触れるcommandは `async fn` として定義し、同期I/Oを `tauri::async_runtime::spawn_blocking` へ渡す。Tauriは `async` を付けないcommandをメインスレッドで実行するため、同期のままではパスの解決・オープン・読み取り・デコードの間、ウィンドウの操作が止まる。上限（10 MiB）はバイト数を縛るだけで待ち時間を縛らず、ネットワークドライブや応答の遅いストレージではI/Oが戻るまで待つことになる。Frontendの `await invoke()` は待ち方の話であって、Rust側の実行スレッドを変えない。ブロッキングスレッドへ渡してもワークスペースのルートは `WorkspaceHandle` のロックを保持したまま参照するため、1回の要求が見るルートは1つに固定される（実装の正本は `src-tauri/src/state.rs`）。上のキャンセルの判断は、処理単位が短いことに加えてこの非同期化を前提とする。
 
+画像の配信（5.4）だけはこの例外とし、ロックを持つのはIDの照合とファイルのオープン（handleによる境界の確認を含む）までとする。読込と形式の検証はロックの外で行う。ロックを持ったまま最大32 MiBを読むと、他の画像も走査もワークスペースの切り替えも待たされ、同時読込2件の上限（7.3）が実質1件になる。検証済みのhandleから読むため、ロックを離しても境界は崩れない。読込中に切り替えが起きた場合は旧ワークスペースの画像を1件配信し切るが、要求の時点では正当なIDであり、Frontendは旧スコープの表示を捨てる。
+
 陳腐化した応答は、Frontendが保持する2層の世代で破棄する。`await invoke()` は呼び出しと応答を対応付けるため、世代をFrontend側だけで保持すれば判定できる。
 
 | 世代 | 進めるとき | 判定 |
@@ -387,6 +389,27 @@ IDの生成と対応表の正本は `src-tauri/src/image/resource.rs`、発行�
 発行時の失敗は `IpcError` で表し、画像固有の `code`（`imageUnsupportedFormat`、`imageTooLarge`、`imagePixelLimitExceeded`、`imageDecodeFailed`）を用いる。Markdown用の `fileTooLarge`（10 MiB）や文字コード用の `decodeFailed` は上限も対象も異なるため流用しない。配信時の失敗も同じ区分で表し、HTTPのステータスコードへ対応付ける。
 
 パスの失敗は走査・読込と同じ `pathRejected` と `pathOutsideWorkspace` で表す。見つからない場合は `fileNotFound` とする。参照の書き誤りが最も起こりやすい失敗であり、「読み込めない」と区別して示す価値がある。それ以外のI/Oの失敗（アクセス拒否、共有違反、フォルダーを指している）は `imageDecodeFailed` へまとめる。画像の表示位置で利用者が取れる対応は変わらない。失敗の `detail` は載せない。応答の要素は要求の参照文字列を持っており、解決した相対パスを別に返すとFrontendがパスの規則を知る必要が生じる。
+
+配信の正本は `src-tauri/src/image/protocol.rs` とし、次のとおり具体化した。
+
+- IDを対応表で引けない場合（旧ワークスペースのID、世代の古いID、推測したID）とワークスペースを開いていない場合は404とする。GET以外は405とする。
+- ファイルは `WorkspaceRoot::open_file` で開き、開いたhandleの最終パス（`GetFinalPathNameByHandleW`）でも境界内であることを確かめる（7.1）。解決とオープンの間に経路上のフォルダーが境界外を指すjunctionへ差し替えられても、境界外のファイルは読まない。
+- 読込はメタデータのバイト数で上限を先に判定し、読み取りも上限を1バイト超えるところで打ち切る。読んだバイト列を発行時と同じ規則（`format::validate`）で検証する。
+- 同時読込は2件までとし、tokioの非同期セマフォで待たせる。待つ要求がブロッキングスレッドを占有しないためである。
+- 成功の応答には、判定した形式の `Content-Type`、`X-Content-Type-Options: nosniff`、`Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`（7.4）、`Cache-Control: private, max-age=31536000, immutable` を付ける。`Access-Control-Allow-Origin` は付けない。
+- 失敗の応答は本文を持たず、`Cache-Control: no-store` とする。共有違反のような一時的な失敗が同じIDで固定されないためである。
+
+失敗は発行時と同じ区分（`src-tauri/src/image/error.rs` の `ImageError`）から `ErrorCode` を得て、HTTPのステータスへ写す。`img` 要素はステータスを読めないため、Frontendが画像の位置に示す理由は発行時の応答から取り、ステータスは診断に使う。
+
+| `ErrorCode` | ステータス |
+| --- | --- |
+| `pathRejected` | 400 |
+| `pathOutsideWorkspace` | 403 |
+| `fileNotFound` | 404 |
+| `imageUnsupportedFormat` | 415 |
+| `imageTooLarge` | 413 |
+| `imagePixelLimitExceeded` | 422 |
+| `imageDecodeFailed` | 500（アクセス拒否や共有違反を含み、内容の誤りとは限らないため） |
 
 Phase 1のスパイクで実測した結果は次のとおり（13.4）。
 

@@ -8,26 +8,11 @@
 use std::fs::File;
 use std::io::{self, BufReader};
 
-use super::format::{self, ImageRejection};
+use super::error::ImageError;
+use super::format;
 use super::reference;
 use super::resource::ImageResources;
 use crate::path_guard::{ResolveError, WorkspaceRoot};
-
-/// 発行できなかった理由。
-///
-/// `ErrorCode` への写像はcommand層で行う。パスの失敗は走査・読込と同じ区分
-/// （`ResolveError`）で、画像の失敗は配信時と共有する区分（`ImageRejection`）で表す。
-#[derive(Debug)]
-pub enum IssueError {
-    Resolve(ResolveError),
-    Rejected(ImageRejection),
-}
-
-impl From<ResolveError> for IssueError {
-    fn from(error: ResolveError) -> Self {
-        Self::Resolve(error)
-    }
-}
 
 /// `document_path` の文書に書かれた `reference` に対してIDを発行する。
 pub fn issue(
@@ -35,12 +20,12 @@ pub fn issue(
     resources: &ImageResources,
     document_path: &str,
     reference: &str,
-) -> Result<String, IssueError> {
+) -> Result<String, ImageError> {
     let relative = reference::resolve(document_path, reference).map_err(ResolveError::Rejected)?;
     let absolute = root.resolve(&relative)?;
     let file = File::open(&absolute).map_err(ResolveError::Io)?;
     let byte_len = file.metadata().map_err(ResolveError::Io)?.len();
-    format::validate_reader(BufReader::new(file), byte_len).map_err(IssueError::Rejected)?;
+    format::validate_reader(BufReader::new(file), byte_len)?;
     // 世代はファイルシステム上の表記で持つ。参照の表記（`IMG.png`）と監視イベントの表記
     // （`img.png`）が食い違っても、同じファイルの世代として進めるためである。
     // 検証の後に消された場合は、見つからないものとして扱う。
@@ -53,6 +38,7 @@ pub fn issue(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::image::format::ImageRejection;
     use crate::path_guard::PathRejection;
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -122,32 +108,32 @@ mod tests {
 
         assert!(matches!(
             issued("https://example.com/a.png"),
-            Err(IssueError::Resolve(ResolveError::Rejected(
+            Err(ImageError::Resolve(ResolveError::Rejected(
                 PathRejection::Malformed
             )))
         ));
         assert!(matches!(
             issued("../outside.png"),
-            Err(IssueError::Resolve(ResolveError::Rejected(
+            Err(ImageError::Resolve(ResolveError::Rejected(
                 PathRejection::Outside
             )))
         ));
         assert!(matches!(
             issued("missing.png"),
-            Err(IssueError::Resolve(ResolveError::Io(error))) if error.kind() == io::ErrorKind::NotFound
+            Err(ImageError::Resolve(ResolveError::Io(error))) if error.kind() == io::ErrorKind::NotFound
         ));
         // フォルダーはファイルとして開けない。
         assert!(matches!(
             issued("sub"),
-            Err(IssueError::Resolve(ResolveError::Io(_)))
+            Err(ImageError::Resolve(ResolveError::Io(_)))
         ));
         assert!(matches!(
             issued("a.tiff"),
-            Err(IssueError::Rejected(ImageRejection::UnsupportedFormat))
+            Err(ImageError::Rejected(ImageRejection::UnsupportedFormat))
         ));
         assert!(matches!(
             issued("wide.png"),
-            Err(IssueError::Rejected(ImageRejection::PixelLimitExceeded))
+            Err(ImageError::Rejected(ImageRejection::PixelLimitExceeded))
         ));
     }
 }

@@ -18,7 +18,7 @@ use tauri::State;
 use tauri::async_runtime::spawn_blocking;
 
 use crate::i18n::Language;
-use crate::image::issue::{IssueError, issue};
+use crate::image::issue::issue;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{
@@ -189,7 +189,10 @@ pub async fn issue_image_resources_command(
                         },
                         Err(error) => ImageResource::Failed {
                             reference,
-                            error: ipc_error(image_error_code(&error), language, None),
+                            // `detail` は載せない。応答の要素は要求の参照文字列を持っており、
+                            // Frontendはどの画像の失敗かをそこから知る。解決した相対パスを別に
+                            // 返すと、Frontendがパスの規則を知る必要が生じる。
+                            error: ipc_error(error.code(), language, None),
                         },
                     },
                 )
@@ -199,32 +202,6 @@ pub async fn issue_image_resources_command(
     .await
     .expect("画像resource IDの発行タスクの実行に失敗");
     result.ok_or_else(|| ipc_error(ErrorCode::WorkspaceNotFound, language, None))
-}
-
-/// 発行の失敗を `ErrorCode` へ写す。
-///
-/// `detail` は載せない。応答の要素は要求の参照文字列（`reference`）を持っており、Frontendは
-/// どの画像の失敗かをそこから知る。参照はMarkdownに書かれたままの文字列であり、解決した
-/// 相対パスを別に返すと、Frontendがパスの規則を知る必要が生じる。
-///
-/// 見つからないことは `FileNotFound` で表す。参照の書き誤りが最も起こりやすい失敗であり、
-/// 「読み込めない」と区別して示す価値がある。それ以外のI/Oの失敗（アクセス拒否、共有違反、
-/// フォルダーを指している）は `ImageDecodeFailed` へまとめる。画像の表示位置で利用者が取れる
-/// 対応は変わらないためである。
-fn image_error_code(error: &IssueError) -> ErrorCode {
-    match error {
-        IssueError::Rejected(rejection) => rejection.code(),
-        IssueError::Resolve(ResolveError::Rejected(PathRejection::Malformed)) => {
-            ErrorCode::PathRejected
-        }
-        IssueError::Resolve(ResolveError::Rejected(PathRejection::Outside)) => {
-            ErrorCode::PathOutsideWorkspace
-        }
-        IssueError::Resolve(ResolveError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound => {
-            ErrorCode::FileNotFound
-        }
-        IssueError::Resolve(ResolveError::Io(_)) => ErrorCode::ImageDecodeFailed,
-    }
 }
 
 #[cfg(test)]
@@ -393,56 +370,6 @@ mod tests {
             let ipc = read_error(&error, "docs/note.md", Language::Ja);
             assert_eq!(ipc.code, expected_code);
             assert_eq!(ipc.detail.as_deref(), Some("docs/note.md"));
-        }
-    }
-
-    #[test]
-    fn image_issue_errors_map_to_image_codes() {
-        use crate::image::format::ImageRejection;
-
-        let cases = [
-            (
-                IssueError::Rejected(ImageRejection::UnsupportedFormat),
-                ErrorCode::ImageUnsupportedFormat,
-            ),
-            (
-                IssueError::Rejected(ImageRejection::TooLarge),
-                ErrorCode::ImageTooLarge,
-            ),
-            (
-                IssueError::Rejected(ImageRejection::PixelLimitExceeded),
-                ErrorCode::ImagePixelLimitExceeded,
-            ),
-            (
-                IssueError::Rejected(ImageRejection::Decode),
-                ErrorCode::ImageDecodeFailed,
-            ),
-            (
-                IssueError::Resolve(ResolveError::Rejected(PathRejection::Malformed)),
-                ErrorCode::PathRejected,
-            ),
-            (
-                IssueError::Resolve(ResolveError::Rejected(PathRejection::Outside)),
-                ErrorCode::PathOutsideWorkspace,
-            ),
-            (
-                IssueError::Resolve(ResolveError::Io(io::Error::from(io::ErrorKind::NotFound))),
-                ErrorCode::FileNotFound,
-            ),
-            // Markdown用の `FileAccessDenied` や `FileLocked` へは倒さない。
-            (
-                IssueError::Resolve(ResolveError::Io(io::Error::from(
-                    io::ErrorKind::PermissionDenied,
-                ))),
-                ErrorCode::ImageDecodeFailed,
-            ),
-            (
-                IssueError::Resolve(ResolveError::Io(io::Error::from_raw_os_error(32))),
-                ErrorCode::ImageDecodeFailed,
-            ),
-        ];
-        for (error, expected) in cases {
-            assert_eq!(image_error_code(&error), expected, "{error:?}");
         }
     }
 

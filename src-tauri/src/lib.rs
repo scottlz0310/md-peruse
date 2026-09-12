@@ -20,7 +20,7 @@ use i18n::LanguagePreference;
 use state::AppState;
 
 pub fn run() {
-    tauri::Builder::default()
+    image::protocol::register(tauri::Builder::default())
         .plugin(tauri_plugin_opener::init())
         // 設定の読み込み（design-decisions.md 11.1）はPhase 4で別に実装する。
         // それまでUI言語の設定値は既定の `System` とする。

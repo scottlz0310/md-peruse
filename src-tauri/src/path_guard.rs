@@ -107,6 +107,27 @@ impl WorkspaceRoot {
         Ok(target)
     }
 
+    /// ワークスペース相対パスのファイルを開き、開いたhandleの最終パスでも境界内であることを
+    /// 確かめる（7.1）。
+    ///
+    /// `resolve` の検証と実際のオープンの間に、経路上のフォルダーが境界外を指すjunctionへ
+    /// 差し替えられる競合がある。開いた後にhandleからパスを引き直せば、読むのが境界内の
+    /// ファイルであることを、以後の置換に左右されずに保証できる。
+    pub fn open_file(&self, relative: &str) -> Result<fs::File, ResolveError> {
+        let absolute = self.resolve(relative)?;
+        let file = fs::File::open(&absolute).map_err(ResolveError::Io)?;
+        self.ensure_opened_within(&file)?;
+        Ok(file)
+    }
+
+    fn ensure_opened_within(&self, file: &fs::File) -> Result<(), ResolveError> {
+        let opened = final_path(file).map_err(ResolveError::Io)?;
+        if !is_within(&self.path, &opened) {
+            return Err(PathRejection::Outside.into());
+        }
+        Ok(())
+    }
+
     /// 絶対パスをワークスペース相対パスへ直す。
     ///
     /// Frontendへ渡す `FileNode.path` などはこの形式である。境界外のパスと実在しない
@@ -131,6 +152,37 @@ impl WorkspaceRoot {
             .map(|component| component.as_os_str().to_string_lossy().into_owned())
             .collect();
         Some(segments.join("/"))
+    }
+}
+
+/// 開いているhandleが指すファイルの最終パスを返す。
+///
+/// `GetFinalPathNameByHandleW` はjunctionとsymlinkを解決した後のパスを、`canonicalize` と
+/// 同じverbatim形式（`\\?\C:\...`、`\\?\UNC\...`）で返す。`std::fs::canonicalize` も内部で
+/// 同じAPIを使っており、ルートとの比較で表記が食い違わない。
+fn final_path(file: &fs::File) -> io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows::Win32::Foundation::HANDLE;
+    use windows::Win32::Storage::FileSystem::{FILE_NAME_NORMALIZED, GetFinalPathNameByHandleW};
+
+    let handle = HANDLE(file.as_raw_handle());
+    let mut buffer = vec![0u16; 512];
+    loop {
+        // SAFETY: `handle` は `file` が所有する有効なhandleであり、この呼び出しの間 `file` は
+        // 借用されている。バッファの長さはAPIへスライスとして渡る。
+        let length = unsafe { GetFinalPathNameByHandleW(handle, &mut buffer, FILE_NAME_NORMALIZED) }
+            as usize;
+        if length == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // 足りないときは終端のNULを含む必要な長さが返る。収まったときは終端を含まない長さが返る。
+        if length < buffer.len() {
+            buffer.truncate(length);
+            return Ok(PathBuf::from(OsString::from_wide(&buffer)));
+        }
+        buffer.resize(length, 0);
     }
 }
 
@@ -437,6 +489,62 @@ mod tests {
             root.resolve("missing.md"),
             Err(ResolveError::Io(error)) if error.kind() == io::ErrorKind::NotFound
         ));
+    }
+
+    /// 開いたhandleの最終パスで境界を確かめる（7.1）。
+    ///
+    /// `resolve` とオープンの間の差し替えはテストで再現できないため、境界外のファイルを
+    /// 開いたhandleを直接渡し、handleの側の判定だけで拒否されることを見る。
+    #[test]
+    fn opened_files_are_checked_by_their_handle() {
+        let temp = TempDir::new("handle");
+        let root_dir = temp.path().join("root");
+        fs::create_dir_all(root_dir.join("docs")).unwrap();
+        fs::write(root_dir.join("docs").join("a.png"), "a").unwrap();
+        fs::write(temp.path().join("secret.png"), "secret").unwrap();
+        let root = WorkspaceRoot::open(&root_dir).unwrap();
+
+        let file = root
+            .open_file("DOCS/A.PNG")
+            .expect("境界内のファイルを開けない");
+        assert_eq!(
+            final_path(&file).unwrap(),
+            fs::canonicalize(root_dir.join("docs").join("a.png")).unwrap()
+        );
+
+        let outside = fs::File::open(temp.path().join("secret.png")).unwrap();
+        assert!(matches!(
+            root.ensure_opened_within(&outside),
+            Err(ResolveError::Rejected(PathRejection::Outside))
+        ));
+
+        // 境界外を指すjunctionを経由した場合も、handleは解決先を指す。
+        create_junction(&root_dir.join("to_outside"), temp.path());
+        let via_junction = fs::File::open(root_dir.join("to_outside").join("secret.png")).unwrap();
+        assert!(matches!(
+            root.ensure_opened_within(&via_junction),
+            Err(ResolveError::Rejected(PathRejection::Outside))
+        ));
+    }
+
+    /// 260文字を超える最終パスでも取得できる。初期バッファ（512）より長い場合を含む。
+    #[test]
+    fn final_paths_longer_than_the_initial_buffer_are_returned() {
+        let temp = TempDir::new("final-long");
+        let mut directory = temp.path().to_owned();
+        for _ in 0..10 {
+            directory.push("n".repeat(60));
+        }
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("a.png");
+        fs::write(&path, "a").unwrap();
+
+        let resolved = final_path(&fs::File::open(&path).unwrap()).unwrap();
+        assert!(
+            resolved.as_os_str().len() > 512,
+            "テストの前提を満たしていない"
+        );
+        assert_eq!(resolved, fs::canonicalize(&path).unwrap());
     }
 
     #[test]
