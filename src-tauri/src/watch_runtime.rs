@@ -19,6 +19,7 @@ use tauri::{Emitter, Manager};
 
 use crate::file_kind::is_markdown_path;
 use crate::i18n::Language;
+use crate::image::resource::ImageResources;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::message;
 use crate::ipc::types::{FileChangeEvent, WatcherErrorEvent};
@@ -98,7 +99,14 @@ impl WorkspaceWatcher {
     /// 監視を開始する。
     ///
     /// 走査の完了を待たずに開始する。走査中に起きた変更を取りこぼさないためである（6.4）。
-    pub fn start(root: &Path, sink: Arc<dyn ChangeSink>) -> notify::Result<Self> {
+    ///
+    /// `images` は同じワークスペースの画像resource IDである。変更を受けたパスの世代を進め、
+    /// 窓が縮退したときは作り直す（5.4）。
+    pub fn start(
+        root: &Path,
+        sink: Arc<dyn ChangeSink>,
+        images: Arc<ImageResources>,
+    ) -> notify::Result<Self> {
         let scope_id = new_scope_id();
         let (commands, incoming) = channel();
 
@@ -125,7 +133,13 @@ impl WorkspaceWatcher {
                 // Watcherはこのスレッドが終わるまで生かす。dropした時点で監視が止まる。
                 let _root_watcher = root_watcher;
                 let _parent_watcher = parent_watcher;
-                run(&root, &thread_scope_id, sink.as_ref(), &incoming);
+                run(
+                    &root,
+                    &thread_scope_id,
+                    sink.as_ref(),
+                    images.as_ref(),
+                    &incoming,
+                );
             })?;
 
         Ok(Self {
@@ -171,7 +185,13 @@ fn forwarding_watcher(
 }
 
 /// 監視スレッドの本体。
-fn run(root: &Path, scope_id: &str, sink: &dyn ChangeSink, incoming: &Receiver<Incoming>) {
+fn run(
+    root: &Path,
+    scope_id: &str,
+    sink: &dyn ChangeSink,
+    images: &ImageResources,
+    incoming: &Receiver<Incoming>,
+) {
     let origin = Instant::now();
     let mut window = DebounceWindow::new();
     loop {
@@ -180,6 +200,11 @@ fn run(root: &Path, scope_id: &str, sink: &dyn ChangeSink, incoming: &Receiver<I
             Wait::Received(Incoming::Root(event)) => {
                 let now_ms = elapsed_ms(origin);
                 for raw in map_event(root, &event) {
+                    // 画像の世代は窓の確定を待たずに進める。同じ窓で文書の変更が確定すると
+                    // 再描画に伴って発行し直されるため、それより前に新しい世代になっている
+                    // 必要がある。除外対象配下の画像も文書から参照されうるため、除外の判定
+                    // より前に行う。
+                    images.advance(&raw.path);
                     // notifyはディレクトリ単位の除外を行えないため、受信後にパスで判定して
                     // 破棄する（6.4）。
                     if is_excluded(&raw.path) {
@@ -196,7 +221,7 @@ fn run(root: &Path, scope_id: &str, sink: &dyn ChangeSink, incoming: &Receiver<I
             }
             Wait::Deadline => {}
         }
-        drain(&mut window, origin, scope_id, sink);
+        drain(&mut window, origin, scope_id, sink, images);
     }
 }
 
@@ -227,7 +252,17 @@ fn wait(window: &DebounceWindow, origin: Instant, incoming: &Receiver<Incoming>)
 /// 1回では終わらない。窓を閉じるとき、猶予中の保留に関わるイベントは次の窓へ持ち越すため
 /// （6.4）、持ち越した窓の期限も既に過ぎていることがある。期限は持ち越しのたびに必ず前へ
 /// 進むため（`DebounceWindow::take_due`）、この繰り返しは止まる。
-fn drain(window: &mut DebounceWindow, origin: Instant, scope_id: &str, sink: &dyn ChangeSink) {
+///
+/// 縮退した窓では画像resource IDを作り直す。取りこぼした変更の世代は進んでおらず、
+/// 縮退を受けた再描画で古い画像がキャッシュから表示されるためである（5.4）。通知より前に
+/// 作り直す。
+fn drain(
+    window: &mut DebounceWindow,
+    origin: Instant,
+    scope_id: &str,
+    sink: &dyn ChangeSink,
+    images: &ImageResources,
+) {
     while let Some(outcome) = window.take_due(elapsed_ms(origin)) {
         match outcome {
             WindowOutcome::Events(events) => {
@@ -238,7 +273,10 @@ fn drain(window: &mut DebounceWindow, origin: Instant, scope_id: &str, sink: &dy
                     });
                 }
             }
-            WindowOutcome::Overflowed => sink.watcher_error(scope_id, ErrorCode::WatcherOverflow),
+            WindowOutcome::Overflowed => {
+                images.reset();
+                sink.watcher_error(scope_id, ErrorCode::WatcherOverflow);
+            }
         }
     }
 }
@@ -396,6 +434,11 @@ mod tests {
         }
     }
 
+    /// 監視の送出だけを確かめるテストに渡す、空の画像resource ID。
+    fn images() -> Arc<ImageResources> {
+        Arc::new(ImageResources::new())
+    }
+
     /// 条件が満たされるまで待つ。実イベントの到達は時間に依存するため、固定の待ちでは
     /// 落ちやすい。上限は実測（1回の窓は最長600 ms）に対して十分長く採る。
     fn wait_until<T>(mut poll: impl FnMut() -> Option<T>) -> Option<T> {
@@ -504,8 +547,8 @@ mod tests {
     fn a_created_markdown_is_reported_with_its_directory() {
         let temp = TempDir::new("created");
         let sink = Arc::new(RecordingSink::default());
-        let watcher =
-            WorkspaceWatcher::start(temp.path(), sink.clone()).expect("監視を開始できない");
+        let watcher = WorkspaceWatcher::start(temp.path(), sink.clone(), images())
+            .expect("監視を開始できない");
 
         std::fs::write(temp.path().join("a.md"), b"# a\n").expect("書込みに失敗");
 
@@ -544,8 +587,8 @@ mod tests {
         let excluded = temp.path().join("node_modules");
         std::fs::create_dir(&excluded).expect("フォルダーの作成に失敗");
         let sink = Arc::new(RecordingSink::default());
-        let _watcher =
-            WorkspaceWatcher::start(temp.path(), sink.clone()).expect("監視を開始できない");
+        let _watcher = WorkspaceWatcher::start(temp.path(), sink.clone(), images())
+            .expect("監視を開始できない");
 
         std::fs::write(excluded.join("a.md"), b"# a\n").expect("書込みに失敗");
         // 除外対象の外にも書き、そちらが届いたことで「窓が閉じた」ことを確かめる。
@@ -589,7 +632,8 @@ mod tests {
         std::fs::create_dir(&root).expect("フォルダーの作成に失敗");
         let root = std::fs::canonicalize(&root).expect("正規化に失敗");
         let sink = Arc::new(RecordingSink::default());
-        let watcher = WorkspaceWatcher::start(&root, sink.clone()).expect("監視を開始できない");
+        let watcher =
+            WorkspaceWatcher::start(&root, sink.clone(), images()).expect("監視を開始できない");
 
         std::fs::remove_dir_all(&root).expect("削除に失敗");
 
@@ -610,8 +654,8 @@ mod tests {
     fn dropping_the_watcher_stops_the_notifications() {
         let temp = TempDir::new("stop");
         let sink = Arc::new(RecordingSink::default());
-        let watcher =
-            WorkspaceWatcher::start(temp.path(), sink.clone()).expect("監視を開始できない");
+        let watcher = WorkspaceWatcher::start(temp.path(), sink.clone(), images())
+            .expect("監視を開始できない");
 
         std::fs::write(temp.path().join("a.md"), b"# a\n").expect("書込みに失敗");
         wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
@@ -622,6 +666,44 @@ mod tests {
         std::fs::write(temp.path().join("b.md"), b"# b\n").expect("書込みに失敗");
         std::thread::sleep(Duration::from_millis(800));
         assert_eq!(sink.changes().len(), after_stop, "停止後も送出している");
+    }
+
+    /// 発行済みの画像を書き換えると、サイズも更新時刻も変わらなくても世代が進む（5.4）。
+    ///
+    /// 更新時刻とバイト数で世代を作らないのは、この書き換えを識別できないためである。
+    /// 画像は通知の対象外（`coalesce` はMarkdownに絞る）だが、世代は進める。
+    #[test]
+    fn rewriting_an_issued_image_advances_its_generation() {
+        let temp = TempDir::new("image-generation");
+        let image = temp.path().join("a.png");
+        std::fs::write(&image, b"0123456789").expect("書込みに失敗");
+        let modified = std::fs::metadata(&image)
+            .and_then(|metadata| metadata.modified())
+            .expect("更新時刻を読めない");
+        let images = images();
+        let issued = images.issue("a.png");
+        let _watcher = WorkspaceWatcher::start(
+            temp.path(),
+            Arc::new(RecordingSink::default()),
+            Arc::clone(&images),
+        )
+        .expect("監視を開始できない");
+
+        std::fs::write(&image, b"9876543210").expect("書込みに失敗");
+        std::fs::File::options()
+            .write(true)
+            .open(&image)
+            .and_then(|file| file.set_modified(modified))
+            .expect("更新時刻を戻せない");
+        assert_eq!(
+            std::fs::metadata(&image).unwrap().modified().unwrap(),
+            modified,
+            "テストの前提を満たしていない"
+        );
+
+        wait_until(|| images.lookup(&issued).is_none().then_some(()))
+            .expect("書き換えで世代が進まない");
+        assert_ne!(images.issue("a.png"), issued);
     }
 
     /// 期限を過ぎた時刻を起点として返す。
@@ -648,12 +730,15 @@ mod tests {
             );
         }
         let sink = RecordingSink::default();
+        let images = ImageResources::new();
+        let issued = images.issue("a.png");
 
         drain(
             &mut window,
             elapsed_origin(MAX_WINDOW_MS + 1),
             "scope-1",
             &sink,
+            &images,
         );
 
         assert_eq!(
@@ -664,6 +749,8 @@ mod tests {
             sink.changes().is_empty(),
             "縮退した窓で個別の変更を送っている"
         );
+        // 取りこぼした変更の世代は進んでいないため、全IDを作り直す（5.4）。
+        assert_eq!(images.lookup(&issued), None, "縮退後も旧IDが有効");
     }
 
     /// 縮退していない窓は、畳み込んだ変更をスコープIDとともに送る。
@@ -672,13 +759,18 @@ mod tests {
         let mut window = DebounceWindow::new();
         window.push(0, RawEvent::new(RawEventKind::Created, "docs/a.md"));
         let sink = RecordingSink::default();
+        let images = ImageResources::new();
+        let issued = images.issue("a.png");
 
         drain(
             &mut window,
             elapsed_origin(MAX_WINDOW_MS + 1),
             "scope-2",
             &sink,
+            &images,
         );
+        // 縮退していなければ対応表は作り直さない。
+        assert_eq!(images.lookup(&issued).as_deref(), Some("a.png"));
 
         assert_eq!(
             sink.changes(),

@@ -43,6 +43,12 @@ imagesize = { version = "0.15.0", default-features = false, features = [
   "png",
   "webp",
 ] }
+# 画像resource IDの生成（design-decisions.md 5.4）。IDはワークスペース単位のソルトを鍵とし、
+# 相対パスと変更世代を入力とするHMAC-SHA256である。ソルトは推測されないことが要件のため、
+# スコープID（`watch_runtime.rs`）のように `RandomState` から作らず、OSの乱数源から直接取る。
+getrandom = "0.4.3"
+hmac = "0.13.0"
+sha2 = "0.11.0"
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。

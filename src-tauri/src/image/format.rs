@@ -13,6 +13,8 @@
 //! JPEG、GIF、WebP、AVIF、BMP）が内容から判定でき、AVIFはHEICと区別して取れることを
 //! 実測で確認した（`ImageType::Heif(Compression::Av1)`）。
 
+use std::io::{BufRead, Cursor, Read, Seek, SeekFrom};
+
 use imagesize::{Compression, ImageType};
 
 use crate::ipc::error::ErrorCode;
@@ -76,15 +78,33 @@ impl ImageRejection {
     }
 }
 
-/// 画像のバイト列を検証し、判定した形式を返す。
+/// 画像のバイト列を検証し、判定した形式を返す。配信時の入口である。
+///
+/// 判定は `validate_reader` へ委ね、発行時と同じ規則を通す（5.4）。
+pub fn validate(bytes: &[u8]) -> Result<ImageFormat, ImageRejection> {
+    validate_reader(Cursor::new(bytes), bytes.len() as u64)
+}
+
+/// 読み取り位置を戻せる入力を検証し、判定した形式を返す。
+///
+/// `byte_len` は入力全体のバイト数である。発行時はファイルのメタデータから、配信時は
+/// 読み込んだバイト列の長さから渡す。
+///
+/// 発行時はファイル全体を読まずにこの関数を通す。形式と寸法はヘッダーから取れ、
+/// `imagesize` は寸法に関係しない区間をシークで読み飛ばす。APPセグメントで1.3 MiBへ
+/// 水増ししたJPEGでも読むのは2 KiB未満だった（実測）。発行時に全体を読むと、内容ハッシュを
+/// 採らなかった理由（描画前の待ち時間とメモリ。5.4）をそのまま抱えることになる。
 ///
 /// 検査の順はバイト数、形式、ピクセル寸法とする。バイト数を先に見るのは、上限を超えた
 /// 入力に対して形式の判定を走らせないためである。
-pub fn validate(bytes: &[u8]) -> Result<ImageFormat, ImageRejection> {
-    if bytes.len() > MAX_IMAGE_BYTES as usize {
+pub fn validate_reader<R: BufRead + Seek>(
+    mut reader: R,
+    byte_len: u64,
+) -> Result<ImageFormat, ImageRejection> {
+    if byte_len > u64::from(MAX_IMAGE_BYTES) {
         return Err(ImageRejection::TooLarge);
     }
-    let format = detect(bytes)?;
+    let format = detect(&mut reader)?;
     // SVGはピクセル寸法の上限の対象外とする。ベクター形式であり、`width` と `height` は
     // 省略も単位付きも割合指定もでき、宣言された値がラスタライズの大きさを決めるとは
     // 限らない。属性を読んでも判定できるのは一部に限られ、抜けのある判定を持つより
@@ -92,7 +112,8 @@ pub fn validate(bytes: &[u8]) -> Result<ImageFormat, ImageRejection> {
     if format == ImageFormat::Svg {
         return Ok(format);
     }
-    let size = imagesize::blob_size(bytes).map_err(|_| ImageRejection::Decode)?;
+    rewind(&mut reader)?;
+    let size = imagesize::reader_size(&mut reader).map_err(|_| ImageRejection::Decode)?;
     if size.width > MAX_IMAGE_EDGE_PIXELS as usize || size.height > MAX_IMAGE_EDGE_PIXELS as usize {
         return Err(ImageRejection::PixelLimitExceeded);
     }
@@ -102,23 +123,52 @@ pub fn validate(bytes: &[u8]) -> Result<ImageFormat, ImageRejection> {
     Ok(format)
 }
 
-/// バイト列の内容から形式を判定する。
+/// SVGのルート要素を探す範囲（バイト）。
+///
+/// ルート要素より前に置けるのはXMLの前書き（宣言、コメント、DOCTYPE）だけだが、長さに
+/// 上限はない。発行時にファイル全体を読まないためには範囲を切る必要があり、配信時も
+/// 同じ範囲で判定する。発行時と配信時で判定が食い違わないためである。前書きがこれを
+/// 超えるSVGは許可形式ではないものとして拒否する。
+const SVG_SNIFF_BYTES: u64 = 64 * 1024;
+
+/// 入力の内容から形式を判定する。
 ///
 /// `imagesize` が扱わないSVGだけを自前で判定する。`imagesize` の機能は許可形式のものに
 /// 絞ってあるため、ICOやTIFFなど許可していない形式はここで `UnsupportedFormat` になる。
-fn detect(bytes: &[u8]) -> Result<ImageFormat, ImageRejection> {
-    match imagesize::image_type(bytes) {
-        Ok(ImageType::Png) => Ok(ImageFormat::Png),
-        Ok(ImageType::Jpeg) => Ok(ImageFormat::Jpeg),
-        Ok(ImageType::Gif) => Ok(ImageFormat::Gif),
-        Ok(ImageType::Webp) => Ok(ImageFormat::Webp),
-        Ok(ImageType::Bmp) => Ok(ImageFormat::Bmp),
+fn detect<R: BufRead + Seek>(reader: &mut R) -> Result<ImageFormat, ImageRejection> {
+    rewind(reader)?;
+    match imagesize::reader_type(&mut *reader) {
+        Ok(ImageType::Png) => return Ok(ImageFormat::Png),
+        Ok(ImageType::Jpeg) => return Ok(ImageFormat::Jpeg),
+        Ok(ImageType::Gif) => return Ok(ImageFormat::Gif),
+        Ok(ImageType::Webp) => return Ok(ImageFormat::Webp),
+        Ok(ImageType::Bmp) => return Ok(ImageFormat::Bmp),
         // HEIFコンテナのうちAVIFブランド（`avif`、`avio`、`avis`）だけを受け入れる。
         // 同じコンテナのHEIC（`Heif(Compression::Hevc)`）は許可形式に含まれない。
-        Ok(ImageType::Heif(Compression::Av1)) => Ok(ImageFormat::Avif),
-        _ if is_svg(bytes) => Ok(ImageFormat::Svg),
-        _ => Err(ImageRejection::UnsupportedFormat),
+        Ok(ImageType::Heif(Compression::Av1)) => return Ok(ImageFormat::Avif),
+        // 12バイトに満たない入力は `imagesize` が読み取りの失敗として返す。最小のSVG
+        // （`<svg/>`）はこれに当たるため、失敗もSVGの判定へ回す。
+        _ => {}
     }
+    rewind(reader)?;
+    let mut prefix = Vec::new();
+    reader
+        .take(SVG_SNIFF_BYTES)
+        .read_to_end(&mut prefix)
+        .map_err(|_| ImageRejection::Decode)?;
+    if is_svg(&prefix) {
+        Ok(ImageFormat::Svg)
+    } else {
+        Err(ImageRejection::UnsupportedFormat)
+    }
+}
+
+/// 読み取り位置を先頭へ戻す。戻せない入力は読めないものとして扱う。
+fn rewind<R: Seek>(reader: &mut R) -> Result<(), ImageRejection> {
+    reader
+        .seek(SeekFrom::Start(0))
+        .map(|_| ())
+        .map_err(|_| ImageRejection::Decode)
 }
 
 /// バイト列がSVG文書かを、ルート要素が `svg` であることで判定する。
@@ -358,6 +408,67 @@ mod tests {
         for (rejection, expected) in cases {
             assert_eq!(rejection.code(), expected, "{rejection:?}");
         }
+    }
+
+    /// 発行時の入口（ファイルのヘッダー）と配信時の入口（バイト列）は同じ判定になる。
+    ///
+    /// 食い違うと、発行できたのに配信で落ちる、またはその逆が起きる（5.4）。実ファイルを
+    /// `BufReader` で読ませ、`imagesize` のシークを伴う経路を通す。
+    #[test]
+    fn the_reader_and_the_bytes_agree() {
+        let names = [
+            "sample.png",
+            "sample.jpg",
+            "sample.gif",
+            "sample.webp",
+            "sample.avif",
+            "sample.bmp",
+            "sample.tiff",
+            "wide.png",
+            "large.webp",
+        ];
+        let fixtures = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/image/fixtures");
+        for name in names {
+            let path = fixtures.join(name);
+            let bytes = std::fs::read(&path).expect("サンプルを読めない");
+            let file = std::fs::File::open(&path).expect("サンプルを開けない");
+            let byte_len = file.metadata().expect("メタデータを読めない").len();
+
+            assert_eq!(
+                validate_reader(std::io::BufReader::new(file), byte_len),
+                validate(&bytes),
+                "{name}"
+            );
+        }
+    }
+
+    /// バイト数の上限は、読み取りを始める前に宣言された長さで判定する。
+    ///
+    /// 発行時はメタデータの長さを渡す。上限を超えたファイルのヘッダーを読みに行かない。
+    #[test]
+    fn the_declared_length_is_checked_before_reading() {
+        assert_eq!(
+            validate_reader(Cursor::new(PNG), u64::from(MAX_IMAGE_BYTES) + 1),
+            Err(ImageRejection::TooLarge)
+        );
+    }
+
+    /// SVGのルート要素は先頭の決まった範囲で探す。範囲を超える前書きを持つSVGは拒否する。
+    ///
+    /// 発行時にファイル全体を読まないための範囲であり、配信時も同じ範囲で判定する。
+    #[test]
+    fn svg_root_is_searched_within_the_sniff_range() {
+        let with_prologue = |comment_bytes: usize| {
+            let mut bytes = b"<!--".to_vec();
+            bytes.resize(4 + comment_bytes, b' ');
+            bytes.extend_from_slice(b"--><svg/>");
+            bytes
+        };
+        let fits = with_prologue(SVG_SNIFF_BYTES as usize - 16);
+        let overflows = with_prologue(SVG_SNIFF_BYTES as usize);
+
+        assert_eq!(validate(&fits), Ok(ImageFormat::Svg));
+        assert_eq!(validate(&overflows), Err(ImageRejection::UnsupportedFormat));
     }
 
     fn replace_all(bytes: &[u8], from: &[u8], to: &[u8]) -> Vec<u8> {

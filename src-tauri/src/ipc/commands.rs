@@ -1,7 +1,7 @@
 //! Frontendから呼ぶTauri command（design-decisions.md 5.3）。
 //!
 //! Frontendから受け取ったパスはここで再検証する。汎用のファイルシステムAPIは公開せず、
-//! 走査と読込に必要なcommandだけを置く。
+//! 走査、読込、画像resource IDの発行に必要なcommandだけを置く。
 //!
 //! commandの戻り値の失敗は `IpcError` とし、Frontendは `code` で分岐する。表示場所
 //! （ネイティブダイアログ、プレビュー領域、ツリー項目、文書内要素）はFrontendが呼び出しの
@@ -18,9 +18,12 @@ use tauri::State;
 use tauri::async_runtime::spawn_blocking;
 
 use crate::i18n::Language;
+use crate::image::issue::{IssueError, issue};
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
-use crate::ipc::types::{FileContent, ReadRequest, ScanRequest, ScanResult};
+use crate::ipc::types::{
+    FileContent, ImageResource, ImageResourceRequest, ReadRequest, ScanRequest, ScanResult,
+};
 use crate::path_guard::{PathRejection, ResolveError};
 use crate::read::{ReadError, is_sharing_violation, read_file};
 use crate::scan::scan_directory;
@@ -155,6 +158,72 @@ fn file_error_code(error: &ReadError) -> ErrorCode {
             ErrorCode::FileLocked
         }
         ReadError::Resolve(ResolveError::Io(_)) => ErrorCode::FileAccessDenied,
+    }
+}
+
+/// 文書が参照する画像に、まとめてresource IDを発行する（design-decisions.md 5.4）。
+///
+/// 応答は要求の `references` と同じ順に、要素ごとの成功と失敗を持つ。一部の画像が発行
+/// できなくても他の画像は表示するためである（7.3）。commandそのものが失敗するのは
+/// ワークスペースを開いていないときだけである。
+///
+/// 発行はファイルのヘッダーだけを読むが、1文書の画像数に比例したI/Oを伴うため、走査・読込と
+/// 同じくブロッキングスレッドで実行する（5.3）。
+#[tauri::command]
+pub async fn issue_image_resources_command(
+    state: State<'_, AppState>,
+    request: ImageResourceRequest,
+) -> Result<Vec<ImageResource>, IpcError> {
+    let language = state.language();
+    let workspace = state.workspace();
+    let result = spawn_blocking(move || {
+        workspace.with_images(|root, images| {
+            request
+                .references
+                .into_iter()
+                .map(
+                    |reference| match issue(root, images, &request.document_path, &reference) {
+                        Ok(resource_id) => ImageResource::Issued {
+                            reference,
+                            resource_id,
+                        },
+                        Err(error) => ImageResource::Failed {
+                            reference,
+                            error: ipc_error(image_error_code(&error), language, None),
+                        },
+                    },
+                )
+                .collect()
+        })
+    })
+    .await
+    .expect("画像resource IDの発行タスクの実行に失敗");
+    result.ok_or_else(|| ipc_error(ErrorCode::WorkspaceNotFound, language, None))
+}
+
+/// 発行の失敗を `ErrorCode` へ写す。
+///
+/// `detail` は載せない。応答の要素は要求の参照文字列（`reference`）を持っており、Frontendは
+/// どの画像の失敗かをそこから知る。参照はMarkdownに書かれたままの文字列であり、解決した
+/// 相対パスを別に返すと、Frontendがパスの規則を知る必要が生じる。
+///
+/// 見つからないことは `FileNotFound` で表す。参照の書き誤りが最も起こりやすい失敗であり、
+/// 「読み込めない」と区別して示す価値がある。それ以外のI/Oの失敗（アクセス拒否、共有違反、
+/// フォルダーを指している）は `ImageDecodeFailed` へまとめる。画像の表示位置で利用者が取れる
+/// 対応は変わらないためである。
+fn image_error_code(error: &IssueError) -> ErrorCode {
+    match error {
+        IssueError::Rejected(rejection) => rejection.code(),
+        IssueError::Resolve(ResolveError::Rejected(PathRejection::Malformed)) => {
+            ErrorCode::PathRejected
+        }
+        IssueError::Resolve(ResolveError::Rejected(PathRejection::Outside)) => {
+            ErrorCode::PathOutsideWorkspace
+        }
+        IssueError::Resolve(ResolveError::Io(cause)) if cause.kind() == io::ErrorKind::NotFound => {
+            ErrorCode::FileNotFound
+        }
+        IssueError::Resolve(ResolveError::Io(_)) => ErrorCode::ImageDecodeFailed,
     }
 }
 
@@ -327,6 +396,56 @@ mod tests {
         }
     }
 
+    #[test]
+    fn image_issue_errors_map_to_image_codes() {
+        use crate::image::format::ImageRejection;
+
+        let cases = [
+            (
+                IssueError::Rejected(ImageRejection::UnsupportedFormat),
+                ErrorCode::ImageUnsupportedFormat,
+            ),
+            (
+                IssueError::Rejected(ImageRejection::TooLarge),
+                ErrorCode::ImageTooLarge,
+            ),
+            (
+                IssueError::Rejected(ImageRejection::PixelLimitExceeded),
+                ErrorCode::ImagePixelLimitExceeded,
+            ),
+            (
+                IssueError::Rejected(ImageRejection::Decode),
+                ErrorCode::ImageDecodeFailed,
+            ),
+            (
+                IssueError::Resolve(ResolveError::Rejected(PathRejection::Malformed)),
+                ErrorCode::PathRejected,
+            ),
+            (
+                IssueError::Resolve(ResolveError::Rejected(PathRejection::Outside)),
+                ErrorCode::PathOutsideWorkspace,
+            ),
+            (
+                IssueError::Resolve(ResolveError::Io(io::Error::from(io::ErrorKind::NotFound))),
+                ErrorCode::FileNotFound,
+            ),
+            // Markdown用の `FileAccessDenied` や `FileLocked` へは倒さない。
+            (
+                IssueError::Resolve(ResolveError::Io(io::Error::from(
+                    io::ErrorKind::PermissionDenied,
+                ))),
+                ErrorCode::ImageDecodeFailed,
+            ),
+            (
+                IssueError::Resolve(ResolveError::Io(io::Error::from_raw_os_error(32))),
+                ErrorCode::ImageDecodeFailed,
+            ),
+        ];
+        for (error, expected) in cases {
+            assert_eq!(image_error_code(&error), expected, "{error:?}");
+        }
+    }
+
     /// command本体を `tauri::test::mock_app` の managed state 経由で呼ぶ。
     ///
     /// 上のテストはエラーの写像だけを見ており、引数の組み立て、`spawn_blocking` への受け渡し、
@@ -464,6 +583,93 @@ mod tests {
             assert_eq!(error.code, ErrorCode::PathRejected);
             assert_eq!(error.detail, None);
             assert!(!error.message.contains("System32"), "{}", error.message);
+        }
+
+        /// 画像の発行は要素ごとに成功と失敗を返し、一部の失敗で全体を失敗させない（7.3）。
+        #[test]
+        fn image_resources_are_issued_per_reference() {
+            let temp = TempDir::new("images");
+            std::fs::create_dir(temp.path().join("docs")).expect("フォルダーの作成に失敗");
+            std::fs::write(
+                temp.path().join("docs/a.png"),
+                include_bytes!("../image/fixtures/sample.png"),
+            )
+            .expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            app.state::<AppState>()
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+
+            let resources = block_on(issue_image_resources_command(
+                app.state::<AppState>(),
+                ImageResourceRequest {
+                    document_path: "docs/note.md".to_owned(),
+                    references: vec![
+                        "a.png".to_owned(),
+                        "missing.png".to_owned(),
+                        r"C:\Windows\secret.png".to_owned(),
+                    ],
+                },
+            ))
+            .expect("発行が失敗した");
+
+            assert_eq!(resources.len(), 3);
+            let ImageResource::Issued {
+                reference,
+                resource_id,
+            } = &resources[0]
+            else {
+                panic!("発行されない: {:?}", resources[0]);
+            };
+            assert_eq!(reference, "a.png");
+            // 発行したIDはワークスペースの対応表から引ける。
+            assert_eq!(
+                app.state::<AppState>()
+                    .workspace()
+                    .with_images(|_, images| images.lookup(resource_id))
+                    .flatten()
+                    .as_deref(),
+                Some("docs/a.png")
+            );
+
+            let codes: Vec<Option<ErrorCode>> = resources
+                .iter()
+                .map(|resource| match resource {
+                    ImageResource::Issued { .. } => None,
+                    ImageResource::Failed { error, .. } => Some(error.code),
+                })
+                .collect();
+            assert_eq!(
+                codes,
+                vec![
+                    None,
+                    Some(ErrorCode::FileNotFound),
+                    Some(ErrorCode::PathRejected)
+                ]
+            );
+            // 失敗の `message` と `detail` へ参照を載せない（5.3、7.1）。
+            for resource in &resources {
+                if let ImageResource::Failed { error, .. } = resource {
+                    assert_eq!(error.detail, None);
+                    assert!(!error.message.contains("secret"), "{}", error.message);
+                }
+            }
+        }
+
+        /// ワークスペースを開いていなければ、発行も `WorkspaceNotFound` を返す。
+        #[test]
+        fn issuing_without_a_workspace_is_reported() {
+            let app = mock_app_with_state(LanguagePreference::Ja);
+
+            let error = block_on(issue_image_resources_command(
+                app.state::<AppState>(),
+                ImageResourceRequest {
+                    document_path: "a.md".to_owned(),
+                    references: vec!["a.png".to_owned()],
+                },
+            ))
+            .expect_err("開いていないのに発行が成功した");
+            assert_eq!(error.code, ErrorCode::WorkspaceNotFound);
         }
 
         /// UI言語は応答の文言に反映される（10.5）。
