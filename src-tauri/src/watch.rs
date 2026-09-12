@@ -18,8 +18,10 @@ use crate::path_guard::relativize_literal;
 /// 置換先へ `Remove` が先行する（design-decisions.md 6.4の実測）。debounceは実装上の
 /// 最適化ではなく、削除とrenameを誤判定しないために必要である。
 ///
-/// 値は暫定であり、Phase 4で実測して確定する。長くすると再描画が遅れ、短くすると
-/// atomic replaceの `Remove` を削除と誤判定する確率が上がる。
+/// 長くすると再描画が遅れ、短くするとatomic replaceの `Remove` を削除と誤判定する確率が
+/// 上がる。150 msを実測で確定した（design-decisions.md 6.4）。連続書込み中のイベント間隔は
+/// 最大17 ms、50 ms間隔のatomic replaceでも最大52 msであり、置換の列を1つの窓へ収める
+/// 余裕がある。
 pub const DEBOUNCE_MS: u64 = 150;
 
 /// 置換直後の読込失敗に対して許す再読込の回数（design-decisions.md 6.5）。
@@ -31,12 +33,16 @@ pub const REPLACE_RETRY_LIMIT: u32 = 1;
 
 /// 再読込までの待ち時間（ミリ秒）。
 ///
-/// 値は暫定であり、Phase 4で `DEBOUNCE_MS` と併せて実測して確定する。
+/// 100 msを据え置きで確定した。2000回のatomic replaceと並行して読み続けても読込は
+/// 1件も失敗せず、この待ち時間を実測から導けなかった（design-decisions.md 6.4）。
+/// 再現しなかったことを理由に再読込そのものを落とすことはしない。実測したのはRust同士の
+/// 書き手と読み手であり、置換直後にファイルを掴む第三者（ウイルス対策ソフトなど）を
+/// 含む経路は再現できていない。
 pub const REPLACE_RETRY_DELAY_MS: u64 = 100;
 
 // 再読込の待ちはdebounceの窓に収まらなければならない。窓より長いと、次のdebounceが
-// 確定した後に前の再読込を開始することになる。両方の値をPhase 4で実測して差し替える
-// ため、関係をコンパイル時に固定する。
+// 確定した後に前の再読込を開始することになる。値を動かしたときに関係が崩れないよう
+// コンパイル時に固定する。
 const _: () = assert!(REPLACE_RETRY_DELAY_MS < DEBOUNCE_MS);
 
 /// 1つの窓を開いていられる最長時間（ミリ秒）。
@@ -53,10 +59,36 @@ const _: () = assert!(REPLACE_RETRY_DELAY_MS < DEBOUNCE_MS);
 /// 保留に関わるイベントは次の窓へ持ち越す（`DebounceWindow::take_due`）。期限を延ばす形で
 /// 解こうとすると、古い保留が新しい削除の猶予を食うか、無関係な更新で窓が延び続けるかの
 /// どちらかになる。
+///
+/// 600 msを据え置きで確定した。200回の連続書込みではイベントの配送が904 ms続き、1回の
+/// バーストが窓をまたぐ（design-decisions.md 6.4の実測）。それでも上限を伸ばさないのは、
+/// 上限が「書込みが続く間も表示を更新する」ための保険だからである。窓が分かれること自体は
+/// 持ち越しの規則が許容しており削除の誤判定は起きない。伸ばすと最悪の更新遅延がそのまま
+/// 伸び、[spec.md](../../docs/spec.md) 5.1の変更反映の目標から遠ざかる。
 pub const MAX_WINDOW_MS: u64 = 600;
 
 // 上限は静穏の窓より長くなければならない。短いと静穏による確定へ到達しない。
 const _: () = assert!(MAX_WINDOW_MS > DEBOUNCE_MS);
+
+/// 1つの窓で個別の変更として確定させるイベント数の上限（design-decisions.md 6.4）。
+///
+/// `notify` のWindowsバックエンドは、`ReadDirectoryChangesW` のバッファに収まらなかった
+/// ことを呼び出し側へ伝えない。完了ルーチンは `bytes_written` を読まず、イベントは黙って
+/// 欠落する。したがって、あふれたという事実を検知する手立てはない。
+///
+/// そこであふれの検知に依存せず、1つの窓に入るイベント数で縮退させる。上限を超えた窓は
+/// 個別の変更を確定させず、`ErrorCode::WatcherOverflow` として「展開済みディレクトリの
+/// 再取得とアクティブ文書の再読込」へ倒す。実際にあふれたかどうかによらず結果が同じに
+/// なるため、検知の正確さに依存しない。
+///
+/// 1024とする。実測では600 msの窓あたり、連続書込みで約265件、5000ファイルの一括作成で
+/// 約2300件が届く。前者は通常の書込みであり縮退させたくない。後者の規模になると、個別の
+/// 変更を1件ずつ通知するより展開済みの階層を取り直すほうが安い。
+pub const MAX_EVENTS_PER_WINDOW: usize = 1024;
+
+// 上限は、通常の書込みで届く件数（実測で約265件）より十分大きくなければならない。
+// 近いと、エディタの連続保存のたびに縮退して警告が出る。
+const _: () = assert!(MAX_EVENTS_PER_WINDOW > 512);
 
 /// debounce窓へ入る生イベントの種別。
 ///
@@ -151,6 +183,22 @@ fn path_at(root: &Path, event: &Event, index: usize, kind: RawEventKind) -> Opti
     Some(RawEvent { kind, path })
 }
 
+/// 窓を閉じたときの結果。
+///
+/// 縮退したことを真偽値で持たせず、確定した列と排他にする。縮退した窓のイベントは
+/// 捨てており、個別の変更として使ってはならない。両方を同時に返せる形にすると、
+/// 呼び出し側が捨てるべき列を読む経路が型として残る（`FileChange` と同じ理由）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WindowOutcome {
+    /// 確定した生イベント。`coalesce` へ渡す。
+    Events(Vec<RawEvent>),
+    /// 1つの窓のイベント数が `MAX_EVENTS_PER_WINDOW` を超えたため縮退した。
+    ///
+    /// 呼び出し側は個別の変更を通知せず、`ErrorCode::WatcherOverflow` として
+    /// 展開済みディレクトリの再取得とアクティブ文書の再読込へ倒す。
+    Overflowed,
+}
+
 /// debounce窓（design-decisions.md 6.4）。
 ///
 /// 時刻は呼び出し側が単調増加するミリ秒として渡す。ここが `Instant::now()` を読むと、
@@ -161,6 +209,8 @@ pub struct DebounceWindow {
     events: Vec<(u64, RawEvent)>,
     opened_at_ms: u64,
     last_event_ms: u64,
+    /// この窓が `MAX_EVENTS_PER_WINDOW` を超えたか。
+    overflowed: bool,
 }
 
 impl DebounceWindow {
@@ -169,12 +219,27 @@ impl DebounceWindow {
     }
 
     /// 窓へイベントを入れる。空の窓なら、このイベントで窓が開く。
+    ///
+    /// 上限を超えた窓は縮退し、以後のイベントを溜めない。溜めたところで個別の変更としては
+    /// 使わないうえ、大量のイベントが届き続ける状況ではメモリだけが伸びる。
     pub fn push(&mut self, now_ms: u64, event: RawEvent) {
-        if self.events.is_empty() {
+        if !self.is_open() {
             self.opened_at_ms = now_ms;
         }
         self.last_event_ms = now_ms;
+        if self.overflowed {
+            return;
+        }
         self.events.push((now_ms, event));
+        if self.events.len() > MAX_EVENTS_PER_WINDOW {
+            self.overflowed = true;
+            self.events.clear();
+        }
+    }
+
+    /// 窓が開いているか。縮退した窓はイベントを捨てているが、期限が来るまでは開いている。
+    fn is_open(&self) -> bool {
+        !self.events.is_empty() || self.overflowed
     }
 
     /// 窓を閉じる時刻。開いていなければ `None` を返す。
@@ -186,7 +251,7 @@ impl DebounceWindow {
     /// 食うか、無関係なパスの更新で窓が延び続けるかのどちらかになる。未確定の削除を
     /// 確定させない役割は `take_due` の持ち越しが担う。
     pub fn deadline_ms(&self) -> Option<u64> {
-        if self.events.is_empty() {
+        if !self.is_open() {
             return None;
         }
         let quiet = self.last_event_ms + DEBOUNCE_MS;
@@ -219,9 +284,17 @@ impl DebounceWindow {
     ///
     /// 確定させるものがなく持ち越しだけが残る場合は、空の列を返す。窓が閉じたことと
     /// 確定したものがないことは別であり、呼び出し側は次の期限まで待てばよい。
-    pub fn take_due(&mut self, now_ms: u64) -> Option<Vec<RawEvent>> {
+    ///
+    /// 縮退した窓は `WindowOutcome::Overflowed` を返し、持ち越しも行わずに窓を捨てる。
+    /// 縮退の結果は展開済みディレクトリの再取得とアクティブ文書の再読込であり、保留を
+    /// 引き継いでも次の窓で確定させる相手がいない。
+    pub fn take_due(&mut self, now_ms: u64) -> Option<WindowOutcome> {
         if now_ms < self.deadline_ms()? {
             return None;
+        }
+        if self.overflowed {
+            *self = Self::new();
+            return Some(WindowOutcome::Overflowed);
         }
         let pending = self.pending_in_grace(now_ms);
         let (retained, due): (Vec<_>, Vec<_>) = std::mem::take(&mut self.events)
@@ -230,7 +303,9 @@ impl DebounceWindow {
         self.opened_at_ms = pending.iter().map(|(_, at)| *at).min().unwrap_or_default();
         self.last_event_ms = retained.last().map_or(0, |(at, _)| *at);
         self.events = retained;
-        Some(due.into_iter().map(|(_, event)| event).collect())
+        Some(WindowOutcome::Events(
+            due.into_iter().map(|(_, event)| event).collect(),
+        ))
     }
 
     /// 猶予の内側にある保留のパスと、それが届いた時刻。
@@ -317,8 +392,26 @@ fn remove_first_removal(removed: &mut Vec<(&str, u64)>, path: &str) {
 /// renameを確定するとき、同じ窓で受けた旧パスの変更は新パスへ引き継ぐ。旧パスのまま
 /// 残すと、タブが新パスへ移った後に変更を取りこぼす。
 ///
-/// 対象外のパスに対する変更は返さない。ツリーの更新に必要な `DirectoryChanged` は、
-/// ここで確定した作成・削除・renameの親ディレクトリに対してPhase 4で別途生成する。
+/// # `DirectoryChanged`
+///
+/// 上の表はタブ向けの変更であり、`is_tracked` で絞る。ツリー向けの `DirectoryChanged` は
+/// **絞らない**。子要素を増減させる生イベント（`Created`、`Removed`、`RenamedFrom`、
+/// `RenamedTo`）の親ディレクトリに対して、対象かどうかによらず生成する。
+///
+/// 絞れないのは、`notify` のWindowsバックエンドがディレクトリとファイルを区別しないため
+/// である。`FILE_NOTIFY_INFORMATION` は種別を運ばず、届くのは `Create(Any)` /
+/// `Remove(Any)` / `Modify(Any)` と rename の対だけである（design-decisions.md 6.4の実測）。
+/// `Created` は受信時点の `metadata` で判別できるが、`Removed` のパスはすでに実在せず
+/// 判別できない。拡張子で推定するとフォルダー `sub.tmp` の削除を取りこぼし、ツリーが
+/// 黙って古くなる。
+///
+/// 絞らない代償は、一時ファイル（`a.md.tmp`）の作成と削除でも親の再取得が走ることである。
+/// atomic replaceの列はすべて同じ親を指すため、1つの窓につき `DirectoryChanged` は1件に
+/// まとまる。
+///
+/// `Modified` は親を出さない。内容が変わっても、その階層の子要素は増減しないためである。
+/// 監視ルートの直下で書込みが続くと、親ディレクトリのタイムスタンプ更新が `Modify(Any)`
+/// として大量に届く（実測）。これを子要素の増減として扱うと、書込みのたびに再走査が走る。
 pub fn coalesce(events: &[RawEvent], is_tracked: impl Fn(&str) -> bool) -> Vec<FileChange> {
     let mut changes: Vec<FileChange> = Vec::new();
     // 削除は、同じ窓の中で置換やrename先として復活しうるため、窓を閉じるまで確定させない。
@@ -411,7 +504,35 @@ pub fn coalesce(events: &[RawEvent], is_tracked: impl Fn(&str) -> bool) -> Vec<F
     for path in modified {
         changes.push(FileChange::FileModified { path });
     }
+    for path in changed_directories(events) {
+        changes.push(FileChange::DirectoryChanged { path });
+    }
     changes
+}
+
+/// 子要素が増減した可能性のあるディレクトリを、生イベントの親から集める。
+///
+/// `is_tracked` では絞らない。理由は `coalesce` のドキュメントを参照。
+fn changed_directories(events: &[RawEvent]) -> Vec<String> {
+    let mut directories: Vec<String> = Vec::new();
+    for event in events {
+        match event.kind {
+            RawEventKind::Created
+            | RawEventKind::Removed
+            | RawEventKind::RenamedFrom
+            | RawEventKind::RenamedTo => push_once(&mut directories, parent_of(&event.path)),
+            RawEventKind::Modified => {}
+        }
+    }
+    directories
+}
+
+/// スコープ相対パスの親ディレクトリ。ルート直下の親は空文字列（ルート自身）になる。
+fn parent_of(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(index) => &path[..index],
+        None => "",
+    }
 }
 
 /// 値が入っていれば取り除き、取り除いたかを返す。
@@ -450,6 +571,24 @@ mod tests {
     fn removed_change(path: &str) -> FileChange {
         FileChange::FileRemoved {
             path: path.to_owned(),
+        }
+    }
+
+    fn directory_change(path: &str) -> FileChange {
+        FileChange::DirectoryChanged {
+            path: path.to_owned(),
+        }
+    }
+
+    /// 窓が閉じたときに確定した生イベントを取り出す。
+    ///
+    /// 縮退は専用のテストで検証するため、ここでは起きない前提で扱う。起きた場合は
+    /// 黙って空の列にせず落とす。
+    fn take_events(window: &mut DebounceWindow, now_ms: u64) -> Option<Vec<RawEvent>> {
+        match window.take_due(now_ms) {
+            Some(WindowOutcome::Events(events)) => Some(events),
+            Some(WindowOutcome::Overflowed) => panic!("縮退しない窓で縮退した"),
+            None => None,
         }
     }
 
@@ -519,7 +658,9 @@ mod tests {
                 vec![removed_change("a.md")],
             ),
             (
-                "対象外のファイルだけの変更は無視する",
+                // ツリー向けの `DirectoryChanged` は別に出る。一時ファイルの作成を
+                // 子要素の増減と区別できないためである（`coalesce` のドキュメント）。
+                "対象外のファイルだけの変更はタブ向けの通知を生まない",
                 vec![
                     RawEvent::new(Created, "a.md.tmp"),
                     RawEvent::new(Modified, "a.md.tmp"),
@@ -529,8 +670,22 @@ mod tests {
         ];
 
         for (name, events, expected) in cases {
-            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+            assert_eq!(
+                coalesce(&events, is_markdown),
+                with_root_change(expected),
+                "{name}"
+            );
         }
+    }
+
+    /// タブ向けの期待値へ、ルート直下のツリー通知を足す。
+    ///
+    /// `coalesce` の事例はいずれもルート直下で起き、子要素を増減させる生イベントを
+    /// 含むため、ツリー向けの通知はルート1件になる。生成の規則そのものは
+    /// `coalesce_reports_changed_directories_without_filtering` で固定する。
+    fn with_root_change(mut expected: Vec<FileChange>) -> Vec<FileChange> {
+        expected.push(directory_change(""));
+        expected
     }
 
     #[test]
@@ -595,7 +750,11 @@ mod tests {
         ];
 
         for (name, events, expected) in cases {
-            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+            assert_eq!(
+                coalesce(&events, is_markdown),
+                with_root_change(expected),
+                "{name}"
+            );
         }
     }
 
@@ -635,7 +794,11 @@ mod tests {
         ];
 
         for (name, events, expected) in cases {
-            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+            assert_eq!(
+                coalesce(&events, is_markdown),
+                with_root_change(expected),
+                "{name}"
+            );
         }
     }
 
@@ -743,7 +906,7 @@ mod tests {
     fn an_empty_window_has_no_deadline() {
         let mut window = DebounceWindow::new();
         assert_eq!(window.deadline_ms(), None);
-        assert_eq!(window.take_due(u64::MAX), None);
+        assert_eq!(take_events(&mut window, u64::MAX), None);
     }
 
     #[test]
@@ -752,11 +915,9 @@ mod tests {
         window.push(1_000, RawEvent::new(Modified, "a.md"));
 
         assert_eq!(window.deadline_ms(), Some(1_000 + DEBOUNCE_MS));
-        assert_eq!(window.take_due(1_000 + DEBOUNCE_MS - 1), None);
+        assert_eq!(take_events(&mut window, 1_000 + DEBOUNCE_MS - 1), None);
 
-        let events = window
-            .take_due(1_000 + DEBOUNCE_MS)
-            .expect("静穏で窓が閉じない");
+        let events = take_events(&mut window, 1_000 + DEBOUNCE_MS).expect("静穏で窓が閉じない");
         assert_eq!(events, vec![RawEvent::new(Modified, "a.md")]);
         // 取り出したあとは窓が空になり、次のイベントで開き直す。
         assert_eq!(window.deadline_ms(), None);
@@ -774,11 +935,9 @@ mod tests {
         window.push(100, RawEvent::new(RenamedTo, "a.md"));
         assert_eq!(window.deadline_ms(), Some(100 + DEBOUNCE_MS));
 
-        assert!(window.take_due(100 + DEBOUNCE_MS - 1).is_none());
+        assert!(take_events(&mut window, 100 + DEBOUNCE_MS - 1).is_none());
         assert_eq!(
-            window
-                .take_due(100 + DEBOUNCE_MS)
-                .map(|events| events.len()),
+            take_events(&mut window, 100 + DEBOUNCE_MS).map(|events| events.len()),
             Some(3)
         );
     }
@@ -791,7 +950,7 @@ mod tests {
         while now < MAX_WINDOW_MS {
             window.push(now, RawEvent::new(Modified, "a.md"));
             assert!(
-                window.take_due(now).is_none(),
+                take_events(&mut window, now).is_none(),
                 "上限より前に閉じている: {now}"
             );
             now += DEBOUNCE_MS - 50;
@@ -799,7 +958,10 @@ mod tests {
         window.push(MAX_WINDOW_MS, RawEvent::new(Modified, "a.md"));
 
         assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
-        assert!(window.take_due(MAX_WINDOW_MS).is_some(), "上限で閉じない");
+        assert!(
+            take_events(&mut window, MAX_WINDOW_MS).is_some(),
+            "上限で閉じない"
+        );
     }
 
     /// 上限の直前に届いた `Removed` を、atomic replaceの起点として持ち越す。
@@ -816,7 +978,7 @@ mod tests {
         window.push(599, RawEvent::new(Removed, "a.md"));
 
         // 上限では閉じるが、猶予中の削除は確定させない。
-        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        let due = take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
         assert_eq!(
             coalesce(&due, is_markdown),
             vec![modified_change("busy.md")],
@@ -827,10 +989,11 @@ mod tests {
         window.push(602, RawEvent::new(RenamedTo, "a.md"));
 
         // 持ち越した `Removed` と同じ窓に収まるため、削除ではなく置換として確定する。
-        let due = window
-            .take_due(602 + DEBOUNCE_MS)
-            .expect("持ち越した窓が閉じない");
-        assert_eq!(coalesce(&due, is_markdown), vec![modified_change("a.md")]);
+        let due = take_events(&mut window, 602 + DEBOUNCE_MS).expect("持ち越した窓が閉じない");
+        assert_eq!(
+            coalesce(&due, is_markdown),
+            vec![modified_change("a.md"), directory_change("")]
+        );
     }
 
     /// 古い保留が、新しい削除の猶予を食わない。
@@ -848,20 +1011,25 @@ mod tests {
         // 上限の直前に届いた、atomic replaceの起点。
         window.push(599, RawEvent::new(Removed, "a.md"));
 
-        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        let due = take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
         // 猶予を過ぎた `old.md` は確定させ、猶予中の `a.md` は持ち越す。
         assert_eq!(
             coalesce(&due, is_markdown),
-            vec![removed_change("old.md"), modified_change("busy.md")]
+            vec![
+                removed_change("old.md"),
+                modified_change("busy.md"),
+                directory_change("")
+            ]
         );
 
         window.push(601, RawEvent::new(RenamedFrom, "a.md.tmp"));
         window.push(602, RawEvent::new(RenamedTo, "a.md"));
 
-        let due = window
-            .take_due(602 + DEBOUNCE_MS)
-            .expect("持ち越した窓が閉じない");
-        assert_eq!(coalesce(&due, is_markdown), vec![modified_change("a.md")]);
+        let due = take_events(&mut window, 602 + DEBOUNCE_MS).expect("持ち越した窓が閉じない");
+        assert_eq!(
+            coalesce(&due, is_markdown),
+            vec![modified_change("a.md"), directory_change("")]
+        );
     }
 
     /// 対の届かないrenameの待ちを、無関係なパスの更新で延ばさない。
@@ -881,13 +1049,16 @@ mod tests {
         window.push(MAX_WINDOW_MS, RawEvent::new(Modified, "busy.md"));
 
         assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
-        let events = window
-            .take_due(MAX_WINDOW_MS)
-            .expect("対の届かないrenameで窓が閉じない");
+        let events =
+            take_events(&mut window, MAX_WINDOW_MS).expect("対の届かないrenameで窓が閉じない");
         // 旧パスからは失われているため、削除として確定する。
         assert_eq!(
             coalesce(&events, is_markdown),
-            vec![removed_change("moved-out.md"), modified_change("busy.md")]
+            vec![
+                removed_change("moved-out.md"),
+                modified_change("busy.md"),
+                directory_change("")
+            ]
         );
     }
 
@@ -913,7 +1084,7 @@ mod tests {
         window.push(599, RawEvent::new(Removed, "a.md"));
 
         // 両方とも `a.md` なので、確定させるものはなく持ち越しだけが残る。
-        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        let due = take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
         assert_eq!(due, Vec::new());
 
         // 起点は保留（599）へ寄せる。期限は必ず `now` より後になる。
@@ -921,13 +1092,16 @@ mod tests {
         assert_eq!(deadline, 599 + DEBOUNCE_MS);
         assert!(deadline > MAX_WINDOW_MS, "期限が前へ進んでいない");
         assert!(
-            window.take_due(MAX_WINDOW_MS).is_none(),
+            take_events(&mut window, MAX_WINDOW_MS).is_none(),
             "同じ時刻で繰り返し閉じている"
         );
 
         // 猶予が切れれば、変更と削除をまとめて削除として確定する。
-        let due = window.take_due(deadline).expect("猶予が切れても閉じない");
-        assert_eq!(coalesce(&due, is_markdown), vec![removed_change("a.md")]);
+        let due = take_events(&mut window, deadline).expect("猶予が切れても閉じない");
+        assert_eq!(
+            coalesce(&due, is_markdown),
+            vec![removed_change("a.md"), directory_change("")]
+        );
         assert_eq!(window.deadline_ms(), None, "窓が空にならない");
     }
 
@@ -971,7 +1145,7 @@ mod tests {
             for (at, event) in events {
                 window.push(at, event);
             }
-            window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+            take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
             let deadline = window.deadline_ms().expect("持ち越しが消えている");
             assert!(deadline > MAX_WINDOW_MS, "{name}: 期限が前へ進んでいない");
         }
@@ -987,7 +1161,7 @@ mod tests {
         window.push(599, RawEvent::new(Removed, "gone.md"));
 
         // 上限で閉じた時点では猶予の内側なので持ち越す。
-        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        let due = take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
         assert_eq!(
             coalesce(&due, is_markdown),
             vec![modified_change("busy.md")]
@@ -995,10 +1169,11 @@ mod tests {
 
         // 置換が続かなければ、次の窓で削除として確定する。持ち越した時刻から測り直す。
         assert_eq!(window.deadline_ms(), Some(599 + DEBOUNCE_MS));
-        let due = window
-            .take_due(599 + DEBOUNCE_MS)
-            .expect("持ち越した削除が確定しない");
-        assert_eq!(coalesce(&due, is_markdown), vec![removed_change("gone.md")]);
+        let due = take_events(&mut window, 599 + DEBOUNCE_MS).expect("持ち越した削除が確定しない");
+        assert_eq!(
+            coalesce(&due, is_markdown),
+            vec![removed_change("gone.md"), directory_change("")]
+        );
         assert_eq!(window.deadline_ms(), None, "窓が空にならない");
     }
 
@@ -1013,11 +1188,149 @@ mod tests {
         window.push(599, RawEvent::new(Removed, "b.md"));
 
         assert_eq!(window.deadline_ms(), Some(MAX_WINDOW_MS));
-        let due = window.take_due(MAX_WINDOW_MS).expect("上限で閉じない");
+        let due = take_events(&mut window, MAX_WINDOW_MS).expect("上限で閉じない");
         // `b.md` は猶予中のため確定させない。`a.md` の置換は同じ窓で解けている。
         assert_eq!(
             coalesce(&due, is_markdown),
-            vec![modified_change("busy.md"), modified_change("a.md")]
+            vec![
+                modified_change("busy.md"),
+                modified_change("a.md"),
+                directory_change("")
+            ]
+        );
+    }
+
+    /// ツリー向けの通知は `is_tracked` で絞らない。
+    ///
+    /// `notify` のWindowsバックエンドはディレクトリとファイルを区別せず、`Removed` の
+    /// パスはすでに実在しないため判別もできない。絞ると、フォルダーの作成と削除が
+    /// ツリーへ反映されない（design-decisions.md 6.4）。
+    #[test]
+    fn coalesce_reports_changed_directories_without_filtering() {
+        let cases: [(&str, Vec<RawEvent>, Vec<FileChange>); 6] = [
+            (
+                "対象外のファイルの作成でも親を出す",
+                vec![RawEvent::new(Created, "a.md.tmp")],
+                vec![directory_change("")],
+            ),
+            (
+                // 拡張子を持たない名前はフォルダーのことが多いが、`Removed` では
+                // 判別できない。判別できない側へ倒さず、常に親を出す。
+                "拡張子のない名前の削除でも親を出す",
+                vec![RawEvent::new(Removed, "sub")],
+                vec![directory_change("")],
+            ),
+            (
+                "入れ子のパスは自分の親を出す",
+                vec![RawEvent::new(Created, "sub/deep/a.md")],
+                vec![
+                    modified_change("sub/deep/a.md"),
+                    directory_change("sub/deep"),
+                ],
+            ),
+            (
+                "同じ親を指すイベントは1件にまとまる",
+                vec![
+                    RawEvent::new(Created, "a.md.tmp"),
+                    RawEvent::new(Modified, "a.md.tmp"),
+                    RawEvent::new(Removed, "a.md"),
+                    RawEvent::new(RenamedFrom, "a.md.tmp"),
+                    RawEvent::new(RenamedTo, "a.md"),
+                ],
+                vec![modified_change("a.md"), directory_change("")],
+            ),
+            (
+                "異なる親はそれぞれ出す",
+                vec![
+                    RawEvent::new(Created, "a.md"),
+                    RawEvent::new(Created, "sub/b.md"),
+                ],
+                vec![
+                    modified_change("a.md"),
+                    modified_change("sub/b.md"),
+                    directory_change(""),
+                    directory_change("sub"),
+                ],
+            ),
+            (
+                // ルート直下で書込みが続くと、親ディレクトリのタイムスタンプ更新が
+                // `Modify(Any)` として大量に届く（実測）。子要素は増減していない。
+                "内容の変更だけでは親を出さない",
+                vec![
+                    RawEvent::new(Modified, "a.md"),
+                    RawEvent::new(Modified, "sub"),
+                ],
+                vec![modified_change("a.md")],
+            ),
+        ];
+
+        for (name, events, expected) in cases {
+            assert_eq!(coalesce(&events, is_markdown), expected, "{name}");
+        }
+    }
+
+    /// 上限を超えた窓は縮退し、個別の変更を確定させない。
+    #[test]
+    fn a_window_over_the_event_limit_degrades() {
+        let mut window = DebounceWindow::new();
+        for index in 0..=MAX_EVENTS_PER_WINDOW {
+            window.push(0, RawEvent::new(Created, &format!("f{index}.md")));
+        }
+
+        assert_eq!(window.deadline_ms(), Some(DEBOUNCE_MS), "窓が閉じられない");
+        assert_eq!(
+            window.take_due(DEBOUNCE_MS),
+            Some(WindowOutcome::Overflowed)
+        );
+        assert_eq!(window.deadline_ms(), None, "縮退した窓が残っている");
+    }
+
+    /// 上限ちょうどでは縮退しない。
+    #[test]
+    fn a_window_at_the_event_limit_still_confirms_changes() {
+        let mut window = DebounceWindow::new();
+        for index in 0..MAX_EVENTS_PER_WINDOW {
+            window.push(0, RawEvent::new(Created, &format!("f{index}.md")));
+        }
+
+        let events = take_events(&mut window, DEBOUNCE_MS).expect("上限ちょうどで閉じない");
+        assert_eq!(events.len(), MAX_EVENTS_PER_WINDOW);
+    }
+
+    /// 縮退した窓は保留を持ち越さない。
+    ///
+    /// 縮退の結果は展開済みディレクトリの再取得とアクティブ文書の再読込であり、次の窓へ
+    /// 保留を引き継いでも確定させる相手がいない。引き継ぐと、上限を超えた直後に届いた
+    /// 削除が、無関係な次の窓で `FileRemoved` として確定してしまう。
+    #[test]
+    fn a_degraded_window_carries_nothing() {
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(Removed, "a.md"));
+        for index in 0..=MAX_EVENTS_PER_WINDOW {
+            window.push(0, RawEvent::new(Created, &format!("f{index}.md")));
+        }
+
+        assert_eq!(
+            window.take_due(DEBOUNCE_MS),
+            Some(WindowOutcome::Overflowed)
+        );
+        assert_eq!(window.deadline_ms(), None, "保留を持ち越している");
+    }
+
+    /// 縮退した窓は、上限に達したあとのイベントも溜めない。
+    #[test]
+    fn a_degraded_window_stops_accumulating() {
+        let mut window = DebounceWindow::new();
+        for index in 0..=MAX_EVENTS_PER_WINDOW {
+            window.push(0, RawEvent::new(Created, &format!("f{index}.md")));
+        }
+        // 縮退後も窓は開いており、上限で閉じるまで期限は進む。
+        window.push(300, RawEvent::new(Created, "late.md"));
+
+        assert_eq!(window.deadline_ms(), Some(300 + DEBOUNCE_MS));
+        assert_eq!(
+            window.take_due(300 + DEBOUNCE_MS),
+            Some(WindowOutcome::Overflowed)
         );
     }
 }
