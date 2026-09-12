@@ -165,7 +165,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] ファイル変更監視（後半・設計の確定）。`notify` のWindowsバックエンドを実測し、`DEBOUNCE_MS`（150）、`MAX_WINDOW_MS`（600）、`REPLACE_RETRY_DELAY_MS`（100）を据え置きで確定した。ディレクトリとファイルがイベントから区別できないこと、バッファあふれと監視停止が通知されないことを確認し、`DirectoryChanged` の生成と窓ごとのイベント数による縮退を実装した（[design-decisions.md](./docs/design-decisions.md) 6.4）。監視範囲の縮退モードは設けないと確定し、15章 P1から落とした
 - [x] ファイル変更監視（後半・Tauri統合）。Watcherのライフサイクル、ルートの親の非再帰監視による `WatcherStopped` の検知、監視スコープの採番と破棄、`WatcherOverflow` / `WatcherStopped` の通知、Tauri eventの送出を `src-tauri/src/watch_runtime.rs` へ実装し、`AppState` のワークスペース開閉へ結び付けた（[design-decisions.md](./docs/design-decisions.md) 6.4）。送出先は `ChangeSink` として抽象し、Tauriのアプリインスタンスなしでライフサイクルと送出内容を検証できるようにした
 - [x] custom image protocol（前半・参照解決と上限検証）。Markdownの画像参照からワークスペース相対パスへの解決を `src-tauri/src/image/reference.rs` へ、内容による形式判定とバイト数・ピクセル寸法の上限検証を `src-tauri/src/image/format.rs` へ実装した（[design-decisions.md](./docs/design-decisions.md) 7.3）。SVGはピクセル寸法の上限の対象外とし、バイト数の上限だけで守ると確定した
-- [ ] custom image protocol（後半・発行と配信）。resource IDのソルトと変更世代、対応表の保持とワークスペース切替・バッファあふれでの無効化、発行command、非同期custom protocolによる配信とHTTPステータスへの写像を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）
+- [x] custom image protocol（後半・発行）。resource IDのソルトと変更世代、対応表の保持とワークスペース切替・バッファあふれでの無効化、`issue_image_resources` commandを実装した（[design-decisions.md](./docs/design-decisions.md) 5.4）。発行時はヘッダーだけで形式と寸法を判定し、判定の入口を配信時と共有する `validate_reader` へまとめた
+- [ ] custom image protocol（後半・配信）。非同期custom protocolによる配信、同時読込2件の上限、handleベースの最終確認、`Content-Type`・CSP・`nosniff`・キャッシュの応答ヘッダー、HTTPステータスへの写像を実装する（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、7.4）
 
 ### 4-2以降
 
@@ -175,7 +176,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
 - [ ] 文書読込の世代を実装し、置換直後の再読込（[design-decisions.md](./docs/design-decisions.md) 6.5）で先に開始した読込が後から完了しても、新しい内容を古い内容で上書きしないことを、完了順を反転させた回帰テストで固定する。読込の開始から完了までの間に変更イベントが届く順序（A開始 → B変更 → A完了 → B読込開始）と、タブを閉じて同じパスで開き直した後に旧タブの応答が届く順序も併せて固定する
 - [ ] `notify` のイベントを `watch::RawEvent` へ写像する処理とdebounce窓の時間管理を実装し、実ファイルに対するatomic replaceで開いているタブが `deleted` にならず再読込されることを、MSIX環境の実測列と突き合わせて確認する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）
-- [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）
+- [ ] 画像resource IDの世代管理を実装し、同一サイズ・更新時刻据え置きの書換えと、監視のバッファあふれ後の再描画でIDが更新されることをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.4）。Rust側の世代の前進とあふれ時の作り直しは4-1e（発行）で固定した。残るのは再描画を経てFrontendが新しいIDを使うことの確認である
 - [ ] Store向けカスタムイベント（`session_start`、`open_md_ok`、`open_md_fail`、`open_folder`、`launch_by_association`）の発火点を各機能の実装と同時に組み込む。キャンセルや失敗で成功イベントを送らないこと、送信失敗がファイル・フォルダー操作を失敗させないこと、各イベントが1セッションにつき1回しか送られないことをテストで固定する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3）
 - [ ] カスタムイベントの送信を `Package.Current.SignatureKind` が `Store` のときだけに限る判定を実装し、パッケージ化した開発版・テスト版（`Developer` 署名）と非パッケージ実行のいずれでも送信しないことを回帰テストで固定する。非パッケージ実行で経路が成立しないことに依存せず、署名種別の判定を経路に必ず通す（[design-decisions.md](./docs/design-decisions.md) 11.4）
 - [ ] 文書内検索を実装し、プレビュー本文とコードブロックだけが対象になること、KaTeX出力の二重ヒットが起きないこと、一致位置とハイライトの範囲がずれないことをテストで固定する。`forced-colors` 有効時に `::highlight()` の一致が判読できることもあわせて確認する（[design-decisions.md](./docs/design-decisions.md) 8.6）
@@ -227,7 +228,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 判断してフェーズが決まったら該当フェーズのタスクへ移し、本節からは削除する。「対応しない」と決めた場合も、結論を [design-decisions.md](./docs/design-decisions.md) へ残してから削除する。各項目には、見つけた文脈と判断が必要な点を書く。
 
-- [ ] `WorkspaceRoot::relativize` の呼び出し元がテストしかない。監視イベントのパス相対化は字面で行う `relativize_literal` が担うことになり（[design-decisions.md](./docs/design-decisions.md) 6.4）、`canonicalize` を通す `relativize` は製品コードから呼ばれていない。削除するか、使い道を決める。候補はドラッグ＆ドロップのパス変換（10.4）であり、Phase 4-2のドラッグ＆ドロップ実装時に使わないと確定したら削除する（Phase 4-1dの前半で発見）
+- [ ] 画像だけを書き換えても再描画の契機にならない。監視の通知（`FileChange`）はタブ向けの変更をMarkdownに絞っており（[design-decisions.md](./docs/design-decisions.md) 6.5）、画像の書き換えではFrontendへ何も届かない（atomic replaceでも親ディレクトリの `directoryChanged` だけ）。Rust側は変更世代を進めてIDを変えるが、再描画が起きないため古い画像が表示されたまま残る。Phase 4完了条件の「画像の更新の後に、古い画像がキャッシュから表示されない」に関わる。画像の変更を通知する変種を足すか、Frontendが参照中の画像を持って別の経路で再発行するかを、Frontendの描画単位（どの文書がどの画像を参照しているか）の持ち方と併せて決める（Phase 4-1eの発行実装時に発見。Phase 4-2で判断する）
 - [ ] JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める
 - [ ] WebView2のブラウザーアクセラレータキーが有効なままである。`Ctrl+R` を押すとWebView全体がリロードされることを実測で確認した（Phase 3-4の文書内検索の実測中に発見）。`F5` は「文書の再読み込み」（`reloadDocument`。[design-decisions.md](./docs/design-decisions.md) 10.1）に割り当てており、WebView全体のリロードは製品の操作として存在しない。`Ctrl+P` や `F12` など他のアクセラレータについても同様に確認していない。個別に `preventDefault` で潰すか、wryの `with_browser_accelerator_keys` でまとめて無効化するかを決める。文書内検索は自前実装（8.6）としたため標準の検索バーへ依存せず、まとめて無効化する道は塞がっていない
 - [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する

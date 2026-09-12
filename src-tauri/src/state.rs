@@ -1,7 +1,8 @@
 //! アプリの実行時状態。
 //!
 //! ワークスペースのルート（6.1）、そのルートを監視するWatcher（6.4）、現在のUI言語（10.5）を
-//! 持つ。Tauriのmanaged stateとして登録し、commandから参照する。
+//! 持つ。画像resource ID（5.4）はワークスペースに属し、ルートと同じ単位で作り直す。
+//! Tauriのmanaged stateとして登録し、commandから参照する。
 //!
 //! ワークスペースの切り替えと終了は、Watcher・探索キャッシュ・通常タブ・loose tabの破棄を
 //! 伴う（6.1）。ここが持つのはルートとWatcherであり、探索キャッシュとタブはFrontendが持つ。
@@ -10,12 +11,24 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
+use crate::image::resource::ImageResources;
 use crate::path_guard::WorkspaceRoot;
 use crate::watch_runtime::{ChangeSink, WorkspaceWatcher};
 
+/// 開いているワークスペース。
+///
+/// ルートと画像resource IDを1つのロックの内側に置く。発行は「どのルートに対して解決した
+/// パスを、どの対応表へ登録するか」を1回の要求の中で固定する必要があり、別々に取ると
+/// 切り替えの前後をまたいで旧ルートのパスを新しい対応表へ登録しうる。
+struct OpenWorkspace {
+    root: WorkspaceRoot,
+    /// 監視スレッドとも共有する。世代を進めるのは監視である（5.4）。
+    images: Arc<ImageResources>,
+}
+
 /// commandから参照するアプリの状態。
 pub struct AppState {
-    workspace: Arc<Mutex<Option<WorkspaceRoot>>>,
+    workspace: Arc<Mutex<Option<OpenWorkspace>>>,
     /// 開いているワークスペースを監視するWatcher。
     ///
     /// ルートと別のロックにするのは、走査と読込が保持する `workspace` のロックを、監視の
@@ -62,9 +75,13 @@ impl AppState {
         // 旧Watcherを停止してから状態を破棄する（6.4）。順序を逆にすると、停止前に届いた
         // イベントが新しいワークスペースの状態へ適用されうる。
         self.close_workspace();
-        let watcher = WorkspaceWatcher::start(root.path(), sink).map_err(std::io::Error::other)?;
+        // 画像resource IDはワークスペースを開くたびに作り直す。ソルトごと替わるため、
+        // 旧ワークスペースのIDは新しい対応表で拒否される（5.4）。
+        let images = Arc::new(ImageResources::new());
+        let watcher = WorkspaceWatcher::start(root.path(), sink, Arc::clone(&images))
+            .map_err(std::io::Error::other)?;
         *self.lock_watcher() = Some(watcher);
-        *self.lock_workspace() = Some(root);
+        *self.lock_workspace() = Some(OpenWorkspace { root, images });
         Ok(())
     }
 
@@ -94,7 +111,7 @@ impl AppState {
         WorkspaceHandle(Arc::clone(&self.workspace))
     }
 
-    fn lock_workspace(&self) -> std::sync::MutexGuard<'_, Option<WorkspaceRoot>> {
+    fn lock_workspace(&self) -> std::sync::MutexGuard<'_, Option<OpenWorkspace>> {
         // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
         // 毒される経路自体が生じないため、回復は試みない（12章）。
         self.workspace.lock().expect("ワークスペースのロックに失敗")
@@ -114,7 +131,7 @@ impl AppState {
 /// `Send + 'static` であることがこの型の要件である。走査と読込はブロッキングスレッドへ
 /// 渡すため（design-decisions.md 5.3）、`State<'_, AppState>` の借用のままでは持ち出せない。
 #[derive(Clone)]
-pub struct WorkspaceHandle(Arc<Mutex<Option<WorkspaceRoot>>>);
+pub struct WorkspaceHandle(Arc<Mutex<Option<OpenWorkspace>>>);
 
 impl WorkspaceHandle {
     /// 開いているワークスペースのルートに対して処理を行う。開いていなければ `None` を返す。
@@ -123,13 +140,21 @@ impl WorkspaceHandle {
     /// 古いルートに対する走査や読込が新しいワークスペースの結果として扱われうるためである。
     /// ロックを保持したまま処理することで、1回の要求が見るルートを1つに固定する。
     pub fn with<T>(&self, f: impl FnOnce(&WorkspaceRoot) -> T) -> Option<T> {
+        self.with_images(|root, _| f(root))
+    }
+
+    /// `with` に加えて、そのワークスペースの画像resource IDを渡す。
+    pub fn with_images<T>(
+        &self,
+        f: impl FnOnce(&WorkspaceRoot, &ImageResources) -> T,
+    ) -> Option<T> {
         // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
         // 毒される経路自体が生じないため、回復は試みない（12章）。
         self.0
             .lock()
             .expect("ワークスペースのロックに失敗")
             .as_ref()
-            .map(f)
+            .map(|workspace| f(&workspace.root, &workspace.images))
     }
 }
 
@@ -211,6 +236,30 @@ mod tests {
         state.close_workspace();
         assert_eq!(state.workspace().with(|root| root.path().to_owned()), None);
         assert_eq!(state.scope_id(), None);
+    }
+
+    /// ワークスペースを開き直すと画像resource IDを作り直し、旧IDを拒否する（5.4）。
+    ///
+    /// 同じフォルダーを開き直した場合も対象とする。相対パスが同じでもソルトが替わるため、
+    /// 旧IDは新しい対応表に存在しない。
+    #[test]
+    fn switching_workspaces_invalidates_image_ids() {
+        let temp = TempDir::new("images");
+        let state = AppState::new(LanguagePreference::System);
+        state.open_workspace(temp.path(), sink()).unwrap();
+        let old_id = state
+            .workspace()
+            .with_images(|_, images| images.issue("a.png"))
+            .unwrap();
+
+        state.open_workspace(temp.path(), sink()).unwrap();
+
+        let (old_lookup, new_id) = state
+            .workspace()
+            .with_images(|_, images| (images.lookup(&old_id), images.issue("a.png")))
+            .unwrap();
+        assert_eq!(old_lookup, None);
+        assert_ne!(new_id, old_id);
     }
 
     #[test]

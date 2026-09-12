@@ -26,6 +26,7 @@ pub fn run() {
         // それまでUI言語の設定値は既定の `System` とする。
         .manage(AppState::new(LanguagePreference::default()))
         .invoke_handler(tauri::generate_handler![
+            ipc::commands::issue_image_resources_command,
             ipc::commands::read_file_command,
             ipc::commands::scan_directory_command
         ])
