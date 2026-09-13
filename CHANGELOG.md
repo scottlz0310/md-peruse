@@ -14,6 +14,12 @@
 ## [Unreleased]
 
 ### Added
+- 文書内検索を加えた（[design-decisions.md](./docs/design-decisions.md) 8.6）。`Ctrl+F` で検索欄を開き、`Enter` / `F3` で次の一致、`Shift+Enter` / `Shift+F3` で前の一致へ移動し、`Esc` で閉じる
+  - **検索の対象はプレビュー本文とコードブロックだけとする。** ファイル一覧などの本文の外、数式（KaTeXの出力）、Mermaidの図は対象にしない
+  - 大文字小文字だけを区別せずに一致させる。段落や表のセルの境目をまたぐ一致は出さない
+  - 一致はDOMを書き換えずにCSS Custom Highlight APIでハイライトする。**`forced-colors` では現在位置の一致だけをハイライトする。** Chromiumがハイライトの配色をすべて同じシステムカラーへ置き換え、一致と現在位置を見分けられないためである（実測）
+  - コードハイライトやMermaidの描画完了、テーマの変更で本文が入れ替わったら、同じ検索語で探し直す
+  - 1000件を超える一致は数えず、件数に `+` を付けて示す
 - Mermaidの図を描画するようにした（[design-decisions.md](./docs/design-decisions.md) 8.4）。` ```mermaid ` のブロックを図として表示する
   - **Mermaidは図を含む文書を開いたときだけ読み込む。** 描画を待つ間は定義をコードブロックとして表示する
   - **図の定義から安全側の設定を上書きさせない。** `securityLevel: "strict"` に加え、`%%{init}%%` やfront matterから `htmlLabels` と `themeCSS` を有効にできないようにした（実測で有効にできることを確認して塞いだ）

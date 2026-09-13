@@ -3,6 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import { issueImageResources, readFile, scanDirectory } from "./ipc/commands";
 import { onWorkspaceOpened } from "./ipc/events";
+import { DocumentFind } from "./preview/DocumentFind";
 import { LINK_REJECTION_MESSAGES } from "./preview/link-click";
 import {
   MarkdownDocument,
@@ -34,6 +35,7 @@ export default function App() {
   // 後から始めた読込を優先する。先に始めた読込が後から完了しても、新しい文書を
   // 古い文書で上書きしない（6.5の読込世代を、タブを持つまで画面全体で1つ持つ）。
   const loadRef = useRef(0);
+  const documentRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     let disposed = false;
@@ -130,13 +132,17 @@ export default function App() {
         ))}
       </ul>
       {document && (
-        <MarkdownDocument
-          text={document.content.text}
-          path={document.content.path}
-          anchor={document.anchor}
-          onNavigate={navigate}
-          issueImages={issueImageResources}
-        />
+        <>
+          <DocumentFind root={documentRef} />
+          <MarkdownDocument
+            ref={documentRef}
+            text={document.content.text}
+            path={document.content.path}
+            anchor={document.anchor}
+            onNavigate={navigate}
+            issueImages={issueImageResources}
+          />
+        </>
       )}
     </main>
   );

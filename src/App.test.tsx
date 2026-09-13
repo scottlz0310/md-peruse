@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { emit } from "@tauri-apps/api/event";
 import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import App from "./App";
 import type { FileContent } from "./types/generated/FileContent";
 import type { ImageResource } from "./types/generated/ImageResource";
@@ -320,6 +327,43 @@ describe("App", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("速い");
+  });
+
+  test("文書内検索は本文だけを対象にし、一覧のファイル名に一致しない（8.6）", async () => {
+    // happy-domはCSS Custom Highlight APIを持たない。登録された範囲だけを控える。
+    // `CSS` はアクセスのたびに新しいオブジェクトを返すため、プロパティごと差し替える。
+    const saved = Object.getOwnPropertyDescriptor(globalThis, "CSS");
+    Object.defineProperty(globalThis, "CSS", {
+      configurable: true,
+      value: { highlights: new Map() },
+    });
+    const global = globalThis as { Highlight?: unknown };
+    global.Highlight = class {};
+    try {
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => fileContent(path, "README.md の説明\n"),
+      });
+      render(<App />);
+      await openReadme();
+      await waitFor(() => expect(screen.getByText(/の説明/)).toBeTruthy());
+
+      await act(async () => {
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "f", ctrlKey: true }),
+        );
+      });
+      fireEvent.change(screen.getByRole("textbox", { name: "文書内を検索" }), {
+        target: { value: "readme.md" },
+      });
+
+      expect(screen.getByRole("status").textContent).toBe("1 / 1");
+      // ハイライトの登録の片付けを、差し替えを戻す前に済ませる。
+      cleanup();
+    } finally {
+      if (saved) Object.defineProperty(globalThis, "CSS", saved);
+      delete global.Highlight;
+    }
   });
 
   test("本文の画像はRust側のcommandでresource IDを発行して表示する（5.4）", async () => {

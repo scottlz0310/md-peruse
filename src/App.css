@@ -157,3 +157,48 @@ body {
 .markdown-body .mermaid-error {
   color: var(--color-fg-muted);
 }
+
+/* 文書内検索（8.6）。 */
+:root {
+  --find-match-bg: #fff8c5;
+  --find-active-bg: #fb8f44;
+  --find-border: #d1d9e0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --find-match-bg: #6c5300;
+    --find-active-bg: #bd561d;
+    --find-border: #3d444d;
+  }
+}
+
+.find-bar {
+  position: fixed;
+  top: 0.5rem;
+  right: 1rem;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--find-border);
+  border-radius: 6px;
+  background-color: var(--color-bg);
+}
+
+.find-count {
+  min-width: 5em;
+  color: var(--color-fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+::highlight(md-peruse-find) {
+  background-color: var(--find-match-bg);
+  color: inherit;
+}
+
+::highlight(md-peruse-find-active) {
+  background-color: var(--find-active-bg);
+  color: inherit;
+}

@@ -1,4 +1,10 @@
-import { type MouseEvent, type ReactElement, useEffect, useState } from "react";
+import {
+  type MouseEvent,
+  type ReactElement,
+  type Ref,
+  useEffect,
+  useState,
+} from "react";
 import type { LinkTarget } from "../markdown/link-target";
 import { renderMarkdown } from "../markdown/render";
 import type { ImageResource } from "../types/generated/ImageResource";
@@ -27,6 +33,8 @@ type Props = {
     documentPath: string,
     references: string[],
   ) => Promise<ImageResource[]>;
+  /** 本文の要素。文書内検索（8.6）の対象として渡す。 */
+  ref?: Ref<HTMLElement>;
 };
 
 /**
@@ -41,6 +49,7 @@ export function MarkdownDocument({
   anchor,
   onNavigate,
   issueImages,
+  ref,
 }: Props) {
   const [content, setContent] = useState<ReactElement | null>(null);
   const [rendered, setRendered] = useState<string | null>(null);
@@ -93,6 +102,7 @@ export function MarkdownDocument({
   return (
     // biome-ignore lint/a11y/useKeyWithClickEvents: リンクへの操作を委譲で受けるだけで、要素自体は操作対象ではない。キーボードでリンクを開くとclickが発火するため、キー操作もこのハンドラを通る。
     <article
+      ref={ref}
       className="markdown-body"
       onClick={handleClick}
       // 中クリックは新しいウィンドウを開く。遷移させずに捨てる。
