@@ -451,7 +451,7 @@ form-action 'none';
 - `worker-src`、`media-src`、`manifest-src` は指定しない。`default-src 'none'` が適用され、いずれも使わない。
 - Mermaidの `securityLevel: 'sandbox'` はiframeを使うため、iframeを遮断する本方針では採用できない。`strict` 相当とsanitizeの二重防御を採る（8.4）。
 
-Mermaidが生成SVGへインラインの `style` 属性を出力するかは、実機のWebView2でなければ確認できない。happy-dom上では `mermaid.render` の戻り値が空文字列となり、出力を測定できなかった。Phase 4の実装時に実機で確認し、`style` 属性に依存していた場合は、DOMPurifyで落としたうえで不足する見た目を自前CSSで補う。CSPを緩める方向では対応しない。
+Mermaid 12はSVGの要素へインラインの `style` 属性を出力する（Phase 4-2でChromiumにより実測）。flowchart、sequence、class、state、ER、gantt、pie、mindmapのいずれでも使われ、プロパティは `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`text-anchor`、`font-size`、`font-weight` と、svg要素の `max-width` だけだった。CSPは緩めず、DOMPurifyのフックでSVGの表示属性として正当なものだけを属性へ移してから `style` 属性を落とす（8.4）。単に落とすだけでは、円グラフの凡例の色が失われ、図が本来の幅を越えて表示幅いっぱいに引き伸ばされた（実測）。当初の「落としたうえで自前CSSで補う」は、図ごとに動的に決まる色をCSSで補えないため改めた。
 
 capabilityは `src-tauri/capabilities/default.json` に次の3つだけを置く。
 
@@ -1010,6 +1010,17 @@ highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として�
 - テーマ変更時は再描画する。
 - 描画はオフスクリーンで行い、生成される要素IDが文書内で衝突しないよう一意化する。
 
+実装の正本は `src/markdown/mermaid.ts`（設定、sanitize、描画の順番待ち）と `src/preview/MermaidDiagram.tsx`（表示とテーマ）とする。Phase 4-2で次を実測し、決めた。
+
+- 図の定義（`%%{init}%%` とfront matterの `config`）から上書きさせない設定（`secure`）へ、既定の6項目に `htmlLabels`、`flowchart`、`themeCSS` を加える。加えないと、図の定義から `htmlLabels` を有効にして `foreignObject` を生成でき、`themeCSS` で任意のCSSを `style` 要素へ流し込めた（実測）。
+- `suppressErrorRendering` を有効にする。既定では構文エラーの図をMermaidが文書の末尾へ描画した（実測）。理由は自前の要素で示す。
+- 生成SVGのsanitizeはDOMPurifyのSVGプロファイル（`svg`、`svgFilters`）に、`foreignObject` の禁止と `href` / `xlink:href` の禁止を加える。テーマの `style` 要素は残す（5.5の `style-src-elem`）。生成された `style` 要素のセレクタはすべて図のIDで始まり、図の外へ効くものはなかった（実測）。
+- `style` 属性は、SVGの表示属性として正当なプロパティで、値が色・長さ・数値の列か色の関数表記（`rgb()`、`hsl()` など）のものだけを属性へ移す（5.5）。`url(` を含む値は移さない。svg要素の `max-width`（px）は `width` 属性へ移し、表示幅への収まりはCSSの `max-width: 100%` で行う。
+- テーマは `prefers-color-scheme` から `default` / `dark` を選び、`forced-colors` が有効なときは `neutral` にする。どちらのメディアクエリが変わっても描画し直す。
+- 描画のタイムアウトは打ち切って理由を示すが、Mermaidの描画そのものは止められない。打ち切った描画が終わるまで同時描画の枠は空けない。空けると、止まらない描画が積み重なる。
+- 描画を待つ間と、描画できなかった図、1文書の上限を超えた図は、定義をコードブロックとして残し、描画できなかった図と上限を超えた図はブロックの直後に理由を示す（12章）。
+- sanitizeのテストはjsdom上で行う。happy-domではDOMPurifyが要素名を取得できず、SVGプロファイルで `svg` 要素ごと除去される（実測）。本番のDOMPurifyはWebView2上で動く。
+
 処理上限を次のとおり確定する。値は `src/markdown/limits.ts` を正本とする。
 
 | 項目 | 値 | 超過時 |
@@ -1405,6 +1416,8 @@ IDはプロセス内でのみ有効な不透明値とし、対応表はRust側�
 - 条文を取得できないパッケージは生成を失敗させる。配布物へ含める条件を満たせないまま出荷しないため。上流が同梱しない場合は `licenses/overrides/` へ本文を配置して解消する。
 - 対象を配布物に含まれる依存へ限る。JavaScript側は `dependencies` とその推移閉包のみを辿り、Rust側は `about.toml` でbuild依存とdev依存を除外する。
 - 許容ライセンスを `about.toml` の `accepted` へ列挙する。未列挙のライセンスを持つcrateが増えると生成が失敗するため、依存追加時にライセンスを確認する強制力を持つ。
+- `package.json` でライセンスを宣言していないパッケージは、同梱の条文から確かめたSPDX識別子を `licenses/overrides/<パッケージ名>/SPDX-ID` へ置く。推測で補わず、置かなければ生成を失敗させる（Mermaidの依存 `khroma` が該当。条文はMIT）。
+- Mermaid 12の依存 `elkjs`（EPL-2.0、`layout: elk` 用）を受け入れて同梱する（Phase 4-2で判断）。EPL-2.0はオブジェクト形式での配布でもソースコードの入手方法の案内を求めるため、サードパーティライセンスの表示で上流のリポジトリを示す。依存の内部を差し替えて除外する案は、Mermaidの更新で壊れやすいため採らなかった。
 - 生成物をリポジトリへコミットしない。バージョンの正本を `bun.lock` と `Cargo.lock` の1か所へ寄せ、生成物はそこから都度導出する。当初は生成物をコミットし `git diff --exit-code` で最新かを検査していたが、Renovateが依存を更新してもlockfileしか書き換えないため、依存更新のPull Requestが例外なく `Licenses` ジョブで失敗した（[#32](https://github.com/scottlz0310/md-peruse/pull/32) で顕在化）。バージョンを2か所で持つ限り、生成物を手で追随させるか自動マージを諦めるかの二択になる。導出へ変えれば不整合が構造として生じない。
 - 差分でライセンスの増減が見えなくなる点は、生成の失敗で代替する。条文を取得できないパッケージがあれば生成自体が失敗するため、未知の依存が黙って入ることはない。Rust側は `about.toml` の `accepted` が未列挙のライセンスも検出する。JavaScript側に同等のライセンス種別allowlistがないことは残る穴であり、`tasks.md` の「検討待ち」へ記録する。
 - 生成をビルド工程へ組み込むかはPhase 4で決める。現時点で生成物を参照するコードはなく、`bun run build` へ組み込むと `Frontend` と `Rust` の両ジョブにもcargo-aboutの導入が要る。アプリ内でライセンス一覧を表示する実装（下記）と同時に、生成のタイミングとジョブ構成を決める。
@@ -1815,6 +1828,8 @@ Phase 2で `bun:test` によるReactコンポーネントのDOMテストが成�
 | DOM実装 | `@happy-dom/global-registrator` |
 | コンポーネント操作 | `@testing-library/react` |
 | プリロード | `bunfig.toml` の `[test] preload` で `test/setup.ts` を読み込む |
+
+例外として、Mermaid生成SVGのsanitize（8.4）のテストだけはjsdomの `window` をDOMPurifyへ渡して行う。happy-domではDOMPurifyが要素名を取得できず、実際の挙動を検証できないためである。グローバルのDOM実装はhappy-domのまま変えない。
 
 `test/setup.ts` はhappy-domをグローバルへ登録し、`IS_REACT_ACT_ENVIRONMENT` を有効にしたうえで、`afterEach` に Testing Library の `cleanup` を登録する。Testing Libraryは読み込み時に `document` を参照するため、登録後に動的importする。
 

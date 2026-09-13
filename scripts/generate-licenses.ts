@@ -61,7 +61,11 @@ function readManifest(path: string): PackageManifest {
   return JSON.parse(readFileSync(path, "utf-8")) as PackageManifest;
 }
 
-function resolveLicense(manifest: PackageManifest): string {
+// 上流が package.json でライセンスを宣言していないパッケージのために、同梱の条文から
+// 確かめたSPDX識別子を手動で置くファイル。ライセンス本文のファイル名パターンに合わない名前にする。
+const licenseIdOverrideFile = "SPDX-ID";
+
+function resolveLicense(name: string, manifest: PackageManifest): string {
   if (manifest.license) {
     return manifest.license;
   }
@@ -72,7 +76,13 @@ function resolveLicense(manifest: PackageManifest): string {
   if (types && types.length > 0) {
     return types.join(" OR ");
   }
-  throw new Error(`${manifest.name} はライセンスを宣言していません`);
+  const overridePath = join(overridesRoot, name, licenseIdOverrideFile);
+  if (existsSync(overridePath)) {
+    return readFileSync(overridePath, "utf-8").trim();
+  }
+  throw new Error(
+    `${name} はライセンスを宣言していません。同梱の条文を確かめ、SPDX識別子を licenses/overrides/${name}/${licenseIdOverrideFile} へ配置してください`,
+  );
 }
 
 function readLicenseFiles(directory: string): LicenseSource[] {
@@ -139,7 +149,7 @@ function collectJavaScriptPackages(): CollectedPackage[] {
     packages.push({
       name,
       version: manifest.version ?? "",
-      license: resolveLicense(manifest),
+      license: resolveLicense(name, manifest),
       sources: collectLicenseSources(name, packageDir),
     });
     pending.push(...Object.keys(manifest.dependencies ?? {}));

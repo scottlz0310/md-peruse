@@ -144,3 +144,16 @@ body {
   margin-inline-start: 0.5em;
   color: var(--color-fg-muted);
 }
+
+/*
+ * Mermaidの図（8.4）。SVGは本来の幅を `width` 属性で持つ。表示幅より広い図は縮める。
+ */
+.markdown-body .mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 描画できなかった図の理由（8.4、12章）。 */
+.markdown-body .mermaid-error {
+  color: var(--color-fg-muted);
+}

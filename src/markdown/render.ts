@@ -10,12 +10,14 @@ import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
 import { HighlightedCodeBlock } from "../preview/HighlightedCodeBlock";
+import { MermaidDiagram } from "../preview/MermaidDiagram";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { IpcError } from "../types/generated/IpcError";
 import { rehypeHeadingIds } from "./heading-id";
 import { selectHighlightable } from "./highlight";
 import { applyImageResources, collectImageReferences } from "./images";
 import { rehypeMath } from "./math";
+import { selectMermaidDiagrams } from "./mermaid";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -82,14 +84,19 @@ export async function renderMarkdown(
   }
   const sanitized = (await sanitize.run(hast)) as Root;
   const highlightable = selectHighlightable(sanitized);
+  const diagrams = selectMermaidDiagrams(sanitized);
   const components: Partial<Components> = {
     // 画像を遅延して読み込む（7.3）。schemaへ `loading` と `decoding` を許可すると、値を
     // 絞る規則をもう1つ持つことになるため、sanitizeの後で固定の値を付ける。
     img: ({ node: _node, ...props }) =>
       jsx("img", { ...props, loading: "lazy", decoding: "async" }),
-    // 失敗の表示をブロックの直後に置くため、`code` ではなく `pre` を差し替える（12章）。
+    // Mermaidの図とハイライトするコードブロック。失敗の表示をブロックの直後に置くため、
+    // `code` ではなく `pre` を差し替える（12章）。
     pre: ({ node, ...props }) => {
-      const target = node === undefined ? undefined : highlightable.get(node);
+      if (node === undefined) return jsx("pre", props);
+      const diagram = diagrams.get(node);
+      if (diagram !== undefined) return jsx(MermaidDiagram, diagram);
+      const target = highlightable.get(node);
       if (target === undefined) return jsx("pre", props);
       return jsx(HighlightedCodeBlock, target);
     },
