@@ -7,11 +7,9 @@ import {
 } from "react";
 import type { LinkTarget } from "../markdown/link-target";
 import { renderMarkdown } from "../markdown/render";
+import type { ViewTarget } from "../state/document-tab";
 import type { ImageResource } from "../types/generated/ImageResource";
 import { targetOfLink } from "./link-click";
-
-/** 描画する要素の外で扱う遷移先。同一文書内のアンカーはこの要素の中で完結する。 */
-export type NavigationTarget = Exclude<LinkTarget, { kind: "anchor" }>;
 
 type Props = {
   /** 読み込んだ本文。改行はRust側でLFへ正規化済み（6.3）。 */
@@ -19,12 +17,15 @@ type Props = {
   /** 文書のルート相対パス。本文中の相対リンクの基点になる（7.2）。 */
   path: string;
   /**
-   * 描画の完了後に移動する要素のID。`./other.md#section` のように、別の文書の見出しを
-   * 指すリンクで開いた場合に渡す（7.2）。
+   * 描画の完了後に移す位置。見出しへのリンク（7.2）や戻る／進む（9.3）で表示が変わるたびに
+   * 新しいオブジェクトを渡す。同じオブジェクトのままなら移し直さない。
    */
-  anchor: string | null;
-  /** 別の文書、外部URL、解決できなかったリンクを押したときに呼ぶ。 */
-  onNavigate: (target: NavigationTarget) => void;
+  view: ViewTarget;
+  /**
+   * 本文中のリンクを押したときに呼ぶ。同一文書内のアンカーも履歴へ積むため（9.3）、
+   * 移動は呼び出し側が `view` で指示する。
+   */
+  onNavigate: (target: LinkTarget) => void;
   /**
    * 文書が参照する画像へresource IDを発行する（5.4）。製品では `issueImageResources` を渡す。
    * 参照が変わらない関数を渡すこと。変わるたびに描画し直す。
@@ -46,7 +47,7 @@ type Props = {
 export function MarkdownDocument({
   text,
   path,
-  anchor,
+  view,
   onNavigate,
   issueImages,
   ref,
@@ -71,8 +72,10 @@ export function MarkdownDocument({
   // 描画が現在の本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の
   // 見出しへ移動しうる。
   useEffect(() => {
-    if (anchor !== null && rendered === text) scrollToElement(anchor);
-  }, [anchor, rendered, text]);
+    if (rendered !== text) return;
+    if (view.anchor === null) window.scrollTo(0, view.scrollTop);
+    else document.getElementById(view.anchor)?.scrollIntoView();
+  }, [view, rendered, text]);
 
   function handleClick(event: MouseEvent<HTMLElement>) {
     const link = linkOf(event);
@@ -91,12 +94,7 @@ export function MarkdownDocument({
       return;
     }
     const target = targetOfLink(link, path);
-    if (target === null) return;
-    if (target.kind === "anchor") {
-      scrollToElement(target.elementId);
-      return;
-    }
-    onNavigate(target);
+    if (target !== null) onNavigate(target);
   }
 
   return (
@@ -117,9 +115,4 @@ export function MarkdownDocument({
 
 function linkOf(event: MouseEvent<HTMLElement>): Element | null {
   return event.target instanceof Element ? event.target.closest("a") : null;
-}
-
-/** IDの要素へ移動する。見つからなければ何もしない（見出しの無いアンカー）。 */
-function scrollToElement(elementId: string) {
-  document.getElementById(elementId)?.scrollIntoView();
 }

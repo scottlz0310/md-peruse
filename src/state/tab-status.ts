@@ -122,6 +122,11 @@ export function beginLoad<T extends TrackedTab>(
   };
 }
 
+/** トークンがタブの現在のインスタンスと世代の両方に一致するか。 */
+export function isCurrentLoad(tab: TrackedTab, token: LoadToken): boolean {
+  return token.tabId === tab.tabId && token.generation === tab.loadGeneration;
+}
+
 /** 読込の結果。失敗の原因はタブの状態とは別に保持する。 */
 export type LoadOutcome = "succeeded" | "failed";
 
@@ -148,7 +153,7 @@ export function applyLoadResult<T extends TrackedTab>(
   outcome: LoadOutcome,
 ): Omit<T, keyof TrackedTab> & TrackedTab {
   // 閉じたタブの応答は、同じパスで開き直した新しいタブへ反映しない。
-  if (token.tabId !== tab.tabId || token.generation !== tab.loadGeneration) {
+  if (!isCurrentLoad(tab, token)) {
     return tab;
   }
   // 読込中に削除が確定した場合は、届いた内容を反映しない。
