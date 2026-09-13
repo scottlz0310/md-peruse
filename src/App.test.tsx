@@ -329,6 +329,157 @@ describe("App", () => {
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("速い");
   });
 
+  describe("戻る／進む（9.3）", () => {
+    /** READMEからリンクでガイドへ移った状態を作る。読込の順を記録する。 */
+    async function openGuideFromReadme(
+      read: (path: string) => FileContent | Promise<FileContent> = (path) =>
+        path === "README.md"
+          ? fileContent(path, "## 目次\n\n[ガイド](docs/guide.md)\n")
+          : fileContent(path, "## ガイド本文\n"),
+    ) {
+      const requested: string[] = [];
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => {
+          requested.push(path);
+          return read(path);
+        },
+      });
+      render(<App />);
+      await openReadme();
+      const link = await waitFor(() =>
+        screen.getByRole("link", { name: "ガイド" }),
+      );
+      await act(async () => {
+        link.click();
+      });
+      await waitFor(() => expect(heading()).toBe("ガイド本文"));
+      return requested;
+    }
+
+    function heading() {
+      return screen.queryByRole("heading", { level: 2 })?.textContent;
+    }
+
+    test.each([
+      [
+        "Alt+← / Alt+→",
+        () =>
+          new KeyboardEvent("keydown", {
+            key: "ArrowLeft",
+            altKey: true,
+            cancelable: true,
+          }),
+        () =>
+          new KeyboardEvent("keydown", {
+            key: "ArrowRight",
+            altKey: true,
+            cancelable: true,
+          }),
+      ],
+      [
+        "マウスのサイドボタン",
+        () => new MouseEvent("auxclick", { button: 3, cancelable: true }),
+        () => new MouseEvent("auxclick", { button: 4, cancelable: true }),
+      ],
+    ])(
+      "%sで文書を行き来し、WebViewの既定動作を止める",
+      async (_, back, forward) => {
+        const historyLength = window.history.length;
+        const requested = await openGuideFromReadme();
+
+        const backEvent = back();
+        await act(async () => {
+          window.dispatchEvent(backEvent);
+        });
+        await waitFor(() => expect(heading()).toBe("目次"));
+        expect(backEvent.defaultPrevented).toBe(true);
+
+        const forwardEvent = forward();
+        await act(async () => {
+          window.dispatchEvent(forwardEvent);
+        });
+        await waitFor(() => expect(heading()).toBe("ガイド本文"));
+        expect(forwardEvent.defaultPrevented).toBe(true);
+        // WebViewのHistory APIへは何も積まない。
+        expect(window.history.length).toBe(historyLength);
+        expect(requested).toEqual([
+          "README.md",
+          "docs/guide.md",
+          "README.md",
+          "docs/guide.md",
+        ]);
+      },
+    );
+
+    test("戻った先を読めなければ理由を示し、その項目を履歴から取り除く", async () => {
+      const missing: IpcError = {
+        code: "fileNotFound",
+        message: "ファイルが見つかりません。",
+        detail: "README.md",
+      };
+      let readmeReads = 0;
+      const requested = await openGuideFromReadme((path) => {
+        if (path !== "README.md") return fileContent(path, "## ガイド本文\n");
+        readmeReads += 1;
+        return readmeReads === 1
+          ? fileContent(path, "## 目次\n\n[ガイド](docs/guide.md)\n")
+          : Promise.reject(missing);
+      });
+      const pressBack = () =>
+        act(async () => {
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true }),
+          );
+        });
+
+      await pressBack();
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toBe(missing.message),
+      );
+      expect(heading()).toBe("ガイド本文");
+
+      // 取り除いたので、もう一度戻っても読込を試みない。
+      await pressBack();
+      expect(requested).toEqual(["README.md", "docs/guide.md", "README.md"]);
+    });
+
+    test("見出しへの移動も履歴へ積み、同じ文書の中では読み直さない", async () => {
+      const requested: string[] = [];
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => {
+          requested.push(path);
+          return fileContent(path, "[設定へ](#設定)\n\n## 設定\n");
+        },
+      });
+      render(<App />);
+      await openReadme();
+      const link = await waitFor(() =>
+        screen.getByRole("link", { name: "設定へ" }),
+      );
+      await act(async () => {
+        link.click();
+      });
+      // 同じ文書をツリーから選んでも読み直さない。
+      await act(async () => {
+        screen.getByRole("button", { name: "README.md" }).click();
+      });
+
+      const back = new KeyboardEvent("keydown", {
+        key: "ArrowLeft",
+        altKey: true,
+        cancelable: true,
+      });
+      await act(async () => {
+        window.dispatchEvent(back);
+      });
+
+      expect(back.defaultPrevented).toBe(true);
+      expect(requested).toEqual(["README.md"]);
+    });
+  });
+
   test("文書内検索は本文だけを対象にし、一覧のファイル名に一致しない（8.6）", async () => {
     // happy-domはCSS Custom Highlight APIを持たない。登録された範囲だけを控える。
     // `CSS` はアクセスのたびに新しいオブジェクトを返すため、プロパティごと差し替える。

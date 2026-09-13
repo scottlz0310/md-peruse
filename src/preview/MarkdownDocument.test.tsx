@@ -7,44 +7,60 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { LinkTarget } from "../markdown/link-target";
+import type { ViewTarget } from "../state/document-tab";
 import type { ImageResource } from "../types/generated/ImageResource";
-import { MarkdownDocument, type NavigationTarget } from "./MarkdownDocument";
+import { MarkdownDocument } from "./MarkdownDocument";
 
-/** `scrollIntoView` の呼び出し先を記録する。happy-domは実際にはスクロールしない。 */
-let scrolled: string[] = [];
+/**
+ * `scrollIntoView` と `window.scrollTo` の呼び出しを記録する。happy-domは実際には
+ * スクロールしない。
+ */
+let scrolled: (string | number)[] = [];
 const originalScrollIntoView = Element.prototype.scrollIntoView;
+const originalScrollTo = window.scrollTo;
 
 beforeEach(() => {
   scrolled = [];
   Element.prototype.scrollIntoView = function (this: Element) {
     scrolled.push(this.id);
   };
+  window.scrollTo = ((_: number, y: number) => {
+    scrolled.push(y);
+  }) as typeof window.scrollTo;
 });
 
 afterEach(() => {
   cleanup();
   Element.prototype.scrollIntoView = originalScrollIntoView;
+  window.scrollTo = originalScrollTo;
 });
+
+const TOP: ViewTarget = { anchor: null, scrollTop: 0 };
 
 /** 画像を含まない本文用。参照が変わらないよう、モジュールで1つだけ持つ。 */
 const noImages = async (): Promise<ImageResource[]> => [];
 
 function mount(
   text: string,
-  options: { path?: string; anchor?: string | null } = {},
+  options: { path?: string; view?: ViewTarget } = {},
 ) {
-  const navigated: NavigationTarget[] = [];
+  const navigated: LinkTarget[] = [];
   const props = {
     path: options.path ?? "docs/guide.md",
-    anchor: options.anchor ?? null,
-    onNavigate: (target: NavigationTarget) => navigated.push(target),
+    onNavigate: (target: LinkTarget) => navigated.push(target),
     issueImages: noImages,
   };
-  const view = render(<MarkdownDocument text={text} {...props} />);
+  const initialView = options.view ?? TOP;
+  const rendered = render(
+    <MarkdownDocument text={text} view={initialView} {...props} />,
+  );
   return {
     navigated,
-    rerender: (next: string) =>
-      view.rerender(<MarkdownDocument text={next} {...props} />),
+    rerender: (next: string, view: ViewTarget = initialView) =>
+      rendered.rerender(
+        <MarkdownDocument text={next} view={view} {...props} />,
+      ),
   };
 }
 
@@ -97,20 +113,23 @@ describe("MarkdownDocument", () => {
     expect(navigated).toEqual([expected]);
   });
 
-  test("同一文書内のアンカーはその場で移動し、外へ知らせない", async () => {
+  test("同一文書内のアンカーは自分では移動せず、履歴へ積めるよう知らせる（9.3）", async () => {
     const { navigated } = mount("[節](#使い方)\n\n## 使い方\n");
     const link = await waitFor(() => screen.getByRole("link"));
+    await waitFor(() => expect(scrolled).toEqual([0]));
 
     const event = createEvent.click(link, { button: 0 });
     fireEvent(link, event);
 
     expect(event.defaultPrevented).toBe(true);
-    expect(scrolled).toEqual(["user-content-使い方"]);
-    expect(navigated).toEqual([]);
+    expect(scrolled).toEqual([0]);
+    expect(navigated).toEqual([
+      { kind: "anchor", elementId: "user-content-使い方" },
+    ]);
   });
 
-  test("脚注の相互参照は前置済みのIDへ移動する", async () => {
-    mount("本文[^1]\n\n[^1]: 注\n");
+  test("脚注の相互参照は前置済みのIDを知らせる", async () => {
+    const { navigated } = mount("本文[^1]\n\n[^1]: 注\n");
     const reference = await waitFor(() =>
       screen
         .getAllByRole("link")
@@ -120,7 +139,9 @@ describe("MarkdownDocument", () => {
 
     fireEvent.click(reference, { button: 0 });
 
-    expect(scrolled).toEqual(["user-content-fn-1"]);
+    expect(navigated).toEqual([
+      { kind: "anchor", elementId: "user-content-fn-1" },
+    ]);
   });
 
   test("hrefを落とされたリンクは何もしない", async () => {
@@ -171,9 +192,26 @@ describe("MarkdownDocument", () => {
   });
 
   test("開いたときのアンカーへは描画の完了後に移動する", async () => {
-    mount("## 導入\n\n## 設定\n", { anchor: "user-content-設定" });
+    mount("## 導入\n\n## 設定\n", {
+      view: { anchor: "user-content-設定", scrollTop: 0 },
+    });
 
     await waitFor(() => expect(scrolled).toEqual(["user-content-設定"]));
+  });
+
+  test("位置の指示が変わるたびに移し、同じ指示では移し直さない", async () => {
+    const text = "## 導入\n\n## 設定\n";
+    const { rerender } = mount(text);
+    await waitFor(() => expect(scrolled).toEqual([0]));
+
+    // 戻る／進むでは離れたときのスクロール位置へ戻す（9.3）。
+    const back: ViewTarget = { anchor: null, scrollTop: 320 };
+    rerender(text, back);
+    rerender(text, back);
+    // 同じ場所への移動でも、新しい指示なら移し直す。
+    rerender(text, { anchor: null, scrollTop: 320 });
+
+    await waitFor(() => expect(scrolled).toEqual([0, 320, 320]));
   });
 
   test("本文を差し替えると新しい本文を表示し、古い描画で上書きしない", async () => {
@@ -210,7 +248,7 @@ describe("MarkdownDocument", () => {
       <MarkdownDocument
         text={"![図](../img/a.png)\n"}
         path="docs/guide.md"
-        anchor={null}
+        view={TOP}
         onNavigate={() => {}}
         issueImages={issueImages}
       />,
