@@ -898,7 +898,9 @@ mermaid fence
 - CommonMarkを基礎とし、`remark-gfm` で表、タスクリスト、取り消し線、autolinkを有効にする。
 - `remark-rehype` は既定でRaw HTMLを破棄する。本方針は「Raw HTMLをソース文字列として表示する」であり、破棄でも実行でもない第三の扱いを要する。mdastの `html` ノードをテキストとして出力するhandlerを定義し、`allowDangerousHtml` と `rehype-raw` を使用しない。
 - `remark-frontmatter` で文書先頭のYAML front matterを解析し、本文からは除く。`yaml` ノードは `mdast-util-to-hast` にhandlerがなく破棄されるため、非表示は既定の動作で成立する。
-- `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。
+- `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。パイプラインの正本は `src/markdown/render.ts` とする。
+- `rehype-react` へ `tableCellAlignToStyle: false` を渡し、表の桁揃えを `align` 属性のまま出す。既定では `align` が `style="text-align: ..."` へ変換される（実測）。sanitizeを通った後に `style` 属性を生む経路になり、CSPの `style-src-attr 'none'`（5.5）で桁揃えも無効になる。`align` はsanitize schemaが値まで絞って許可している（8.2）。
+- 本文中のリンクのクリック（中クリックと `Ctrl` + クリックを含む）は、描画する要素でまとめて既定動作を止める（`src/preview/MarkdownDocument.tsx`）。止めないと相対リンクでWebView全体が別のURLへ移り、中クリックと `Ctrl` + クリックは新しいウィンドウを開く。リンクの解決と遷移（7.2、9.3）はこの上に加える。
 - unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
 
 YAML front matterを非表示とする理由と範囲は次のとおり。振る舞いは `src/markdown/pipeline.test.ts` で固定する。

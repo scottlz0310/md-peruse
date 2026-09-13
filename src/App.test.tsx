@@ -86,12 +86,13 @@ describe("App", () => {
     expect(scanned).toEqual([""]);
   });
 
-  test("Markdownを選ぶと読み込んだ本文を表示する", async () => {
+  test("Markdownを選ぶと読み込んだ本文を描画する", async () => {
     mockBackend({
       scan: () => ROOT,
       read: (path) => ({
         path,
-        text: "# 見出し\n",
+        // 本文の `h1` は画面の見出し（ワークスペース名）と区別するため `h2` にする。
+        text: "## 見出し\n",
         encoding: "utf8",
         byteSize: 12,
       }),
@@ -104,7 +105,11 @@ describe("App", () => {
       screen.getByRole("button", { name: "README.md" }).click();
     });
 
-    await waitFor(() => expect(screen.getByText("# 見出し")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+        "見出し",
+      ),
+    );
   });
 
   test("走査の失敗は文言を表示する", async () => {

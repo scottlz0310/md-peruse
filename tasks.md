@@ -171,8 +171,9 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 ### 4-2以降
 
 - [x] Rust Coreとの最小の結線。ネイティブメニュー（この時点では「フォルダーを開く」と「終了」だけ）、Rust側のフォルダー選択ダイアログ、`WorkspaceOpenedEvent`、Frontendの IPC ラッパー（`src/ipc/`）を置き、仮の画面でルート直下の走査と `.md` の読込を実機で通した（dev-flow 第6章、[design-decisions.md](./docs/design-decisions.md) 5.5、10.1）
-- [ ] メニューのアクセラレータ（`Ctrl+O`）がWebViewにフォーカスがある状態で効くことを実機で確認する。最小の結線の実機確認では、WebViewにフォーカスがある状態で `Ctrl+O` を送ってもダイアログが開かなかった。同じデスクトップで別のアプリが前面を取り合っており、キー入力がウィンドウへ届いていたかを切り分けられていない。メニューのクリックでは開くことを確認済み。効かない場合は、アクセラレータの処理をWebView内のキー処理へ寄せるか（10.1の「メニューに現れない操作」と同じ扱い）を決める（[design-decisions.md](./docs/design-decisions.md) 10.1）
-- [ ] Frontend Markdown（unified、sanitize、Mermaid、lowlight、KaTeX）
+- [ ] WebViewにフォーカスがあると、ネイティブメニューのアクセラレータもアクセスキーも効かない。対応を決める。md-peruseが前面でWebViewにフォーカスがある状態で、`Ctrl+O` でもダイアログが開かず、`Alt+F` でもファイルメニューが開かなかった（Markdown描画の単位の実機確認。他のアプリが前面を取り合っていないことを確かめたうえで、windows-mcpからキー入力を送った）。メニューのクリックでは開く。WebView2がキー入力を受け取り、ホストウィンドウのアクセラレータ処理へ渡していないとみられる。アクセラレータをWebView内のキー処理で拾ってRust側へ伝えるか（10.1の「メニューに現れない操作」と同じ扱いへ寄せる）、wryの設定で親へ転送できるかを実測して決める。10.1の表のアクセラレータ（`Ctrl+O`、`Ctrl+W`、`Ctrl+B`、`F5`、文字サイズ）すべてに関わる（[design-decisions.md](./docs/design-decisions.md) 10.1）
+- [x] Markdownの基本パイプライン。`remark-parse` から `rehype-sanitize` を経て `rehype-react` でReact要素にする描画を `src/markdown/render.ts` へ、本文の表示と本文中のリンクの遷移止めを `src/preview/MarkdownDocument.tsx` へ実装し、仮の画面の生テキストを置き換えた（[design-decisions.md](./docs/design-decisions.md) 8.1）。表の桁揃えが `style` 属性へ変換される既定動作を止めた。数式は構文の解析だけを入れ、描画はKaTeXの単位で加える
+- [ ] Frontend Markdown（残り）。リンクの解決と遷移、画像（resource IDの発行と `img`）、コードハイライト、KaTeX（遅延ロードと上限）、Mermaid、文書内検索と戻る／進むの順に単位を分けて進める
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
