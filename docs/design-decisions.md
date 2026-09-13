@@ -900,7 +900,8 @@ mermaid fence
 - `remark-frontmatter` で文書先頭のYAML front matterを解析し、本文からは除く。`yaml` ノードは `mdast-util-to-hast` にhandlerがなく破棄されるため、非表示は既定の動作で成立する。
 - `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。パイプラインの正本は `src/markdown/render.ts` とする。
 - `rehype-react` へ `tableCellAlignToStyle: false` を渡し、表の桁揃えを `align` 属性のまま出す。既定では `align` が `style="text-align: ..."` へ変換される（実測）。sanitizeを通った後に `style` 属性を生む経路になり、CSPの `style-src-attr 'none'`（5.5）で桁揃えも無効になる。`align` はsanitize schemaが値まで絞って許可している（8.2）。
-- 本文中のリンクのクリック（中クリックと `Ctrl` + クリックを含む）は、描画する要素でまとめて既定動作を止める（`src/preview/MarkdownDocument.tsx`）。止めないと相対リンクでWebView全体が別のURLへ移り、中クリックと `Ctrl` + クリックは新しいウィンドウを開く。リンクの解決と遷移（7.2、9.3）はこの上に加える。
+- 本文中のリンクのクリック（中クリックと `Ctrl` + クリックを含む）は、描画する要素でまとめて既定動作を止める（`src/preview/MarkdownDocument.tsx`）。止めないと相対リンクでWebView全体が別のURLへ移り、中クリックと `Ctrl` + クリックは新しいウィンドウを開く。
+- 既定動作を止めたうえで、修飾キーのない左クリック（キーボードでリンクを開いた場合を含む）だけを `resolveLinkTarget`（7.2）で解決して遷移する。同一文書内のアンカーは描画する要素の中で移動し、別の文書、外部URL、解決できなかったリンクは呼び出し側へ渡す。`Ctrl` + クリック、`Shift` + クリック、中クリックは新しいウィンドウを開く操作であり、同じタブで開く動作へ読み替えずに何もしない。脚注の相互参照リンクは `data-footnote-ref` / `data-footnote-backref` 属性で経路を分け、前置済みのIDへ移動する（`src/preview/link-click.ts`）。別の文書のアンカー（`./other.md#section`）へは、描画が新しい本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の見出しへ移動しうる。
 - unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
 
 YAML front matterを非表示とする理由と範囲は次のとおり。振る舞いは `src/markdown/pipeline.test.ts` で固定する。
