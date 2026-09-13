@@ -2,13 +2,14 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 import { readFile, scanDirectory } from "./ipc/commands";
 import { onWorkspaceOpened } from "./ipc/events";
+import { MarkdownDocument } from "./preview/MarkdownDocument";
 import type { FileContent } from "./types/generated/FileContent";
 import type { FileNode } from "./types/generated/FileNode";
 import type { IpcError } from "./types/generated/IpcError";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
 // Rust側のcommandとeventを実際に通すための仮の画面である（dev-flow 第6章）。
-// ツリー（6.2）とプレビュー（8章）の実装で置き換える。
+// 一覧はツリー（6.2）の実装で置き換える。
 
 export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
@@ -87,7 +88,7 @@ export default function App() {
           </li>
         ))}
       </ul>
-      {document && <pre>{document.text}</pre>}
+      {document && <MarkdownDocument text={document.text} />}
     </main>
   );
 }
