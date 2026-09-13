@@ -182,7 +182,7 @@ WebView2を採用する構成では、アプリプロセス単体が数十MBに�
 | パッケージ管理・スクリプト実行 | Bun | JavaScript依存関係、Frontendの開発・ビルド・テストコマンド |
 | テスト | `bun:test` | Frontendの単体テストとコンポーネントテスト |
 | コード品質 | Biome、`tsc --noEmit`、Lefthook | Lint、Formatting、型検査、Git Hooks |
-| Markdown | unified（`remark-parse`、`remark-gfm`、`remark-rehype`、`rehype-sanitize`、`rehype-react`） | GFMを含むMarkdownの構文解析、Raw HTML無効化、AST段階のsanitize、React要素への変換 |
+| Markdown | unified（`remark-parse`、`remark-gfm`、`remark-rehype`、`rehype-sanitize`、`hast-util-to-jsx-runtime`） | GFMを含むMarkdownの構文解析、Raw HTML無効化、AST段階のsanitize、React要素への変換 |
 | リッチ表示 | Mermaid、`lowlight`（`highlight.js/core`）、KaTeX | 図、許可言語のコードブロック、数式を遅延描画 |
 | SVG sanitize | DOMPurify | Mermaid生成SVGのsanitize |
 | Windowsパッケージ | MSIX、winapp CLI | Package Identity、パッケージ生成、開発用署名、Store提出 |

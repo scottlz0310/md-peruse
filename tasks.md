@@ -175,7 +175,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] Markdownの基本パイプライン。`remark-parse` から `rehype-sanitize` を経て `rehype-react` でReact要素にする描画を `src/markdown/render.ts` へ、本文の表示と本文中のリンクの遷移止めを `src/preview/MarkdownDocument.tsx` へ実装し、仮の画面の生テキストを置き換えた（[design-decisions.md](./docs/design-decisions.md) 8.1）。表の桁揃えが `style` 属性へ変換される既定動作を止めた。数式は構文の解析だけを入れ、描画はKaTeXの単位で加える
 - [x] リンクの解決と遷移。本文中のリンクを `resolveLinkTarget` で解決し、同一文書内のアンカーと脚注はその場で移動、別の文書は現在の表示を差し替え（見出しを指す場合は描画後に移動）、外部URLはOS既定のブラウザー、解決できないリンクと読み込めない文書は遷移せずに理由を表示する（[design-decisions.md](./docs/design-decisions.md) 7.2、8.1）。修飾キー付きクリックと中クリックは何もしない。戻る／進むの履歴は文書内検索と同じ単位で加える
 - [x] 画像の表示。描画時に文書内の画像参照をまとめて `issue_image_resources` commandへ渡し、`src` をcustom protocolのURLへ書き換える。発行できなかった画像は位置に原因を表示する。`loading="lazy"` と `decoding="async"` をsanitizeの後に付ける（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、8.1）
-- [ ] Frontend Markdown（残り）。コードハイライト、KaTeX（遅延ロードと上限）、Mermaid、文書内検索と戻る／進むの順に単位を分けて進める
+- [x] コードハイライト。lowlightの言語allowlistを28名で確定し、文法を言語ごとに遅延登録する。対象と1ブロック・1文書の上限はsanitize済みの木を読んで決め、`pre` コンポーネントがlowlightの出力をReact要素にする。文法の読込に失敗したブロックはプレーンなまま直後に原因を示す。トークンの配色をライト／ダークで持ち、`forced-colors` では太字と斜体で区別する。React要素への変換を `rehype-react` から `hast-util-to-jsx-runtime` の直接呼び出しへ改めた（[design-decisions.md](./docs/design-decisions.md) 8.1〜8.3）
+- [ ] Frontend Markdown（残り）。KaTeX（遅延ロードと上限）、Mermaid、文書内検索と戻る／進むの順に単位を分けて進める
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）

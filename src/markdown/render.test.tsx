@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { IpcError } from "../types/generated/IpcError";
 import { IMAGE_ERROR_CLASS, IMAGE_RESOURCE_ORIGIN } from "./images";
+
 import { type ImageIssuer, renderMarkdown } from "./render";
 
 /** 画像を含まない本文用。呼ばれたらテストの前提が崩れている。 */
@@ -189,5 +190,61 @@ describe("renderMarkdown の画像（5.4、7.3）", () => {
     );
 
     expect(container.querySelector("img")?.hasAttribute("src")).toBe(false);
+  });
+});
+
+describe("renderMarkdown のコードハイライト（8.3）", () => {
+  /** ハイライトの完了を待ち、コードブロックの `code` 要素を返す。 */
+  async function highlighted(markdown: string): Promise<HTMLElement> {
+    const container = await mount(markdown);
+    const code = container.querySelector("pre code");
+    if (!(code instanceof HTMLElement)) throw new Error("コードブロックがない");
+    await waitFor(() => {
+      expect(code.querySelector("span[class^='hljs-']")).not.toBeNull();
+    });
+    return code;
+  }
+
+  test.each(["ts", "tsx", "c++", "c#", "yml", "ps1"])(
+    "%s を別名から解決してハイライトする",
+    async (language) => {
+      const code = await highlighted(
+        `\`\`\`${language}\nconst a = "x";\n\`\`\`\n`,
+      );
+
+      expect(code.textContent).toBe('const a = "x";\n');
+      expect(code.className).toBe(`language-${language}`);
+    },
+  );
+
+  test("ハイライトの出力はspanとclassだけである（8.2）", async () => {
+    const code = await highlighted(
+      '```html\n<img src=x onerror="alert(1)">\n```\n',
+    );
+
+    expect(code.querySelector("img")).toBeNull();
+    for (const element of code.querySelectorAll("*")) {
+      expect(element.tagName).toBe("SPAN");
+      expect(element.getAttributeNames()).toEqual(["class"]);
+    }
+  });
+
+  test.each([
+    ["allowlistにない言語", "```brainfuck\n+++\n```\n"],
+    ["言語の指定がない", "```\nconst a = 1;\n```\n"],
+    ["数式", "$$\nx = 1\n$$\n"],
+  ])("%sのブロックはプレーンなまま表示する", async (_, markdown) => {
+    const container = await mount(markdown);
+    // 遅延登録の完了を待つ機会を与えてから確かめる。
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(container.querySelector("pre code span")).toBeNull();
+  });
+
+  test("インラインコードはハイライトしない", async () => {
+    const container = await mount("`const a = 1;`{.ts} と `ts`\n");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(container.querySelector("code span")).toBeNull();
   });
 });

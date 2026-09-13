@@ -340,7 +340,7 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 | 最近使ったフォルダー、最後のワークスペース復元、複数ファイル引数 | Phase 3-3（状態管理） |
 | ドラッグ＆ドロップ | Phase 3-4（UI・UX） |
 | 英語UIの採否 | Phase 3-4（UI・UX） |
-| lowlightへ登録する言語allowlist | Phase 4 |
+| lowlightへ登録する言語allowlist | Phase 4（4-2で確定） |
 | Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | Phase 3-5（テレメトリ） |
 | Store向けカスタムイベントの要件（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2） | Phase 3-5（テレメトリ） |
 | カスタムイベントの計測定義のうち実データを要する項目（反映遅延、バージョン別フィルターの粒度、標準Sessions指標との件数差、母集団の偏り）（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） | Phase 5 |

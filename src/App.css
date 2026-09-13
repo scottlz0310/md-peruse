@@ -46,3 +46,95 @@ body {
   max-width: 100%;
   height: auto;
 }
+
+/*
+ * コードブロックのトークン（8.3）。配色はGitHubのPrimerに寄せる。lowlightはclass名だけを
+ * 出力するため、見た目はすべてここで決める。
+ */
+:root {
+  --hl-comment: #59636e;
+  --hl-keyword: #cf222e;
+  --hl-string: #0a3069;
+  --hl-number: #0550ae;
+  --hl-title: #6639ba;
+  --hl-type: #953800;
+  --hl-tag: #116329;
+  --hl-addition-bg: #dafbe1;
+  --hl-deletion-bg: #ffebe9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hl-comment: #9198a1;
+    --hl-keyword: #ff7b72;
+    --hl-string: #a5d6ff;
+    --hl-number: #79c0ff;
+    --hl-title: #d2a8ff;
+    --hl-type: #ffa657;
+    --hl-tag: #7ee787;
+    --hl-addition-bg: #033a16;
+    --hl-deletion-bg: #67060c;
+  }
+}
+
+.markdown-body :is(.hljs-comment, .hljs-quote) {
+  color: var(--hl-comment);
+}
+
+.markdown-body :is(.hljs-keyword, .hljs-doctag, .hljs-meta .hljs-keyword) {
+  color: var(--hl-keyword);
+}
+
+.markdown-body :is(.hljs-string, .hljs-regexp, .hljs-meta .hljs-string) {
+  color: var(--hl-string);
+}
+
+.markdown-body
+  :is(
+    .hljs-number,
+    .hljs-literal,
+    .hljs-variable,
+    .hljs-template-variable,
+    .hljs-attr,
+    .hljs-attribute,
+    .hljs-property,
+    .hljs-symbol,
+    .hljs-meta
+  ) {
+  color: var(--hl-number);
+}
+
+.markdown-body :is(.hljs-title, .hljs-section) {
+  color: var(--hl-title);
+}
+
+.markdown-body :is(.hljs-type, .hljs-built_in, .hljs-params) {
+  color: var(--hl-type);
+}
+
+.markdown-body :is(.hljs-name, .hljs-selector-tag, .hljs-bullet) {
+  color: var(--hl-tag);
+}
+
+.markdown-body .hljs-addition {
+  background-color: var(--hl-addition-bg);
+}
+
+.markdown-body .hljs-deletion {
+  background-color: var(--hl-deletion-bg);
+}
+
+/* 配色による区別が失われるため、太字と斜体で区別する（8.3）。 */
+@media (forced-colors: active) {
+  .markdown-body :is(.hljs-keyword, .hljs-built_in, .hljs-type, .hljs-name) {
+    font-weight: bold;
+  }
+
+  .markdown-body :is(.hljs-comment, .hljs-quote, .hljs-string) {
+    font-style: italic;
+  }
+
+  .markdown-body :is(.hljs-addition, .hljs-deletion) {
+    font-weight: bold;
+  }
+}
