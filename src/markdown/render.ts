@@ -15,6 +15,7 @@ import type { IpcError } from "../types/generated/IpcError";
 import { rehypeHeadingIds } from "./heading-id";
 import { selectHighlightable } from "./highlight";
 import { applyImageResources, collectImageReferences } from "./images";
+import { rehypeMath } from "./math";
 import { rawHtmlHandlers } from "./raw-html";
 import { sanitizeSchema } from "./sanitize-schema";
 
@@ -28,10 +29,8 @@ export type ImageIssuer = (references: string[]) => Promise<ImageResource[]>;
 /**
  * Markdownの基本パイプライン（design-decisions.md 8.1）の前半。hastを組み立てる。
  *
- * 数式は構文だけを解析する（`remark-math`）。KaTeXによる描画は遅延ロードとともに後続の
- * 単位で加えるため、それまで数式は `language-math` のコードとして表示される。解析だけを
- * 先に入れておくのは、KaTeXを加えたときに `$` を含む本文の解釈が変わらないようにするため
- * である。
+ * 見出しIDは数式の描画より前に付ける。後ろだとMathMLのテキストと `annotation` の
+ * LaTeXを二重に拾う（8.2）。
  */
 const toHast = unified()
   .use(remarkParse)
@@ -40,7 +39,17 @@ const toHast = unified()
   // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される（8.1）。
   .use(remarkFrontmatter, ["yaml"])
   .use(remarkRehype, { handlers: rawHtmlHandlers })
-  .use(rehypeHeadingIds);
+  .use(rehypeHeadingIds)
+  .use(rehypeMath);
+
+/**
+ * Markdownをsanitize前のhastにする。画像の発行はまだ行わない。
+ *
+ * 描画とパイプラインのテストが同じ組み立てを使うために公開する。
+ */
+export async function markdownToHast(markdown: string): Promise<Root> {
+  return toHast.run(toHast.parse(markdown));
+}
 
 /** パイプラインの後半の入口。sanitizeより後ろでhastを変更するプラグインを足さない（8.2）。 */
 const sanitize = unified().use(rehypeSanitize, sanitizeSchema);
@@ -58,7 +67,7 @@ export async function renderMarkdown(
   markdown: string,
   issueImages: ImageIssuer,
 ): Promise<ReactElement> {
-  const hast = await toHast.run(toHast.parse(markdown));
+  const hast = await markdownToHast(markdown);
   const references = collectImageReferences(hast);
   if (references.length > 0) {
     const resources = await issueImages(references).catch(

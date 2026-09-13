@@ -176,7 +176,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] リンクの解決と遷移。本文中のリンクを `resolveLinkTarget` で解決し、同一文書内のアンカーと脚注はその場で移動、別の文書は現在の表示を差し替え（見出しを指す場合は描画後に移動）、外部URLはOS既定のブラウザー、解決できないリンクと読み込めない文書は遷移せずに理由を表示する（[design-decisions.md](./docs/design-decisions.md) 7.2、8.1）。修飾キー付きクリックと中クリックは何もしない。戻る／進むの履歴は文書内検索と同じ単位で加える
 - [x] 画像の表示。描画時に文書内の画像参照をまとめて `issue_image_resources` commandへ渡し、`src` をcustom protocolのURLへ書き換える。発行できなかった画像は位置に原因を表示する。`loading="lazy"` と `decoding="async"` をsanitizeの後に付ける（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3、8.1）
 - [x] コードハイライト。lowlightの言語allowlistを28名で確定し、文法を言語ごとに遅延登録する。対象と1ブロック・1文書の上限はsanitize済みの木を読んで決め、`pre` コンポーネントがlowlightの出力をReact要素にする。文法の読込に失敗したブロックはプレーンなまま直後に原因を示す。トークンの配色をライト／ダークで持ち、`forced-colors` では太字と斜体で区別する。React要素への変換を `rehype-react` から `hast-util-to-jsx-runtime` の直接呼び出しへ改めた（[design-decisions.md](./docs/design-decisions.md) 8.1〜8.3）
-- [ ] Frontend Markdown（残り）。KaTeX（遅延ロードと上限）、Mermaid、文書内検索と戻る／進むの順に単位を分けて進める
+- [x] 数式の描画。自前の `rehypeMath`（`src/markdown/math.ts`）で、数式を含む文書でだけKaTeXを読み込み、MathMLを生成する。1数式・1文書の上限を超えた数式、構文エラー、KaTeXの読込失敗は、その位置にソースと理由を示す。`rehype-katex` は上限の判定とエラー表示を差し替える口がないため外した。`pipeline.test.ts` を本文描画と同じ組み立て（`markdownToHast`）へ揃えた（[design-decisions.md](./docs/design-decisions.md) 8.5）
+- [ ] Frontend Markdown（残り）。Mermaid、文書内検索と戻る／進むの順に単位を分けて進める
 - [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
