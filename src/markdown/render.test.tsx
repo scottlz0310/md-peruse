@@ -1,10 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render } from "@testing-library/react";
-import { renderMarkdown } from "./render";
+import type { ImageResource } from "../types/generated/ImageResource";
+import type { IpcError } from "../types/generated/IpcError";
+import { IMAGE_ERROR_CLASS, IMAGE_RESOURCE_ORIGIN } from "./images";
+import { type ImageIssuer, renderMarkdown } from "./render";
+
+/** 画像を含まない本文用。呼ばれたらテストの前提が崩れている。 */
+const noImages: ImageIssuer = () => {
+  throw new Error("画像のない本文でresource IDを発行しようとした");
+};
 
 /** 本文を描画し、描画先の要素を返す。 */
-async function mount(markdown: string): Promise<HTMLElement> {
-  const { container } = render(await renderMarkdown(markdown));
+async function mount(
+  markdown: string,
+  issueImages: ImageIssuer = noImages,
+): Promise<HTMLElement> {
+  const { container } = render(await renderMarkdown(markdown, issueImages));
   return container;
 }
 
@@ -78,5 +89,105 @@ describe("renderMarkdown", () => {
     const cells = container.querySelectorAll("td");
     expect(cells[0]?.getAttribute("align")).toBe("left");
     expect(cells[1]?.getAttribute("align")).toBe("right");
+  });
+});
+
+describe("renderMarkdown の画像（5.4、7.3）", () => {
+  /** 参照ごとの応答を返し、受け取った参照を記録する。 */
+  function issuer(respond: (reference: string) => ImageResource) {
+    const received: string[][] = [];
+    const issue: ImageIssuer = async (references) => {
+      received.push(references);
+      return references.map(respond);
+    };
+    return { issue, received };
+  }
+
+  const issued = (reference: string): ImageResource => ({
+    status: "issued",
+    reference,
+    resourceId: `id-${reference.length}`,
+  });
+
+  test("発行したIDのURLへ書き換え、遅延読込の属性を付ける", async () => {
+    const { issue, received } = issuer(issued);
+    const container = await mount("![図](img/a.png)\n", issue);
+
+    const image = container.querySelector("img");
+    expect(image?.getAttribute("src")).toBe(`${IMAGE_RESOURCE_ORIGIN}/id-9`);
+    expect(image?.getAttribute("alt")).toBe("図");
+    expect(image?.getAttribute("loading")).toBe("lazy");
+    expect(image?.getAttribute("decoding")).toBe("async");
+    expect(received).toEqual([["img/a.png"]]);
+  });
+
+  test("参照は重複を除いて1回の要求にまとめる", async () => {
+    const { issue, received } = issuer(issued);
+    await mount("![a](a.png) ![b](b%20c.png) ![a2](a.png)\n", issue);
+
+    // `remark-rehype` がパーセントエンコードした形のまま渡す。
+    expect(received).toEqual([["a.png", "b%20c.png"]]);
+  });
+
+  test("発行できなかった画像の位置に原因を表示し、他の画像は表示する", async () => {
+    const error: IpcError = {
+      code: "fileNotFound",
+      message: "ファイルが見つかりません。",
+      detail: null,
+    };
+    const { issue } = issuer((reference) =>
+      reference === "missing.png"
+        ? { status: "failed", reference, error }
+        : issued(reference),
+    );
+    const container = await mount(
+      "前 ![無い](missing.png) 後\n\n![有る](ok.png)\n",
+      issue,
+    );
+
+    const failure = container.querySelector(`.${IMAGE_ERROR_CLASS}`);
+    expect(failure?.textContent).toBe(error.message);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.textContent).toContain("前");
+    expect(container.textContent).toContain("後");
+  });
+
+  test("発行そのものが失敗したら、すべての画像の位置に原因を表示する", async () => {
+    const error: IpcError = {
+      code: "workspaceNotFound",
+      message: "フォルダーが見つかりません。",
+      detail: null,
+    };
+    const container = await mount("![a](a.png)\n\n![b](b.png)\n", () =>
+      Promise.reject(error),
+    );
+
+    const failures = container.querySelectorAll(`.${IMAGE_ERROR_CLASS}`);
+    expect([...failures].map((node) => node.textContent)).toEqual([
+      error.message,
+      error.message,
+    ]);
+    expect(container.querySelector("img")).toBeNull();
+  });
+
+  test.each([
+    ["応答に含まれない参照", () => []],
+    [
+      "許可パターンに合わないID",
+      (references: string[]) =>
+        references.map(
+          (reference): ImageResource => ({
+            status: "issued",
+            reference,
+            resourceId: "../../etc",
+          }),
+        ),
+    ],
+  ])("%sのsrcはsanitizeが落とす", async (_, respond) => {
+    const container = await mount("![a](a.png)\n", async (references) =>
+      respond(references),
+    );
+
+    expect(container.querySelector("img")?.hasAttribute("src")).toBe(false);
   });
 });
