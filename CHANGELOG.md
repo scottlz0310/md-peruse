@@ -14,6 +14,15 @@
 ## [Unreleased]
 
 ### Added
+- Mermaidの図を描画するようにした（[design-decisions.md](./docs/design-decisions.md) 8.4）。` ```mermaid ` のブロックを図として表示する
+  - **Mermaidは図を含む文書を開いたときだけ読み込む。** 描画を待つ間は定義をコードブロックとして表示する
+  - **図の定義から安全側の設定を上書きさせない。** `securityLevel: "strict"` に加え、`%%{init}%%` やfront matterから `htmlLabels` と `themeCSS` を有効にできないようにした（実測で有効にできることを確認して塞いだ）
+  - **生成されたSVGはDOMPurifyでsanitizeしてから表示する。** `foreignObject`、スクリプト、イベント属性、リンク先を落とす。本文描画で `dangerouslySetInnerHTML` を使うのはここだけである
+  - **CSPの `style-src-attr 'none'` は緩めない。** Mermaid 12はSVGへインラインの `style` 属性を出力するため、SVGの表示属性として正当な値だけを属性へ移してから落とす。落とすだけでは円グラフの凡例の色が消え、図が表示幅いっぱいに引き伸ばされた
+  - **描画できない図は、定義を残してその直後に理由を示す。** 構文エラー、入力サイズ（50 KiB）とエッジ数（500）の超過、3秒のタイムアウト、Mermaidの読込失敗が対象。同時に描画する図は2つまでとし、1文書で50を超える図は描画しない
+  - 表示テーマ（ライト／ダーク、`forced-colors`）が変わったら描画し直す
+  - Mermaid生成SVGのsanitizeのテストだけはjsdom上で行う（開発依存に `jsdom` を追加）。happy-domではDOMPurifyが `svg` 要素ごと除去し、実際の挙動を検証できないためである
+  - **Mermaidの依存により、EPL-2.0 の `elkjs` を同梱する。** `package.json` でライセンスを宣言していない依存（`khroma`、条文はMIT）のために、ライセンス一覧の生成へSPDX識別子の手動指定（`licenses/overrides/<パッケージ名>/SPDX-ID`）を加えた
 - 数式をKaTeXで描画するようにした（[design-decisions.md](./docs/design-decisions.md) 8.5）。インライン（`$...$`）、別行立て（`$$...$$`）、` ```math ` のブロックを、MathMLとして表示する
   - **KaTeXは数式を含む文書を開いたときだけ読み込む。** 数式のない文書では読み込まない
   - **描画できない数式は、その位置にソースと理由を示す。** 構文エラー、上限（1数式16 KiB、1文書64 KiB）の超過、KaTeXの読込失敗のいずれも、本文全体と他の数式は壊さない
