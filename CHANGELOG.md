@@ -14,6 +14,11 @@
 ## [Unreleased]
 
 ### Added
+- 本文中のリンクをたどれるようにした（[design-decisions.md](./docs/design-decisions.md) 7.2）。ルート内の相対Markdownリンクは現在の表示を差し替えて開き、見出しを指す場合は描画後にその見出しへ移動する。同一文書内のアンカーと脚注はその場で移動する。`http` / `https` のリンクはOS既定のブラウザーで開く
+  - **開けないリンクは遷移せず、理由を表示する。** ルート外、Markdown以外、表記の誤りはFrontendの解決で、存在しない文書は読込の失敗で示し、表示中の文書は保つ
+  - **`Ctrl` + クリック、`Shift` + クリック、中クリックは何もしない。** 新しいウィンドウを開く操作であり、同じ表示で開く動作へ読み替えない
+  - **後から開いた文書を、先に始めた読込の結果で上書きしない。** タブを持つまでは画面全体で読込の世代を1つ持つ（6.5）
+  - 戻る／進むの履歴（9.3）は後続の単位で加える
 - Markdownの本文をReact要素として描画するようにした（[design-decisions.md](./docs/design-decisions.md) 8.1）。仮の画面で生テキストを表示していた箇所を置き換えた。GFM（表、タスクリスト、取り消し線）、Raw HTMLのソース表示、YAML front matterの非表示、見出しID、sanitizeまでを通す。コードハイライト、数式、Mermaid、画像、リンクの遷移は後続の単位で加える
   - **表の桁揃えを `style` 属性にしない。** `rehype-react` は既定で `align` を `style="text-align: ..."` へ変換する。sanitizeの後で `style` 属性を生む経路になり、CSPの `style-src-attr 'none'` で桁揃えも効かなくなるため、`tableCellAlignToStyle: false` で `align` 属性のまま出す
   - **本文中のリンクではWebViewを遷移させない。** 相対リンクをそのまま辿るとWebView全体が別のURLへ移り、中クリックと `Ctrl` + クリックは新しいウィンドウを開く。リンクの解決と遷移を加えるまで、クリックの既定動作を止める
