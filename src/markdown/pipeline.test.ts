@@ -1,17 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { Element, Root, Text } from "hast";
 import { sanitize } from "hast-util-sanitize";
-import rehypeKatex from "rehype-katex";
-import remarkFrontmatter from "remark-frontmatter";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import remarkParse from "remark-parse";
-import remarkRehype from "remark-rehype";
-import { unified } from "unified";
 import { visit } from "unist-util-visit";
-import { anchorElementId, rehypeHeadingIds } from "./heading-id";
+import { anchorElementId } from "./heading-id";
 import { KATEX_LIMITS, KATEX_OUTPUT_EXPANSION_RATIO } from "./limits";
-import { rawHtmlHandlers } from "./raw-html";
+import { markdownToHast } from "./render";
 import { sanitizeSchema } from "./sanitize-schema";
 
 /**
@@ -21,22 +14,7 @@ import { sanitizeSchema } from "./sanitize-schema";
  * 生成物とschemaの食い違い（許可し忘れた属性、idの二重前置）はここで捕まえる。
  */
 async function render(markdown: string): Promise<Root> {
-  const mdast = unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkMath)
-    // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される
-    // （design-decisions.md 8.1）。
-    .use(remarkFrontmatter, ["yaml"])
-    .parse(markdown);
-  const hast = await unified()
-    .use(remarkRehype, { handlers: rawHtmlHandlers })
-    // `rehype-katex` より前に置く。後ろだとMathMLのテキストと `annotation` の
-    // LaTeXを二重に拾う（design-decisions.md 8.2）。
-    .use(rehypeHeadingIds)
-    .use(rehypeKatex, { output: "mathml", ...KATEX_LIMITS })
-    .run(mdast);
-  return sanitize(hast as Root, sanitizeSchema) as Root;
+  return sanitize(await markdownToHast(markdown), sanitizeSchema) as Root;
 }
 
 function collect(tree: Root, tagName: string): Element[] {
@@ -165,7 +143,7 @@ describe("見出しアンカー", () => {
     ["# Getting Started", "user-content-getting-started"],
     ["# はじめに", "user-content-はじめに"],
     ["# API リファレンス (v2)", "user-content-api-リファレンス-v2"],
-    // 見出しIDの生成を `rehype-katex` の前に置いた効果。後ろだと `x2x2` になる
+    // 見出しIDの生成を数式の描画の前に置いた効果。後ろだと `x2x2` になる
     ["# 数式 $x^2$ を含む", "user-content-数式-x2-を含む"],
     ["# `code` を含む", "user-content-code-を含む"],
   ])("%s のIDは %s", async (markdown, expected) => {

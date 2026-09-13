@@ -131,7 +131,7 @@ Bunのバージョンは `.bun-version` で固定する。Renovateの `bun-versi
 
 ### 4.9 数式: KaTeX（遅延ロード）
 
-- 選定理由: 描画が同期的で高速。`remark-math` と `rehype-katex` でunifiedパイプラインへ自然に組み込める。数式を含む文書を開いたときだけロードすれば、アイドル時のコストはゼロになる。
+- 選定理由: 描画が同期的で高速。`remark-math` と組み合わせ、unifiedパイプラインへ自然に組み込める。数式を含む文書を開いたときだけロードすれば、アイドル時のコストはゼロになる。
 - 却下理由: 非対応はスコープが最小だが、数式を含む設計書で表示が崩れる。MathJaxはカバレッジが最大だが明確に重く、軽量というコアバリューと衝突する。
 - 引き受けるリスク: 対応構文がLaTeXの部分集合にとどまる。マクロ展開による処理時間の増大。MathML出力とした場合、描画品質がWebView2のMathML Core実装に依存する。
 - 緩和策: 出力を `mathml` に限定する（8.5）。`trust` を無効にして `\href` などを禁止する。マクロ展開と出力サイズに上限を設ける。sanitize schemaをKaTeX出力に合わせて定義する。
@@ -831,7 +831,7 @@ sanitizeを通過してFrontendへ届く `href` は次のとおり（実測）�
 
 同じ名前空間で実際に衝突した場合、`#fn-1` は脚注を指し、見出しへは到達しない。名前空間が1つである以上どちらか一方しか指せず、脚注が先にIDを取る。DOMのID重複（脚注参照が文書順で先の見出しへ吸われ、脚注へ到達できなくなる）を防ぐことを優先した結果であり、この非対称は残る。
 
-このプラグインは `rehype-katex` より前に置く。後ろに置くと、KaTeXが生成するMathMLのテキストと `annotation` 要素のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。
+このプラグインは数式の描画（`rehypeMath`、8.5）より前に置く。後ろに置くと、KaTeXが生成するMathMLのテキストと `annotation` 要素のLaTeXを二重に拾い、`# 数式 $x^2$ を含む` のIDが `数式-x2x2-を含む` となる（実測）。
 
 `rehype-sanitize` は `href` を書き換えないため、`#section` というリンクの断片は前置を持たない。同一文書内アンカーの遷移先は、断片を復号して `user-content-` を前置して求める。脚注の相互参照リンクだけは前置済みのIDと対応しているため、`data-footnote-ref` と `data-footnote-backref` 属性でこの経路を分け、前置しない。
 
@@ -884,7 +884,7 @@ Markdown source
   → remark-frontmatter（先頭の YAML ブロックを本文から除く）
   → remark-rehype（Raw HTML はテキストとして出力）
   → rehypeHeadingIds（見出しへ user-content- 前置のIDを付与。KaTeX より前）
-  → rehype-katex
+  → rehypeMath（KaTeX を数式がある文書でだけ読み込み、MathML を生成。8.5）
   → rehype-sanitize（拡張した strict schema）
   → hast-util-to-jsx-runtime（コードブロックのハイライトはここでコンポーネントが適用する。8.2、8.3）
   → React 要素
@@ -934,9 +934,9 @@ Raw HTMLのhandlerは `src/markdown/raw-html.ts` を正本とし、次の規則�
 
 `hast-util-sanitize` はschemaを `{...defaultSchema, ...options}` として浅くマージする。指定しないキーには既定値が入るため、`tagNames`、`attributes`、`protocols`、`ancestors`、`required`、`clobber`、`clobberPrefix`、`strip`、`allowComments`、`allowDoctypes` をすべて明示する。
 
-許可する要素は、remark-gfm、remark-math、rehype-katexを通した実測と、KaTeXが生成しうるMathMLノードの列挙に基づく。
+許可する要素は、remark-gfm、remark-math、KaTeX（`output: "mathml"`）を通した実測と、KaTeXが生成しうるMathMLノードの列挙に基づく。
 
-schemaの検証は2段構えで行う。要素と属性を手で組む単体テストに加えて、remark-gfm・remark-math・rehype-katexを通した結果をsanitizeへ流す統合テストを置く。単体テストだけでは、上流のプラグインが実際に何を生成するかを検証できない。許可し忘れた属性やIDの二重前置は統合テストで捕まえる。
+schemaの検証は2段構えで行う。要素と属性を手で組む単体テストに加えて、本文描画と同じ組み立て（`markdownToHast`）を通した結果をsanitizeへ流す統合テストを置く。単体テストだけでは、上流のプラグインが実際に何を生成するかを検証できない。許可し忘れた属性やIDの二重前置は統合テストで捕まえる。
 
 | 分類 | 要素 |
 | --- | --- |
@@ -1028,13 +1028,13 @@ highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として�
 
 ### 8.5 数式
 
-- `remark-math` と `rehype-katex` でパイプラインへ組み込む。
-- 数式を含む文書を開いたときだけKaTeXをlazy importする。MathJaxは採用しない。
+- `remark-math` で構文を解析し、自前の `rehypeMath`（`src/markdown/math.ts`）でKaTeXを呼んで描画する。`rehype-katex` は数式ごとの上限の判定と、構文エラーを自前の要素で示す口を持たないため採らない（Phase 4-2で判断）。対象の選び方（`language-math`、`math-display`、`math-inline`）は `rehype-katex` と同じにする。
+- 数式を含む文書を開いたときだけKaTeXをlazy importする。MathJaxは採用しない。読み込めなかった場合は、すべての数式の位置にソースと理由を示す（12章）。
 - 出力は `output: "mathml"` としてMathMLだけを生成する。既定の `htmlAndMathml` は `span` へインラインの `style` を付け、`\sqrt` などで `svg` と `path` も生成するため、「`style` 属性を許可しない」という8.2の方針と両立しない。MathMLだけであれば追加の許可が要らず、KaTeXのフォント同梱も不要になる。描画品質はWebView2のMathML Core実装に依存する。
 - `trust` を無効にし、`\href` や `\includegraphics` を禁止する。
 - マクロ展開の上限（`maxExpand`）を1000、ユーザー指定寸法の上限（`maxSize`）を50 emとする。値は `src/markdown/limits.ts` を正本とする。
-- 構文エラーは本文全体を壊さず、該当箇所に原因を表示する。`throwOnError` を無効にし、エラー表示を自前の要素で行う。
-- `rehype-katex` の出力を `rehype-sanitize` が除去しないよう、8.2のschema拡張と整合させる。
+- 構文エラーは本文全体を壊さず、該当箇所に原因を表示する。KaTeXのエラー表示（`style` 付きの `span.katex-error`）は使わず、`throwOnError` を有効にして例外を受け、ソースと理由を持つ `span.math-error` を自前で置く。上限を超えた数式も同じ要素で示す。
+- KaTeXの出力を `rehype-sanitize` が除去しないよう、8.2のschema拡張と整合させる。
 
 上限の値と、上限で守れない範囲は次のとおり。いずれも実測に基づく。
 

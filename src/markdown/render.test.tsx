@@ -3,6 +3,8 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { IpcError } from "../types/generated/IpcError";
 import { IMAGE_ERROR_CLASS, IMAGE_RESOURCE_ORIGIN } from "./images";
+import { KATEX_LIMITS } from "./limits";
+import { MATH_ERROR_CLASS, MATH_ERROR_REASON_CLASS } from "./math";
 
 import { type ImageIssuer, renderMarkdown } from "./render";
 
@@ -70,14 +72,6 @@ describe("renderMarkdown", () => {
     const container = await mount(markdown);
 
     expect(container.querySelector("a")?.hasAttribute("href")).toBe(false);
-  });
-
-  test("数式は描画を加えるまでコードとして表示する", async () => {
-    const container = await mount("質量 $E=mc^2$ の式\n");
-
-    const code = container.querySelector("code");
-    expect(code?.textContent).toBe("E=mc^2");
-    expect(code?.className).toContain("language-math");
   });
 
   test("style属性を出力しない（5.5、8.2）", async () => {
@@ -246,5 +240,66 @@ describe("renderMarkdown のコードハイライト（8.3）", () => {
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     expect(container.querySelector("code span")).toBeNull();
+  });
+});
+
+describe("renderMarkdown の数式（8.5）", () => {
+  test.each([
+    ["インライン", "質量 $E=mc^2$ の式\n", false],
+    ["別行立て", "$$\nE=mc^2\n$$\n", true],
+    ["mathのコードブロック", "```math\nE=mc^2\n```\n", true],
+  ])("%sの数式をMathMLで描画する", async (_, markdown, display) => {
+    const container = await mount(markdown);
+
+    const math = container.querySelector(".katex math");
+    expect(math).not.toBeNull();
+    expect(math?.getAttribute("display")).toBe(display ? "block" : null);
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelector("code")).toBeNull();
+    expect(container.querySelector("[style], svg")).toBeNull();
+  });
+
+  test("構文エラーの数式は、その位置にソースと理由を示す", async () => {
+    const container = await mount("前 $\frac{1}{$ と $x$ 後\n");
+
+    const error = container.querySelector(`.${MATH_ERROR_CLASS}`);
+    expect(error?.querySelector("code")?.textContent).toBe("\frac{1}{");
+    expect(
+      error?.querySelector(`.${MATH_ERROR_REASON_CLASS}`)?.textContent,
+    ).toContain("数式を解釈できません");
+    // 他の数式と本文は壊さない。
+    expect(container.querySelectorAll(".katex")).toHaveLength(1);
+    expect(container.textContent).toContain("後");
+  });
+
+  test("1つの数式の上限を超えた数式は描画せず、後続の数式は描画する", async () => {
+    const big = "x".repeat(KATEX_LIMITS.perFormulaBytes + 1);
+    const container = await mount(`$${big}$ と $y$\n`);
+
+    const error = container.querySelector(`.${MATH_ERROR_CLASS}`);
+    expect(error?.querySelector("code")?.textContent).toBe(big);
+    expect(
+      error?.querySelector(`.${MATH_ERROR_REASON_CLASS}`)?.textContent,
+    ).toContain("大きすぎる");
+    expect(container.querySelectorAll(".katex")).toHaveLength(1);
+  });
+
+  test("文書の予算を使い切った後の数式は描画しない", async () => {
+    const fits = KATEX_LIMITS.perDocumentBytes / KATEX_LIMITS.perFormulaBytes;
+    const formula = `$${"x".repeat(KATEX_LIMITS.perFormulaBytes)}$`;
+    const container = await mount(
+      Array<string>(fits + 1)
+        .fill(formula)
+        .join("\n\n"),
+    );
+
+    expect(container.querySelectorAll(".katex")).toHaveLength(fits);
+    expect(container.querySelectorAll(`.${MATH_ERROR_CLASS}`)).toHaveLength(1);
+  });
+
+  test("trustを無効にし、hrefをリンクにしない", async () => {
+    const container = await mount("$href{https://example.com}{x}$\n");
+
+    expect(container.querySelector("a")).toBeNull();
   });
 });

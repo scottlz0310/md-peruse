@@ -138,3 +138,9 @@ body {
     font-weight: bold;
   }
 }
+
+/* 描画できなかった数式（8.5、12章）。ソースと理由を並べ、理由は本文と区別する。 */
+.markdown-body .math-error-reason {
+  margin-inline-start: 0.5em;
+  color: var(--color-fg-muted);
+}

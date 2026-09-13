@@ -61,7 +61,7 @@ const MATHML_ATTRIBUTES: Array<string | [string, RegExp]> = [
   "xmlns",
 ];
 
-/** `rehype-katex` の `output: "mathml"` が生成しうる要素。 */
+/** KaTeXの `output: "mathml"` が生成しうる要素。 */
 const MATHML_TAGS = [
   "math",
   "semantics",
@@ -108,7 +108,7 @@ const TABLE_ALIGN: [string, string, string, string] = [
  * 出力するため（8.1）、それらは不要であり、「暗黙の許可を作らない」方針（8.2）に
  * 沿って全列挙する。
  *
- * 列挙はremark-gfm、remark-math、rehype-katex（`output: "mathml"`）を通した実測と、
+ * 列挙はremark-gfm、remark-math、KaTeX（`output: "mathml"`）を通した実測と、
  * KaTeXが生成しうるMathMLノードおよび属性の列挙に基づく。
  *
  * `hast-util-sanitize` はschemaを `{...defaultSchema, ...options}` として浅くマージ
