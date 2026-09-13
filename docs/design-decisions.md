@@ -85,7 +85,7 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 
 ### 4.3 Frontendフレームワーク: React + Vite
 
-- 選定理由: unified、Mermaid、DOMPurifyとの連携実例が最も多く、保守情報の入手性が高い。`rehype-react` によるReact要素への直接変換という選択肢を取れる。UI規模（ツリー、タブ、プレビューの3領域）に対し、ランタイム分の負荷は許容範囲と判断する。
+- 選定理由: unified、Mermaid、DOMPurifyとの連携実例が最も多く、保守情報の入手性が高い。`hast-util-to-jsx-runtime` によるReact要素への直接変換という選択肢を取れる。UI規模（ツリー、タブ、プレビューの3領域）に対し、ランタイム分の負荷は許容範囲と判断する。
 - 却下理由: Svelte 5とSolidJSはバンドルサイズで優位だが、エコシステムと参考情報が薄い。素のTypeScriptはツリーとタブの差分描画を自前保守することになり、保守コストが後で効く。
 - 引き受けるリスク: Reactランタイム分のバンドルとメモリ。
 - 緩和策: 状態管理ライブラリを持ち込まず、アクティブタブだけ本文DOMを保持する方針で総量を抑える。[spec.md](./spec.md)のメモリ目標で検証する。
@@ -110,7 +110,7 @@ Bunのバージョンは `.bun-version` で固定する。Renovateの `bun-versi
 
 ### 4.6 Markdown解析とsanitize: unified（remark + rehype）
 
-- 選定理由: sanitizeをhastの段階で行い、`rehype-react` でReact要素へ直接変換できるため、本文描画から `dangerouslySetInnerHTML` を排除できる。HTML文字列を経由しないため、sanitizeを迂回する余地が構造的に小さい。`remark-gfm` と `remark-math` でGFMと数式の入口が揃う。
+- 選定理由: sanitizeをhastの段階で行い、`hast-util-to-jsx-runtime` でReact要素へ直接変換できるため、本文描画から `dangerouslySetInnerHTML` を排除できる。HTML文字列を経由しないため、sanitizeを迂回する余地が構造的に小さい。`remark-gfm` と `remark-math` でGFMと数式の入口が揃う。
 - 却下理由: markdown-it + DOMPurifyはパースが速く実績も厚いが、HTML文字列と `dangerouslySetInnerHTML` を前提とする。Rust側 comrak + ammoniaはWebView負荷を下げられるが、ハイライトとMermaidがJS側に残って責務が分散し、sanitizeのallowlistも自前設計することになる。
 - 引き受けるリスク: 依存パッケージ数とバンドルの増加。markdown-itより遅いパース。Mermaid生成SVGには別途DOMPurifyが必要で、sanitizeの道具が二本立てになる。
 - 緩和策: Markdown 10 MiB上限とバンドルサイズの計測で負荷を管理する。DOMPurifyの利用箇所をMermaid生成SVGだけに限定し、そこを `dangerouslySetInnerHTML` の唯一の例外として明示する。
@@ -886,7 +886,7 @@ Markdown source
   → rehypeHeadingIds（見出しへ user-content- 前置のIDを付与。KaTeX より前）
   → rehype-katex
   → rehype-sanitize（拡張した strict schema）
-  → rehype-react
+  → hast-util-to-jsx-runtime（コードブロックのハイライトはここでコンポーネントが適用する。8.2、8.3）
   → React 要素
 
 mermaid fence
@@ -898,11 +898,11 @@ mermaid fence
 - CommonMarkを基礎とし、`remark-gfm` で表、タスクリスト、取り消し線、autolinkを有効にする。
 - `remark-rehype` は既定でRaw HTMLを破棄する。本方針は「Raw HTMLをソース文字列として表示する」であり、破棄でも実行でもない第三の扱いを要する。mdastの `html` ノードをテキストとして出力するhandlerを定義し、`allowDangerousHtml` と `rehype-raw` を使用しない。
 - `remark-frontmatter` で文書先頭のYAML front matterを解析し、本文からは除く。`yaml` ノードは `mdast-util-to-hast` にhandlerがなく破棄されるため、非表示は既定の動作で成立する。
-- `rehype-react` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。パイプラインの正本は `src/markdown/render.ts` とする。
-- `rehype-react` へ `tableCellAlignToStyle: false` を渡し、表の桁揃えを `align` 属性のまま出す。既定では `align` が `style="text-align: ..."` へ変換される（実測）。sanitizeを通った後に `style` 属性を生む経路になり、CSPの `style-src-attr 'none'`（5.5）で桁揃えも無効になる。`align` はsanitize schemaが値まで絞って許可している（8.2）。
+- `hast-util-to-jsx-runtime` により本文をReact要素として構築し、本文描画で `dangerouslySetInnerHTML` を使わない。パイプラインの正本は `src/markdown/render.ts` とする。当初はこれを包むunifiedのプラグイン `rehype-react` を使っていたが、コードハイライトの単位で直接呼ぶ形へ改めた。ハイライトの対象と文書の予算はsanitize済みの木を読んで決める必要があり（8.3）、sanitizeの結果を受け取ってから変換する流れのほうが素直で、依存も1つ減るためである。
+- `hast-util-to-jsx-runtime` へ `tableCellAlignToStyle: false` を渡し、表の桁揃えを `align` 属性のまま出す。既定では `align` が `style="text-align: ..."` へ変換される（実測）。sanitizeを通った後に `style` 属性を生む経路になり、CSPの `style-src-attr 'none'`（5.5）で桁揃えも無効になる。`align` はsanitize schemaが値まで絞って許可している（8.2）。
 - 本文中のリンクのクリック（中クリックと `Ctrl` + クリックを含む）は、描画する要素でまとめて既定動作を止める（`src/preview/MarkdownDocument.tsx`）。止めないと相対リンクでWebView全体が別のURLへ移り、中クリックと `Ctrl` + クリックは新しいウィンドウを開く。
 - 画像は、hastを組み立てた後・sanitizeの前に、文書内の `img` の `src` を重複を除いて集め、`issue_image_resources` commandで1回にまとめてresource IDを発行する（5.4）。発行できた画像は `src` を `http://mdperuse-img.localhost/<resource-id>` へ書き換え、発行できなかった画像はその位置を原因の文言を持つ `span.image-error` へ置き換える（7.3）。発行そのものが失敗した場合（ワークスペースを開いていないなど）は、すべての画像の位置にその原因を示す。書き換えなかった `src` はsanitizeの許可パターンに合わないため落ちる。参照は `remark-rehype` がパーセントエンコードした `src` のまま渡し、Rust側がセグメントごとに復号する（7.3）。正本は `src/markdown/images.ts` と `src/markdown/render.ts` とする。
-- `loading="lazy"` と `decoding="async"`（7.3）は、sanitizeの後に `rehype-react` の `img` コンポーネントで固定の値として付ける。sanitize schemaへ許可すると、値を絞る規則をもう1つ持つことになるためである。
+- `loading="lazy"` と `decoding="async"`（7.3）は、sanitizeの後に `img` コンポーネントで固定の値として付ける。sanitize schemaへ許可すると、値を絞る規則をもう1つ持つことになるためである。
 - 既定動作を止めたうえで、修飾キーのない左クリック（キーボードでリンクを開いた場合を含む）だけを `resolveLinkTarget`（7.2）で解決して遷移する。同一文書内のアンカーは描画する要素の中で移動し、別の文書、外部URL、解決できなかったリンクは呼び出し側へ渡す。`Ctrl` + クリック、`Shift` + クリック、中クリックは新しいウィンドウを開く操作であり、同じタブで開く動作へ読み替えずに何もしない。脚注の相互参照リンクは `data-footnote-ref` / `data-footnote-backref` 属性で経路を分け、前置済みのIDへ移動する（`src/preview/link-click.ts`）。別の文書のアンカー（`./other.md#section`）へは、描画が新しい本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の見出しへ移動しうる。
 - unified、Mermaid、lowlight、KaTeX、DOMPurifyはlocal dependencyとして同梱する。
 
@@ -979,9 +979,15 @@ MathML要素の属性は、KaTeX 0.16 が `setAttribute` で設定しうるも�
 - 自動言語判定は行わない。
 - 未対応言語はハイライトせず、そのまま表示する。
 
-初期allowlistの案を次のとおりとし、Phase 4で確定する。エイリアス（`ts`、`sh`、`yml` など）は正規名へ写像する。
+allowlistを次の28名で確定した（Phase 4-2）。正本は `src/markdown/highlight.ts` とする。
 
 `typescript`、`javascript`、`tsx`、`jsx`、`json`、`rust`、`python`、`go`、`c`、`cpp`、`csharp`、`java`、`kotlin`、`swift`、`sql`、`bash`、`powershell`、`yaml`、`toml`、`ini`、`xml`、`html`、`css`、`diff`、`dockerfile`、`makefile`、`markdown`、`plaintext`
+
+highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として持たない。それぞれ `typescript`、`javascript`、`ini`、`xml` の別名として写像し、登録する文法は24個になる。そのほかの別名（`ts`、`sh`、`yml`、`ps1`、`c++` など）も、各文法が定義する別名のうちfenceの言語名として使われうるものを正規名へ写像する。言語名はsanitize schemaが `language-[a-z0-9+#-]+` に絞るため、大文字を含む指定（`TypeScript` など）はclassごと落ちてプレーン表示になる。
+
+文法は言語ごとの動的importで、その言語が初めて現れたときに登録する。読込を待つ間はプレーンなテキストのまま表示する。読込やハイライトに失敗した場合もプレーンなまま残し、ブロックの直後に言語名と原因を示す（12章）。
+
+ハイライトの対象は、sanitize済みの木で `pre > code` のうちallowlistの言語を持つブロックとする。インラインコードと数式（`language-math`）は対象外である。対象と文書の予算はsanitizeの後に木を読むだけで決め、要素も属性も加えない。変換時に `pre` コンポーネントが、対象のブロックだけlowlightの出力をReact要素へ変換して表示する（8.2）。`code` ではなく `pre` を差し替えるのは、失敗の表示を `pre` の外、ブロックの直後に置くためである。`code` の中に置くと、コードの選択とコピーに文言が混ざる。
 
 `forced-colors` が有効なときは配色によるトークン区別が失われるため、太字と斜体による区別へ切り替える。
 
@@ -1873,7 +1879,11 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 
 ### P1: 初期版仕様確定前
 
-- lowlightへ登録する言語allowlist
+Phase 4の実装で解決した項目は次のとおり。未解決の項目はない。
+
+| 項目 | 結論 | 参照 |
+| --- | --- | --- |
+| lowlightへ登録する言語allowlist | 初期案の28名で確定。単独の文法を持たない `tsx`、`jsx`、`toml`、`html` は別名として写像する | 8.3 |
 
 ### P2: 初期版後
 

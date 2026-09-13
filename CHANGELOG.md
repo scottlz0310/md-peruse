@@ -14,6 +14,12 @@
 ## [Unreleased]
 
 ### Added
+- コードブロックをシンタックスハイライトするようにした（[design-decisions.md](./docs/design-decisions.md) 8.3）。言語の指定があり、allowlistに載る言語のブロックだけが対象である
+  - **言語allowlistを28名で確定した。** `tsx`、`jsx`、`toml`、`html` はhighlight.jsに単独の文法がないため、`typescript`、`javascript`、`ini`、`xml` の別名として扱う。`ts`、`sh`、`yml`、`ps1`、`c++` などの別名も解決する。言語の自動判定は行わない
+  - **文法は言語ごとに、初めて現れたときに読み込む。** 読込を待つ間はプレーンなテキストで表示し、読込に失敗したブロックはプレーンなまま直後に原因を示す
+  - **ハイライトの対象と上限（1ブロック64 KiB、1文書256 KiB）はsanitize済みの本文を読んで決める。** sanitizeの後で要素も属性も加えず、lowlightの出力（`span` とclass名だけ）をコンポーネントでReact要素にする（8.2）。インラインコードと数式は対象外
+  - トークンの配色をライトとダークで持ち、`forced-colors` が有効なときは太字と斜体で区別する
+  - React要素への変換を `rehype-react` から `hast-util-to-jsx-runtime` の直接呼び出しへ改めた。`rehype-react` はこれを包むプラグインであり、ハイライトの対象をsanitizeの結果から決めるには直接呼ぶほうが素直なためである。依存を1つ減らした
 - 本文中のローカル画像を表示するようにした（[design-decisions.md](./docs/design-decisions.md) 5.4、7.3）。描画時に文書が参照する画像をまとめてRust側でresource IDを発行し、画像用custom protocolから読み込む
   - **発行は文書ごとに1回のIPCにまとめる。** 同じ参照が複数あっても1件として送る
   - **表示できない画像は、その位置に原因を表示する。** 許可形式外、上限超過、存在しない、ワークスペース外、リモート画像のいずれも本文全体は壊さない。書き換えなかった `src` はsanitizeが落とすため、ワークスペース外や `data:` の画像が読み込まれることはない
