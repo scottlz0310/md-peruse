@@ -40,3 +40,9 @@ body {
   margin: 0;
   color: var(--color-fg-muted);
 }
+
+/* 画像を本文の幅に収める。ピクセル寸法の上限（7.3）までの画像は表示幅を大きく超えうる。 */
+.markdown-body img {
+  max-width: 100%;
+  height: auto;
+}

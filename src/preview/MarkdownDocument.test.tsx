@@ -7,6 +7,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import type { ImageResource } from "../types/generated/ImageResource";
 import { MarkdownDocument, type NavigationTarget } from "./MarkdownDocument";
 
 /** `scrollIntoView` の呼び出し先を記録する。happy-domは実際にはスクロールしない。 */
@@ -25,6 +26,9 @@ afterEach(() => {
   Element.prototype.scrollIntoView = originalScrollIntoView;
 });
 
+/** 画像を含まない本文用。参照が変わらないよう、モジュールで1つだけ持つ。 */
+const noImages = async (): Promise<ImageResource[]> => [];
+
 function mount(
   text: string,
   options: { path?: string; anchor?: string | null } = {},
@@ -34,6 +38,7 @@ function mount(
     path: options.path ?? "docs/guide.md",
     anchor: options.anchor ?? null,
     onNavigate: (target: NavigationTarget) => navigated.push(target),
+    issueImages: noImages,
   };
   const view = render(<MarkdownDocument text={text} {...props} />);
   return {
@@ -186,5 +191,33 @@ describe("MarkdownDocument", () => {
     expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
       "新しい",
     );
+  });
+
+  test("画像のresource IDは文書のパスを基点に発行する（5.4）", async () => {
+    const requests: [string, string[]][] = [];
+    const issueImages = async (
+      documentPath: string,
+      references: string[],
+    ): Promise<ImageResource[]> => {
+      requests.push([documentPath, references]);
+      return references.map((reference) => ({
+        status: "issued",
+        reference,
+        resourceId: "abc",
+      }));
+    };
+    render(
+      <MarkdownDocument
+        text={"![図](../img/a.png)\n"}
+        path="docs/guide.md"
+        anchor={null}
+        onNavigate={() => {}}
+        issueImages={issueImages}
+      />,
+    );
+
+    const image = await waitFor(() => screen.getByRole("img", { name: "図" }));
+    expect(image.getAttribute("src")).toBe("http://mdperuse-img.localhost/abc");
+    expect(requests).toEqual([["docs/guide.md", ["../img/a.png"]]]);
   });
 });

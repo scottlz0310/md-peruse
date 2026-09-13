@@ -4,6 +4,8 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import App from "./App";
 import type { FileContent } from "./types/generated/FileContent";
+import type { ImageResource } from "./types/generated/ImageResource";
+import type { ImageResourceRequest } from "./types/generated/ImageResourceRequest";
 import type { IpcError } from "./types/generated/IpcError";
 import type { ScanResult } from "./types/generated/ScanResult";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
@@ -12,6 +14,7 @@ type Handlers = {
   scan: (path: string) => ScanResult | Promise<ScanResult>;
   read?: (path: string) => FileContent | Promise<FileContent>;
   openUrl?: (url: string) => void;
+  issue?: (request: ImageResourceRequest) => ImageResource[];
 };
 
 /** Rust側のcommandを差し替え、eventを模擬できるようにする。 */
@@ -21,6 +24,11 @@ function mockBackend(handlers: Handlers) {
       if (command === "plugin:opener|open_url" && handlers.openUrl) {
         handlers.openUrl((payload as { url: string }).url);
         return null;
+      }
+      if (command === "issue_image_resources_command" && handlers.issue) {
+        return handlers.issue(
+          (payload as { request: ImageResourceRequest }).request,
+        );
       }
       const request = (payload as { request: { path: string } }).request;
       if (command === "scan_directory_command")
@@ -312,5 +320,33 @@ describe("App", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("速い");
+  });
+
+  test("本文の画像はRust側のcommandでresource IDを発行して表示する（5.4）", async () => {
+    const requests: ImageResourceRequest[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "![ロゴ](assets/logo.png)\n"),
+      issue: (request) => {
+        requests.push(request);
+        return request.references.map((reference) => ({
+          status: "issued",
+          reference,
+          resourceId: "logo-id",
+        }));
+      },
+    });
+    render(<App />);
+    await openReadme();
+
+    const image = await waitFor(() =>
+      screen.getByRole("img", { name: "ロゴ" }),
+    );
+    expect(image.getAttribute("src")).toBe(
+      "http://mdperuse-img.localhost/logo-id",
+    );
+    expect(requests).toEqual([
+      { documentPath: "README.md", references: ["assets/logo.png"] },
+    ]);
   });
 });

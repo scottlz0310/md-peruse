@@ -1,6 +1,7 @@
 import { type MouseEvent, type ReactElement, useEffect, useState } from "react";
 import type { LinkTarget } from "../markdown/link-target";
 import { renderMarkdown } from "../markdown/render";
+import type { ImageResource } from "../types/generated/ImageResource";
 import { targetOfLink } from "./link-click";
 
 /** 描画する要素の外で扱う遷移先。同一文書内のアンカーはこの要素の中で完結する。 */
@@ -18,6 +19,14 @@ type Props = {
   anchor: string | null;
   /** 別の文書、外部URL、解決できなかったリンクを押したときに呼ぶ。 */
   onNavigate: (target: NavigationTarget) => void;
+  /**
+   * 文書が参照する画像へresource IDを発行する（5.4）。製品では `issueImageResources` を渡す。
+   * 参照が変わらない関数を渡すこと。変わるたびに描画し直す。
+   */
+  issueImages: (
+    documentPath: string,
+    references: string[],
+  ) => Promise<ImageResource[]>;
 };
 
 /**
@@ -26,21 +35,29 @@ type Props = {
  * 描画は非同期であり、本文が差し替わった後に前の描画が完了することがある。effectの
  * 片付けで前の描画の結果を捨て、古い本文で新しい本文を上書きしない。
  */
-export function MarkdownDocument({ text, path, anchor, onNavigate }: Props) {
+export function MarkdownDocument({
+  text,
+  path,
+  anchor,
+  onNavigate,
+  issueImages,
+}: Props) {
   const [content, setContent] = useState<ReactElement | null>(null);
   const [rendered, setRendered] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
-    renderMarkdown(text).then((element) => {
-      if (!current) return;
-      setContent(element);
-      setRendered(text);
-    });
+    renderMarkdown(text, (references) => issueImages(path, references)).then(
+      (element) => {
+        if (!current) return;
+        setContent(element);
+        setRendered(text);
+      },
+    );
     return () => {
       current = false;
     };
-  }, [text]);
+  }, [text, path, issueImages]);
 
   // 描画が現在の本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の
   // 見出しへ移動しうる。

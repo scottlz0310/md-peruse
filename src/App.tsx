@@ -1,7 +1,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
-import { readFile, scanDirectory } from "./ipc/commands";
+import { issueImageResources, readFile, scanDirectory } from "./ipc/commands";
 import { onWorkspaceOpened } from "./ipc/events";
 import { LINK_REJECTION_MESSAGES } from "./preview/link-click";
 import {
@@ -135,6 +135,7 @@ export default function App() {
           path={document.content.path}
           anchor={document.anchor}
           onNavigate={navigate}
+          issueImages={issueImageResources}
         />
       )}
     </main>
