@@ -244,6 +244,8 @@ export default function App() {
               pendingPath: null,
             })),
           );
+          // 読込中に切り替えてきたタブは、まだ本文を表示していない。元の文書を表示する。
+          if (wasActive && shownRef.current?.tabId !== tabId) showActive(true);
         }
         if (wasActive) setError(reason.message);
       },
@@ -260,8 +262,9 @@ export default function App() {
       updateShown(null);
       return;
     }
+    // 読込中のタブは、その完了で表示される。読み直すと進行中の遷移先を世代で捨ててしまう。
+    if (active.pendingPath !== null) return;
     const entry = currentEntry(active.history);
-    // 最初の読込を待っているタブは、その完了で表示される。
     if (entry === undefined) return;
     load(
       active.tabId,
