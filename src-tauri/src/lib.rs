@@ -16,6 +16,7 @@ pub mod state;
 pub mod telemetry;
 pub mod watch;
 pub mod watch_runtime;
+pub mod webview_keys;
 
 use i18n::LanguagePreference;
 use state::AppState;
@@ -32,6 +33,13 @@ pub fn run() {
         .manage(AppState::new(LanguagePreference::default()))
         .menu(|app| menu::build(app, app.state::<AppState>().language()))
         .on_menu_event(open_folder::handle_menu_event)
+        .setup(|app| {
+            let window = app
+                .get_webview_window(open_folder::MAIN_WINDOW)
+                .expect("メインウィンドウは tauri.conf.json で作られる");
+            webview_keys::attach(&window)?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ipc::commands::issue_image_resources_command,
             ipc::commands::read_file_command,
