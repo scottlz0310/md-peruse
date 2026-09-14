@@ -39,6 +39,7 @@ import {
   adjacentTabId,
   closeTab,
   EMPTY_TAB_SET,
+  findTabByPath,
   type OpenTab,
   openTab,
   pinTab,
@@ -75,6 +76,9 @@ export default function App() {
   // 走査と読込の応答は描画を待たずに最新の状態と照合するため、refにも持つ（5.3、6.5）。
   const treeRef = useRef<FileTree>(tree);
   const tabsRef = useRef<TabSet>(tabs);
+  // プレビュー領域のDOMがどのタブの本文を表示しているか。タブを切り替えた直後の再描画前は、
+  // アクティブタブと表示中の本文が一致しない。スクロール位置の読み取りはこちらで判定する。
+  const shownRef = useRef<Shown | null>(shown);
   const tabSeqRef = useRef(0);
   const documentRef = useRef<HTMLElement>(null);
   // 本文のスクロール位置はプレビュー領域が持つ。ウィンドウ全体はスクロールしない。
@@ -93,7 +97,7 @@ export default function App() {
     onWorkspaceOpened((opened) => {
       scopeRef.current = opened.scopeId;
       setWorkspace(opened);
-      setShown(null);
+      updateShown(null);
       setError(null);
       // ワークスペースを切り替えるとタブも破棄する（6.1）。
       updateTabs(EMPTY_TAB_SET);
@@ -119,6 +123,11 @@ export default function App() {
   function updateTabs(next: TabSet) {
     tabsRef.current = next;
     setTabs(next);
+  }
+
+  function updateShown(next: Shown | null) {
+    shownRef.current = next;
+    setShown(next);
   }
 
   /** フォルダーを走査し、陳腐化していなければ結果をツリーへ反映する。 */
@@ -159,7 +168,7 @@ export default function App() {
   /** アクティブタブを離れる前に、本文のスクロール位置を履歴へ残す（9.3）。 */
   function saveActiveScroll() {
     const active = activeTab(tabsRef.current);
-    if (!active || shown?.tabId !== active.tabId) return;
+    if (!active || shownRef.current?.tabId !== active.tabId) return;
     const top = scrollTop();
     updateTabs(
       updateTab(tabsRef.current, active.tabId, (tab) => ({
@@ -190,26 +199,30 @@ export default function App() {
       updateTab(tabsRef.current, tabId, (current) => ({
         ...current,
         ...started.tab,
+        pendingPath: path,
       })),
     );
     readFile(path).then(
       (content) => {
         const current = findTab(tabId);
         if (current === undefined) return;
-        // 読込を待つ間に離れたタブでは、離れたときに残した位置を使う。
-        const leftAt = isActive(tabId)
-          ? scrollTop()
-          : (currentEntry(current.history)?.scrollTop ?? 0);
+        // プレビュー領域がこのタブの本文を表示しているときだけ、いまのスクロール位置を
+        // 読む。切り替えた直後や離れたタブでは、表示中なのは別のタブの本文である。
+        const leftAt =
+          shownRef.current?.tabId === tabId
+            ? scrollTop()
+            : (currentEntry(current.history)?.scrollTop ?? 0);
         const done = completeLoad(current, started.token, intent, leftAt);
         if (done === undefined) return;
         updateTabs(
           updateTab(tabsRef.current, tabId, (latest) => ({
             ...latest,
             ...done.tab,
+            pendingPath: null,
           })),
         );
         if (isActive(tabId)) {
-          setShown({ tabId, content, view: done.view });
+          updateShown({ tabId, content, view: done.view });
           if (!keepError) setError(null);
         }
       },
@@ -228,6 +241,7 @@ export default function App() {
             updateTab(tabsRef.current, tabId, (latest) => ({
               ...latest,
               ...next,
+              pendingPath: null,
             })),
           );
         }
@@ -243,7 +257,7 @@ export default function App() {
   function showActive(keepError = false) {
     const active = activeTab(tabsRef.current);
     if (!active) {
-      setShown(null);
+      updateShown(null);
       return;
     }
     const entry = currentEntry(active.history);
@@ -310,13 +324,28 @@ export default function App() {
   function openLink(path: string, anchor: string | null) {
     const active = activeTab(tabsRef.current);
     if (!active) return;
-    if (shown?.tabId === active.tabId && shown.content.path === path) {
+    const shownNow = shownRef.current;
+    if (shownNow?.tabId === active.tabId && shownNow.content.path === path) {
       moveWithin(anchor);
       return;
     }
-    const other = tabsRef.current.tabs.find((tab) => tab.path === path);
-    if (other) {
+    const other = findTabByPath(tabsRef.current, path);
+    if (other && anchor === null) {
       activate(other.tabId);
+      return;
+    }
+    if (other) {
+      // 見出しを指すリンクは、切り替えた先のタブで読み直してから見出しへ移る。表示を変える
+      // 操作なので、そのタブを固定する。
+      saveActiveScroll();
+      updateTabs(
+        pinTab(
+          activateTab(tabsRef.current, other.tabId, Date.now()),
+          other.tabId,
+        ),
+      );
+      setError(null);
+      load(other.tabId, path, { kind: "push", path, anchor });
       return;
     }
     pinActive();
@@ -325,6 +354,7 @@ export default function App() {
 
   function moveWithin(anchor: string | null) {
     const active = activeTab(tabsRef.current);
+    const shown = shownRef.current;
     if (!active || shown?.tabId !== active.tabId) return;
     const moved = navigateWithin(active, anchor, scrollTop());
     updateTabs(
@@ -336,12 +366,13 @@ export default function App() {
         active.tabId,
       ),
     );
-    setShown({ ...shown, view: moved.view });
+    updateShown({ ...shown, view: moved.view });
     setError(null);
   }
 
   function step(direction: "back" | "forward") {
     const active = activeTab(tabsRef.current);
+    const shown = shownRef.current;
     if (!active || shown?.tabId !== active.tabId) return;
     const result = stepHistory(active, direction, scrollTop());
     if (result === undefined) return;
@@ -353,7 +384,7 @@ export default function App() {
     updateTabs(
       updateTab(tabsRef.current, active.tabId, (tab) => ({ ...tab, ...next })),
     );
-    setShown({ ...shown, view: result.view });
+    updateShown({ ...shown, view: result.view });
     setError(null);
   }
 

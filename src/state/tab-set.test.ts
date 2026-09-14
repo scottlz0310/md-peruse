@@ -91,6 +91,24 @@ describe("openTab", () => {
     expect(tab?.lastActivatedAt).toBe(42);
   });
 
+  test("読込中の遷移先と同じ文書を開いても、重複させずにそのタブへ切り替える", () => {
+    let set = pinned("a.md", "other.md");
+    const first = set.tabs[0];
+    // a.md のタブでリンク先 b.md を読み込んでいる最中。
+    set = {
+      ...set,
+      tabs: set.tabs.map((tab) =>
+        tab.tabId === first?.tabId ? { ...tab, pendingPath: "b.md" } : tab,
+      ),
+    };
+
+    const result = openTab(set, request("b.md", true, 50));
+
+    expect(result.opened).toBeUndefined();
+    expect(result.set.tabs).toHaveLength(2);
+    expect(result.set.activeTabId).toBe(first?.tabId ?? null);
+  });
+
   test("上限を超えたら、最後にアクティブだった時刻が最も古いタブを閉じる（9.1）", () => {
     const paths = Array.from({ length: MAX_OPEN_TABS }, (_, i) => `${i}.md`);
     let set = pinned(...paths);

@@ -650,6 +650,86 @@ describe("App", () => {
       expect(requested).toEqual(["a.md", "b.md", "a.md", "b.md"]);
     });
 
+    test("タブを切り替えて戻っても、各タブの離れたときのスクロール位置で表示する", async () => {
+      await openTwoFiles();
+      const panel = () => screen.getByRole("tabpanel");
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      panel().scrollTop = 500;
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      panel().scrollTop = 200;
+
+      const tabNamed = (name: string) =>
+        screen.getByRole("tab", { name: new RegExp(`^${name}`) });
+      // 切り替えた直後のプレビュー領域には前のタブの本文が残っている。その位置を
+      // 切り替え先の履歴へ書き込まない。
+      await act(async () => fireEvent.click(tabNamed("a.md")));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      await waitFor(() => expect(panel().scrollTop).toBe(500));
+
+      await act(async () => fireEvent.click(tabNamed("b.md")));
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      await waitFor(() => expect(panel().scrollTop).toBe(200));
+    });
+
+    test("見出しを指すリンクの文書が別のタブで開いていれば、そのタブで見出しへ移る", async () => {
+      const scrolled: string[] = [];
+      const original = Element.prototype.scrollIntoView;
+      Element.prototype.scrollIntoView = function (this: Element) {
+        scrolled.push(this.id);
+      };
+      try {
+        await openTwoFiles((path) =>
+          path === "a.md" ? "[bの設定](b.md#設定)\n" : "## b.md\n\n### 設定\n",
+        );
+        await act(async () => fireEvent.click(treeItem("b.md"), { detail: 2 }));
+        await waitFor(() => expect(heading()).toBe("b.md"));
+        await act(async () => fireEvent.click(treeItem("a.md"), { detail: 2 }));
+        const link = await waitFor(() =>
+          screen.getByRole("link", { name: "bの設定" }),
+        );
+
+        await act(async () => link.click());
+
+        await waitFor(() => expect(scrolled).toEqual(["user-content-設定"]));
+        expect(tabNames()).toEqual(["b.md", "a.md"]);
+      } finally {
+        Element.prototype.scrollIntoView = original;
+      }
+    });
+
+    test("リンクで読み込んでいる最中に同じ文書をツリーから開いても、タブを重複させない", async () => {
+      let releaseB: () => void = () => {};
+      mockBackend({
+        scan: () => TWO_FILES,
+        read: (path) =>
+          path === "a.md"
+            ? fileContent(path, "[次へ](b.md)\n")
+            : new Promise<FileContent>((resolve) => {
+                releaseB = () => resolve(fileContent(path, "## b.md\n"));
+              }),
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+      );
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await act(async () =>
+        fireEvent.click(await waitFor(() => treeItem("a.md")), { detail: 2 }),
+      );
+      const link = await waitFor(() =>
+        screen.getByRole("link", { name: "次へ" }),
+      );
+
+      await act(async () => link.click());
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 1 }));
+      await act(async () => releaseB());
+
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      expect(tabNames()).toEqual(["b.md"]);
+    });
+
     test("最後のタブを閉じると本文を表示しない", async () => {
       await openTwoFiles();
       await act(async () => fireEvent.click(treeItem("a.md"), { detail: 1 }));

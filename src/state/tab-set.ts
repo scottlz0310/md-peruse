@@ -17,6 +17,14 @@ export type OpenTab = DocumentTab & {
   readonly preview: boolean;
   /** 最後にアクティブになった時刻（ミリ秒）。上限を超えたときの退避に使う（9.1）。 */
   readonly lastActivatedAt: number;
+  /**
+   * 読込中の文書のパス。読込がなければ `null`。
+   *
+   * `path` は読込が完了したときに移るため、読込中の遷移先はここで持つ。重複の判定に
+   * 含めないと、リンクで読み込んでいる最中に同じ文書をツリーから開いたとき、2つ目の
+   * タブができる。
+   */
+  readonly pendingPath: string | null;
 };
 
 export type TabSet = {
@@ -29,6 +37,11 @@ export const EMPTY_TAB_SET: TabSet = { tabs: [], activeTabId: null };
 
 export function activeTab(set: TabSet): OpenTab | undefined {
   return set.tabs.find((tab) => tab.tabId === set.activeTabId);
+}
+
+/** その文書を表示している、または読み込んでいるタブ。 */
+export function findTabByPath(set: TabSet, path: string): OpenTab | undefined {
+  return set.tabs.find((tab) => tab.path === path || tab.pendingPath === path);
 }
 
 export type OpenRequest = {
@@ -55,7 +68,7 @@ export function openTab(
   set: TabSet,
   request: OpenRequest,
 ): { set: TabSet; opened: OpenTab | undefined } {
-  const existing = set.tabs.find((tab) => tab.path === request.path);
+  const existing = findTabByPath(set, request.path);
   if (existing) {
     const pinned = request.preview ? set : pinTab(set, existing.tabId);
     return {
@@ -71,6 +84,7 @@ export function openTab(
     history: { entries: [], index: 0 },
     preview: request.preview,
     lastActivatedAt: request.now,
+    pendingPath: null,
   };
   const previewIndex = request.preview
     ? set.tabs.findIndex((tab) => tab.preview)
