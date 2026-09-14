@@ -699,6 +699,50 @@ describe("App", () => {
       }
     });
 
+    test("リンクの読込中に文書内の見出しへ移ると、その読込を捨て、遷移先を後から開ける", async () => {
+      let bCalls = 0;
+      mockBackend({
+        scan: () => ({
+          path: "",
+          entries: ["a.md", "b.md", "c.md"].map((name) => ({
+            path: name,
+            name,
+            kind: "markdown" as const,
+            hasChildren: null,
+          })),
+        }),
+        read: (path) => {
+          if (path === "a.md")
+            return fileContent(path, "[次へ](b.md) [節へ](#節)\n\n## 節\n");
+          if (path === "c.md") return fileContent(path, "## c.md\n");
+          bCalls += 1;
+          // 最初の読込は応答を返さず、文書内の移動で無効になる。
+          return bCalls === 1
+            ? new Promise<FileContent>(() => {})
+            : fileContent(path, "## b.md\n");
+        },
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+      );
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await act(async () =>
+        fireEvent.click(await waitFor(() => treeItem("a.md")), { detail: 2 }),
+      );
+      await waitFor(() => screen.getByRole("link", { name: "次へ" }));
+
+      await act(async () => screen.getByRole("link", { name: "次へ" }).click());
+      await act(async () => screen.getByRole("link", { name: "節へ" }).click());
+      await act(async () => fireEvent.click(treeItem("c.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("c.md"));
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 1 }));
+
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      expect(tabNames()).toEqual(["a.md", "c.md", "b.md(preview)"]);
+      expect(bCalls).toBe(2);
+    });
+
     const NOT_FOUND: IpcError = {
       code: "fileNotFound",
       message: "ファイルが見つかりません。",

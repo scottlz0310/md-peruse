@@ -42,6 +42,7 @@ import {
   findTabByPath,
   type OpenTab,
   openTab,
+  pendingPath,
   pinTab,
   type TabSet,
   updateTab,
@@ -199,7 +200,7 @@ export default function App() {
       updateTab(tabsRef.current, tabId, (current) => ({
         ...current,
         ...started.tab,
-        pendingPath: path,
+        pending: { path, generation: started.token.generation },
       })),
     );
     readFile(path).then(
@@ -218,7 +219,7 @@ export default function App() {
           updateTab(tabsRef.current, tabId, (latest) => ({
             ...latest,
             ...done.tab,
-            pendingPath: null,
+            pending: null,
           })),
         );
         if (isActive(tabId)) {
@@ -241,7 +242,7 @@ export default function App() {
             updateTab(tabsRef.current, tabId, (latest) => ({
               ...latest,
               ...next,
-              pendingPath: null,
+              pending: null,
             })),
           );
           // 読込中に切り替えてきたタブは、まだ本文を表示していない。元の文書を表示する。
@@ -263,7 +264,7 @@ export default function App() {
       return;
     }
     // 読込中のタブは、その完了で表示される。読み直すと進行中の遷移先を世代で捨ててしまう。
-    if (active.pendingPath !== null) return;
+    if (pendingPath(active) !== null) return;
     const entry = currentEntry(active.history);
     if (entry === undefined) return;
     load(

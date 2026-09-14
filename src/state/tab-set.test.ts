@@ -91,22 +91,34 @@ describe("openTab", () => {
     expect(tab?.lastActivatedAt).toBe(42);
   });
 
-  test("読込中の遷移先と同じ文書を開いても、重複させずにそのタブへ切り替える", () => {
+  test.each([
+    [
+      "読込中の遷移先と同じ文書を開いても、重複させずにそのタブへ切り替える",
+      0,
+      false,
+    ],
+    ["無効になった読込の遷移先は、同じ文書として扱わない", 1, true],
+  ])("%s", (_, invalidations, expectOpened) => {
     let set = pinned("a.md", "other.md");
     const first = set.tabs[0];
-    // a.md のタブでリンク先 b.md を読み込んでいる最中。
+    // a.md のタブでリンク先 b.md を読み込み始め、文書内の移動などで世代が進んだ。
     set = {
       ...set,
       tabs: set.tabs.map((tab) =>
-        tab.tabId === first?.tabId ? { ...tab, pendingPath: "b.md" } : tab,
+        tab.tabId === first?.tabId
+          ? {
+              ...tab,
+              loadGeneration: tab.loadGeneration + invalidations,
+              pending: { path: "b.md", generation: tab.loadGeneration },
+            }
+          : tab,
       ),
     };
 
     const result = openTab(set, request("b.md", true, 50));
 
-    expect(result.opened).toBeUndefined();
-    expect(result.set.tabs).toHaveLength(2);
-    expect(result.set.activeTabId).toBe(first?.tabId ?? null);
+    expect(result.opened !== undefined).toBe(expectOpened);
+    expect(result.set.tabs).toHaveLength(expectOpened ? 3 : 2);
   });
 
   test("上限を超えたら、最後にアクティブだった時刻が最も古いタブを閉じる（9.1）", () => {

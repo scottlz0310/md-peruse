@@ -18,14 +18,25 @@ export type OpenTab = DocumentTab & {
   /** 最後にアクティブになった時刻（ミリ秒）。上限を超えたときの退避に使う（9.1）。 */
   readonly lastActivatedAt: number;
   /**
-   * 読込中の文書のパス。読込がなければ `null`。
+   * 最後に始めた読込の遷移先と、その読込の世代。読込がなければ `null`。
    *
    * `path` は読込が完了したときに移るため、読込中の遷移先はここで持つ。重複の判定に
    * 含めないと、リンクで読み込んでいる最中に同じ文書をツリーから開いたとき、2つ目の
-   * タブができる。
+   * タブができる。世代を併せて持つのは、文書内の移動やファイルの変更で読込が無効に
+   * なったとき、遷移先だけが残らないようにするためである。値は `pendingPath` で読む。
    */
-  readonly pendingPath: string | null;
+  readonly pending: {
+    readonly path: string;
+    readonly generation: number;
+  } | null;
 };
+
+/** 進行中の読込の遷移先。読込がないか、無効になっていれば `null`。 */
+export function pendingPath(tab: OpenTab): string | null {
+  return tab.pending !== null && tab.pending.generation === tab.loadGeneration
+    ? tab.pending.path
+    : null;
+}
 
 export type TabSet = {
   /** タブバーの並び順。 */
@@ -41,7 +52,7 @@ export function activeTab(set: TabSet): OpenTab | undefined {
 
 /** その文書を表示している、または読み込んでいるタブ。 */
 export function findTabByPath(set: TabSet, path: string): OpenTab | undefined {
-  return set.tabs.find((tab) => tab.path === path || tab.pendingPath === path);
+  return set.tabs.find((tab) => tab.path === path || pendingPath(tab) === path);
 }
 
 export type OpenRequest = {
@@ -84,7 +95,7 @@ export function openTab(
     history: { entries: [], index: 0 },
     preview: request.preview,
     lastActivatedAt: request.now,
-    pendingPath: null,
+    pending: null,
   };
   const previewIndex = request.preview
     ? set.tabs.findIndex((tab) => tab.preview)
