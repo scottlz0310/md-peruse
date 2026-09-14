@@ -182,7 +182,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] 戻る／進む。表示中の文書を1つのタブの状態（インスタンスID、スコープID、パス、状態、読込世代、履歴）として持つ `src/state/document-tab.ts` を置き、画面全体で1つだった読込世代をタブの `beginLoad` / `isCurrentLoad` へ置き換えた。本文のリンク、見出しへの移動、ツリーからの選択を履歴へ積み、`Alt+←` / `Alt+→` とマウスのサイドボタンで行き来する。戻った先を読めなければ理由を示して履歴から取り除く。タブバーと複数タブはUI/UXの単位で加える（[design-decisions.md](./docs/design-decisions.md) 9.1、9.3）
 - [x] 設定の読み書き（UI/UXの前提）。`src-tauri/src/settings_store.rs` で起動時の読込、読めない設定の退避と既定値での起動（ネイティブダイアログで通知。退避できなければそのセッションは書かない）、一時ファイルとrenameによるdebounce書込み、終了時のflushを実装し、`get_ui_settings_command` / `update_ui_settings_command` を置いた。書込みの失敗は `SettingsSaveFailed` で示す。メインウィンドウとメニューは設定を読んだ後にsetupで作る（[design-decisions.md](./docs/design-decisions.md) 11.1）
 - [ ] 最近使ったフォルダー（不透明なIDとメニュー）、最後のワークスペースの復元、ウィンドウ配置の保存と復元（[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
-- [ ] UI/UX: レイアウト骨格（Sidebar、Resizer、PreviewArea。サイドバー幅と表示状態を設定へ保存）（[design-decisions.md](./docs/design-decisions.md) 10.2）
+- [x] UI/UX: レイアウト骨格。`src/layout/SidebarLayout.tsx` でサイドバー、境界、プレビュー領域の2ペインを置き、起動時に設定を読んでから描画する。幅は保存値と実効値を分けて持ち、キー操作（`←` / `→`、`Shift`、`Home` / `End`）とドラッグで変えて設定へ保存する。プレビュー領域を独立したスクロール領域にし、戻る／進むのスクロール位置をその `scrollTop` へ移した。表示状態は読んで反映するだけで、切り替えはメニュー項目の単位で加える（[design-decisions.md](./docs/design-decisions.md) 9.3、10.2、11.1）
 - [ ] UI/UX: TreeView（遅延展開、キーボード操作、ARIA）（[design-decisions.md](./docs/design-decisions.md) 6.2、10章）
 - [ ] UI/UX: タブバー（複数タブ、上限と退避、`Ctrl+Tab` / `Ctrl+W`）（[design-decisions.md](./docs/design-decisions.md) 9.1、10章）
 - [ ] UI/UX: Breadcrumbと、メニュー項目の追加（タブを閉じる、サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）

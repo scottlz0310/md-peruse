@@ -15,6 +15,8 @@ import type { ImageResource } from "./types/generated/ImageResource";
 import type { ImageResourceRequest } from "./types/generated/ImageResourceRequest";
 import type { IpcError } from "./types/generated/IpcError";
 import type { ScanResult } from "./types/generated/ScanResult";
+import type { UiSettings } from "./types/generated/UiSettings";
+import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
 type Handlers = {
@@ -22,12 +24,30 @@ type Handlers = {
   read?: (path: string) => FileContent | Promise<FileContent>;
   openUrl?: (url: string) => void;
   issue?: (request: ImageResourceRequest) => ImageResource[];
+  updateSettings?: (update: UiSettingsUpdate) => void;
+};
+
+const UI_SETTINGS: UiSettings = {
+  theme: "system",
+  language: "system",
+  effectiveLanguage: "ja",
+  sidebarWidth: 280,
+  sidebarVisible: true,
+  fontScalePercent: 100,
+  recentFolders: [],
 };
 
 /** Rust側のcommandを差し替え、eventを模擬できるようにする。 */
 function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
+      if (command === "get_ui_settings_command") return UI_SETTINGS;
+      if (command === "update_ui_settings_command") {
+        handlers.updateSettings?.(
+          (payload as { update: UiSettingsUpdate }).update,
+        );
+        return null;
+      }
       if (command === "plugin:opener|open_url" && handlers.openUrl) {
         handlers.openUrl((payload as { url: string }).url);
         return null;
@@ -86,14 +106,36 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  test("ワークスペースを開くまでは案内を表示する", () => {
+  test("ワークスペースを開くまでは案内を表示する", async () => {
     mockBackend({ scan: () => ROOT });
     render(<App />);
 
-    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
-      "md-peruse",
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+        "md-peruse",
+      ),
     );
     expect(screen.getByText(/フォルダーを開く/)).toBeTruthy();
+    expect(screen.queryByRole("separator")).toBeNull();
+  });
+
+  test("ワークスペースを開くと、設定の幅で2ペインを表示し、変えた幅を保存する（10.2、11.1）", async () => {
+    const updates: UiSettingsUpdate[] = [];
+    mockBackend({ scan: () => ROOT, updateSettings: (u) => updates.push(u) });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+
+    const separator = await waitFor(() => screen.getByRole("separator"));
+    expect(separator.getAttribute("aria-valuenow")).toBe("280");
+    expect(screen.getByRole("navigation").textContent).toContain("README.md");
+
+    fireEvent.keyDown(separator, { key: "ArrowRight" });
+
+    expect(separator.getAttribute("aria-valuenow")).toBe("296");
+    await waitFor(() => expect(updates).toEqual([{ sidebarWidth: 296 }]));
   });
 
   test("ワークスペースを開いたらルート直下を走査して表示する", async () => {

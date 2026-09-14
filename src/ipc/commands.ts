@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type { FileContent } from "../types/generated/FileContent";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { ScanResult } from "../types/generated/ScanResult";
+import type { UiSettings } from "../types/generated/UiSettings";
+import type { UiSettingsUpdate } from "../types/generated/UiSettingsUpdate";
 
 /**
  * Rust側のTauri commandの呼び出し（design-decisions.md 5.3）。
@@ -18,6 +20,21 @@ export function scanDirectory(path: string): Promise<ScanResult> {
 /** ファイルを1件読み込む。`path` はワークスペース相対パス。 */
 export function readFile(path: string): Promise<FileContent> {
   return invoke<FileContent>("read_file_command", { request: { path } });
+}
+
+/** 起動時の設定を得る（design-decisions.md 11.1）。 */
+export function getUiSettings(): Promise<UiSettings> {
+  return invoke<UiSettings>("get_ui_settings_command");
+}
+
+/**
+ * 変わった設定を保存する。指定した項目だけを変える。
+ *
+ * 書込みはRust側がまとめてから行い、この呼び出しは書込みを待たない（11.1）。値の範囲は
+ * 呼び出し側が丸めてから渡す。
+ */
+export function updateUiSettings(update: UiSettingsUpdate): Promise<void> {
+  return invoke<void>("update_ui_settings_command", { update });
 }
 
 /**

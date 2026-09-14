@@ -1250,7 +1250,9 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 
 - `role="separator"`、`aria-orientation="vertical"`、`aria-valuenow`、`aria-valuemin`、`aria-valuemax`、`tabindex="0"` を設定する。
 - 左右キーで幅を変更し、`Shift` 併用で大きく動かす。`Home` と `End` で最小幅と最大幅へ移動する。
+- ポインターのドラッグでも幅を変える。ドラッグ中は表示だけを変え、離したときに保存する。キー操作は変更ごとに保存する（書込みのまとめはRust側。11.1）。掴んだときに境界へフォーカスを移し、続けてキーで微調整できるようにする（ドラッグ中の文字列選択を止めるために既定動作を止めると、フォーカスも移らなかった。実測）。
 - サイドバーの表示切り替えは幅の値とは独立した状態として保持する。
+- ウィンドウ全体はスクロールさせず、サイドバーとプレビュー領域がそれぞれスクロールする。戻る／進むで復元するスクロール位置（9.3）はプレビュー領域の `scrollTop` とする。実装の正本は `src/layout/SidebarLayout.tsx` とする。
 
 幅の範囲と刻みを次のとおり確定する。値と規則の正本は `src/state/sidebar-width.ts` とする。既定値の正本は `src-tauri/src/settings.rs` の `DEFAULT_SIDEBAR_WIDTH` であり、範囲と刻みはUIの関心事のためFrontend側へ置く。
 
