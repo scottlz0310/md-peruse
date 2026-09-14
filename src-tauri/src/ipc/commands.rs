@@ -1,7 +1,7 @@
 //! Frontendから呼ぶTauri command（design-decisions.md 5.3）。
 //!
 //! Frontendから受け取ったパスはここで再検証する。汎用のファイルシステムAPIは公開せず、
-//! 走査、読込、画像resource IDの発行に必要なcommandだけを置く。
+//! 走査、読込、画像resource IDの発行、設定の取得と保存に必要なcommandだけを置く。
 //!
 //! commandの戻り値の失敗は `IpcError` とし、Frontendは `code` で分岐する。表示場所
 //! （ネイティブダイアログ、プレビュー領域、ツリー項目、文書内要素）はFrontendが呼び出しの
@@ -27,6 +27,8 @@ use crate::ipc::types::{
 use crate::path_guard::{PathRejection, ResolveError};
 use crate::read::{ReadError, is_sharing_violation, read_file};
 use crate::scan::scan_directory;
+use crate::settings::{UiSettings, UiSettingsUpdate};
+use crate::settings_store::SettingsStore;
 use crate::state::AppState;
 
 /// ディレクトリ1階層を走査する。
@@ -202,6 +204,27 @@ pub async fn issue_image_resources_command(
     .await
     .expect("画像resource IDの発行タスクの実行に失敗");
     result.ok_or_else(|| ipc_error(ErrorCode::WorkspaceNotFound, language, None))
+}
+
+/// 起動時の設定をFrontendへ渡す（design-decisions.md 11.1）。
+///
+/// 絶対パスを含まない投影（`UiSettings`）だけを返す。ファイルは起動時に読み終えており、
+/// ここではI/Oを伴わないため同期のcommandとする。
+#[tauri::command]
+pub fn get_ui_settings_command(
+    state: State<'_, AppState>,
+    settings: State<'_, SettingsStore>,
+) -> UiSettings {
+    settings.ui_settings(state.language())
+}
+
+/// Frontendで変わった設定を保存する（design-decisions.md 11.1）。
+///
+/// 書込みはdebounceして別スレッドで行うため、この呼び出しは書込みを待たない。書込みの
+/// 失敗は `ErrorCode::SettingsSaveFailed` としてネイティブダイアログで示す。
+#[tauri::command]
+pub fn update_ui_settings_command(settings: State<'_, SettingsStore>, update: UiSettingsUpdate) {
+    settings.update(update);
 }
 
 #[cfg(test)]
@@ -597,6 +620,29 @@ mod tests {
             ))
             .expect_err("開いていないのに発行が成功した");
             assert_eq!(error.code, ErrorCode::WorkspaceNotFound);
+        }
+
+        /// 設定の取得は現在のUI言語を添え、更新は取得へ反映される（11.1）。
+        #[test]
+        fn ui_settings_are_read_and_updated() {
+            let temp = TempDir::new("settings");
+            let app = mock_app_with_state(LanguagePreference::En);
+            let (store, _) =
+                SettingsStore::open(temp.path().to_owned(), Box::new(|error| panic!("{error}")));
+            app.manage(store);
+
+            update_ui_settings_command(
+                app.state::<SettingsStore>(),
+                UiSettingsUpdate {
+                    sidebar_visible: Some(false),
+                    ..UiSettingsUpdate::default()
+                },
+            );
+            let ui = get_ui_settings_command(app.state::<AppState>(), app.state::<SettingsStore>());
+
+            assert!(!ui.sidebar_visible);
+            assert_eq!(ui.effective_language, Language::En);
+            app.state::<SettingsStore>().flush();
         }
 
         /// UI言語は応答の文言に反映される（10.5）。

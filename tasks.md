@@ -180,7 +180,15 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] Mermaidの図の描画。`mermaid` fenceがある文書でだけMermaidを読み込み、strictと上書きさせない設定（`htmlLabels`、`flowchart`、`themeCSS` を追加）で描画し、生成SVGをDOMPurifyでsanitizeしてから表示する。Mermaid 12が出力するインラインの `style` 属性はCSPを緩めずSVGの表示属性へ移す（実測で決定）。入力サイズ、エッジ数、タイムアウト、同時描画数、1文書の図の数の上限と、テーマ（`forced-colors` を含む）の変更時の再描画を実装した（[design-decisions.md](./docs/design-decisions.md) 5.5、8.4）
 - [x] 文書内検索。`Ctrl+F` / `F3` で開く検索欄を `src/preview/DocumentFind.tsx` へ、本文のDOMから一致の `Range` を集める処理を `src/preview/find-ranges.ts` へ実装し、CSS Custom Highlight APIでハイライトする。ブロック要素の境目をまたぐ一致は出さず、描画後のDOMの入れ替わり（コードハイライト、Mermaid、テーマ変更、文書の差し替え）は `MutationObserver` で探し直す（[design-decisions.md](./docs/design-decisions.md) 8.6）
 - [x] 戻る／進む。表示中の文書を1つのタブの状態（インスタンスID、スコープID、パス、状態、読込世代、履歴）として持つ `src/state/document-tab.ts` を置き、画面全体で1つだった読込世代をタブの `beginLoad` / `isCurrentLoad` へ置き換えた。本文のリンク、見出しへの移動、ツリーからの選択を履歴へ積み、`Alt+←` / `Alt+→` とマウスのサイドボタンで行き来する。戻った先を読めなければ理由を示して履歴から取り除く。タブバーと複数タブはUI/UXの単位で加える（[design-decisions.md](./docs/design-decisions.md) 9.1、9.3）
-- [ ] UI/UX（Titlebar、Breadcrumb、Sidebar、Resizer、PreviewArea、テーマ、キーボード操作）
+- [x] 設定の読み書き（UI/UXの前提）。`src-tauri/src/settings_store.rs` で起動時の読込、読めない設定の退避と既定値での起動（ネイティブダイアログで通知。退避できなければそのセッションは書かない）、一時ファイルとrenameによるdebounce書込み、終了時のflushを実装し、`get_ui_settings_command` / `update_ui_settings_command` を置いた。書込みの失敗は `SettingsSaveFailed` で示す。メインウィンドウとメニューは設定を読んだ後にsetupで作る（[design-decisions.md](./docs/design-decisions.md) 11.1）
+- [ ] 最近使ったフォルダー（不透明なIDとメニュー）、最後のワークスペースの復元、ウィンドウ配置の保存と復元（[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
+- [ ] UI/UX: レイアウト骨格（Sidebar、Resizer、PreviewArea。サイドバー幅と表示状態を設定へ保存）（[design-decisions.md](./docs/design-decisions.md) 10.2）
+- [ ] UI/UX: TreeView（遅延展開、キーボード操作、ARIA）（[design-decisions.md](./docs/design-decisions.md) 6.2、10章）
+- [ ] UI/UX: タブバー（複数タブ、上限と退避、`Ctrl+Tab` / `Ctrl+W`）（[design-decisions.md](./docs/design-decisions.md) 9.1、10章）
+- [ ] UI/UX: Breadcrumbと、メニュー項目の追加（タブを閉じる、サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）
+- [ ] UI/UX: テーマ（System / Light / Dark）、`forced-colors`、Reduced Motion、ウィンドウタイトル
+- [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
+- [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）
 - [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
 - [ ] 文書読込の世代を実装し、置換直後の再読込（[design-decisions.md](./docs/design-decisions.md) 6.5）で先に開始した読込が後から完了しても、新しい内容を古い内容で上書きしないことを、完了順を反転させた回帰テストで固定する。読込の開始から完了までの間に変更イベントが届く順序（A開始 → B変更 → A完了 → B読込開始）と、タブを閉じて同じパスで開き直した後に旧タブの応答が届く順序も併せて固定する
