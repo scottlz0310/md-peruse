@@ -1,8 +1,15 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
-import { issueImageResources, readFile, scanDirectory } from "./ipc/commands";
+import {
+  getUiSettings,
+  issueImageResources,
+  readFile,
+  scanDirectory,
+  updateUiSettings,
+} from "./ipc/commands";
 import { onWorkspaceOpened } from "./ipc/events";
+import { SidebarLayout } from "./layout/SidebarLayout";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
 import { LINK_REJECTION_MESSAGES } from "./preview/link-click";
@@ -20,10 +27,11 @@ import {
 import type { FileContent } from "./types/generated/FileContent";
 import type { FileNode } from "./types/generated/FileNode";
 import type { IpcError } from "./types/generated/IpcError";
+import type { UiSettings } from "./types/generated/UiSettings";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
-// Rust側のcommandとeventを実際に通すための仮の画面である（dev-flow 第6章）。
-// 一覧はツリー（6.2）の実装で、タブバーはタブ（9.1）の実装で置き換える。
+// サイドバーの一覧は仮であり、ツリー（6.2）の実装で置き換える。タブバーはタブ（9.1）の
+// 実装で加える。
 
 type Shown = {
   content: FileContent;
@@ -31,6 +39,9 @@ type Shown = {
 };
 
 export default function App() {
+  // 設定を読むまで描画しない。既定値で描いてから切り替えると、幅が一瞬変わって見える。
+  const [ui, setUi] = useState<UiSettings | null>(null);
+  const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [entries, setEntries] = useState<FileNode[]>([]);
   const [shown, setShown] = useState<Shown | null>(null);
@@ -43,6 +54,14 @@ export default function App() {
   const tabRef = useRef<DocumentTab | null>(null);
   const tabSeqRef = useRef(0);
   const documentRef = useRef<HTMLElement>(null);
+  // 本文のスクロール位置はプレビュー領域が持つ。ウィンドウ全体はスクロールしない。
+  const previewRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    getUiSettings().then(setUi, (reason: unknown) =>
+      setStartupError(String(reason)),
+    );
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -91,7 +110,7 @@ export default function App() {
       (content) => {
         const tab = tabRef.current;
         if (tab === null) return;
-        const done = completeLoad(tab, started.token, intent, window.scrollY);
+        const done = completeLoad(tab, started.token, intent, scrollTop());
         if (done === undefined) return;
         tabRef.current = done.tab;
         setShown({ content, view: done.view });
@@ -108,6 +127,10 @@ export default function App() {
     );
   }
 
+  function scrollTop() {
+    return previewRef.current?.scrollTop ?? 0;
+  }
+
   function open(path: string, anchor: string | null) {
     const tab = tabRef.current;
     if (tab !== null && shown !== null && shown.content.path === path) {
@@ -119,7 +142,7 @@ export default function App() {
 
   function moveWithin(tab: DocumentTab, anchor: string | null) {
     if (shown === null) return;
-    const moved = navigateWithin(tab, anchor, window.scrollY);
+    const moved = navigateWithin(tab, anchor, scrollTop());
     tabRef.current = moved.tab;
     setShown({ content: shown.content, view: moved.view });
     setError(null);
@@ -128,7 +151,7 @@ export default function App() {
   function step(direction: "back" | "forward") {
     const tab = tabRef.current;
     if (tab === null || shown === null) return;
-    const result = stepHistory(tab, direction, window.scrollY);
+    const result = stepHistory(tab, direction, scrollTop());
     if (result === undefined) return;
     if (result.kind === "load") {
       load(result.path, result.intent);
@@ -192,6 +215,15 @@ export default function App() {
     }
   }
 
+  if (startupError !== null) {
+    return (
+      <main className="app">
+        <p role="alert">{startupError}</p>
+      </main>
+    );
+  }
+  if (ui === null) return null;
+
   if (!workspace) {
     return (
       <main className="app">
@@ -202,22 +234,35 @@ export default function App() {
   }
 
   return (
-    <main className="app">
-      <h1>{workspace.label}</h1>
+    <SidebarLayout
+      savedWidth={ui.sidebarWidth}
+      sidebarVisible={ui.sidebarVisible}
+      onWidthCommit={(sidebarWidth) => {
+        updateUiSettings({ sidebarWidth }).catch((reason: unknown) =>
+          setError(String(reason)),
+        );
+      }}
+      previewRef={previewRef}
+      sidebar={
+        <>
+          <h1>{workspace.label}</h1>
+          <ul>
+            {entries.map((node) => (
+              <li key={node.path}>
+                {node.kind === "markdown" ? (
+                  <button type="button" onClick={() => open(node.path, null)}>
+                    {node.name}
+                  </button>
+                ) : (
+                  node.name
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      }
+    >
       {error && <p role="alert">{error}</p>}
-      <ul>
-        {entries.map((node) => (
-          <li key={node.path}>
-            {node.kind === "markdown" ? (
-              <button type="button" onClick={() => open(node.path, null)}>
-                {node.name}
-              </button>
-            ) : (
-              node.name
-            )}
-          </li>
-        ))}
-      </ul>
       {shown && (
         <>
           <DocumentFind root={documentRef} />
@@ -228,9 +273,10 @@ export default function App() {
             view={shown.view}
             onNavigate={navigate}
             issueImages={issueImageResources}
+            scroller={previewRef}
           />
         </>
       )}
-    </main>
+    </SidebarLayout>
   );
 }

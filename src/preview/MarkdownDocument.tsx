@@ -2,6 +2,7 @@ import {
   type MouseEvent,
   type ReactElement,
   type Ref,
+  type RefObject,
   useEffect,
   useState,
 } from "react";
@@ -34,6 +35,8 @@ type Props = {
     documentPath: string,
     references: string[],
   ) => Promise<ImageResource[]>;
+  /** 本文をスクロールさせる要素。戻る／進むで離れたときの位置へ戻す（9.3）。 */
+  scroller: RefObject<HTMLElement | null>;
   /** 本文の要素。文書内検索（8.6）の対象として渡す。 */
   ref?: Ref<HTMLElement>;
 };
@@ -50,6 +53,7 @@ export function MarkdownDocument({
   view,
   onNavigate,
   issueImages,
+  scroller,
   ref,
 }: Props) {
   const [content, setContent] = useState<ReactElement | null>(null);
@@ -73,9 +77,12 @@ export function MarkdownDocument({
   // 見出しへ移動しうる。
   useEffect(() => {
     if (rendered !== text) return;
-    if (view.anchor === null) window.scrollTo(0, view.scrollTop);
-    else document.getElementById(view.anchor)?.scrollIntoView();
-  }, [view, rendered, text]);
+    if (view.anchor === null) {
+      if (scroller.current) scroller.current.scrollTop = view.scrollTop;
+    } else {
+      document.getElementById(view.anchor)?.scrollIntoView();
+    }
+  }, [view, rendered, text, scroller]);
 
   function handleClick(event: MouseEvent<HTMLElement>) {
     const link = linkOf(event);

@@ -13,27 +13,29 @@ import type { ImageResource } from "../types/generated/ImageResource";
 import { MarkdownDocument } from "./MarkdownDocument";
 
 /**
- * `scrollIntoView` と `window.scrollTo` の呼び出しを記録する。happy-domは実際には
- * スクロールしない。
+ * `scrollIntoView` の呼び出しと、スクロール領域の `scrollTop` への書き込みを記録する。
+ * happy-domは実際にはスクロールしない。
  */
 let scrolled: (string | number)[] = [];
 const originalScrollIntoView = Element.prototype.scrollIntoView;
-const originalScrollTo = window.scrollTo;
+
+/** `scrollTop` への書き込みを記録するスクロール領域。 */
+const scroller = {
+  current: Object.defineProperty(document.createElement("main"), "scrollTop", {
+    set: (value: number) => scrolled.push(value),
+  }),
+};
 
 beforeEach(() => {
   scrolled = [];
   Element.prototype.scrollIntoView = function (this: Element) {
     scrolled.push(this.id);
   };
-  window.scrollTo = ((_: number, y: number) => {
-    scrolled.push(y);
-  }) as typeof window.scrollTo;
 });
 
 afterEach(() => {
   cleanup();
   Element.prototype.scrollIntoView = originalScrollIntoView;
-  window.scrollTo = originalScrollTo;
 });
 
 const TOP: ViewTarget = { anchor: null, scrollTop: 0 };
@@ -50,6 +52,7 @@ function mount(
     path: options.path ?? "docs/guide.md",
     onNavigate: (target: LinkTarget) => navigated.push(target),
     issueImages: noImages,
+    scroller,
   };
   const initialView = options.view ?? TOP;
   const rendered = render(
@@ -251,6 +254,7 @@ describe("MarkdownDocument", () => {
         view={TOP}
         onNavigate={() => {}}
         issueImages={issueImages}
+        scroller={scroller}
       />,
     );
 

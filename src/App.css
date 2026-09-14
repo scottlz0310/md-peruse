@@ -41,6 +41,74 @@ body {
   color: var(--color-fg-muted);
 }
 
+/*
+ * サイドバー、境界、プレビュー領域の2ペイン（10.2）。ウィンドウ全体はスクロールさせず、
+ * サイドバーとプレビュー領域がそれぞれスクロールする。幅は `SidebarLayout` が `style` 要素で
+ * `--sidebar-width` へ書く。
+ */
+:root {
+  --color-border: #d1d9e0;
+  --color-sidebar-bg: #f6f8fa;
+  --color-accent: #0969da;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-border: #3d444d;
+    --color-sidebar-bg: #151b23;
+    --color-accent: #4493f8;
+  }
+}
+
+.sidebar-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 4px minmax(0, 1fr);
+  height: 100vh;
+}
+
+.sidebar-layout[data-sidebar="hidden"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.sidebar {
+  overflow: auto;
+  padding: 0.75rem;
+  background-color: var(--color-sidebar-bg);
+}
+
+.sidebar h1 {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+}
+
+.resizer {
+  background-color: var(--color-border);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resizer:hover,
+.resizer:focus-visible {
+  background-color: var(--color-accent);
+  outline: none;
+}
+
+/* 配色が置き換わると境界のフォーカスが見えなくなるため、輪郭で示す。 */
+@media (forced-colors: active) {
+  .resizer {
+    background-color: CanvasText;
+  }
+
+  .resizer:focus-visible {
+    outline: 2px solid Highlight;
+  }
+}
+
+.preview-area {
+  overflow: auto;
+  padding: 2rem;
+}
+
 /* 画像を本文の幅に収める。ピクセル寸法の上限（7.3）までの画像は表示幅を大きく超えうる。 */
 .markdown-body img {
   max-width: 100%;
