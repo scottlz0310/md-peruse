@@ -312,4 +312,11 @@
 - MSIXのタイルへ `Wide310x150Logo` と `Square310x310Logo` を追加し、`BackgroundColor` をアイコンの実測色へ変更。横長タイルはパッケージ工程で原本から直接生成する
 - MSIX環境での動作をスパイクで実測し、設計判断を確定（[design-decisions.md](./docs/design-decisions.md) 5.4、5.5、6.4、11.1、13.4）
 
+### Fixed
+
+- 本文や一覧にフォーカスがあると、メニューのショートカット（`Ctrl+O`）もアクセスキー（`Alt+F`）も効かなかった問題を修正した（[design-decisions.md](./docs/design-decisions.md) 10.1）
+  - WebView2が受け取ったキーをRust側で受け、メニューの割り当てと一致したらメニューの選択と同じ処理を行う。`Alt+英数字` はメニューバーへ渡す
+  - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
+- WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
+
 [Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main

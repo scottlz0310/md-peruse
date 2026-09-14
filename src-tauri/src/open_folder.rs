@@ -28,14 +28,23 @@ use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 pub const WORKSPACE_OPENED_EVENT: &str = "workspace-opened";
 
 /// ダイアログの親にするウィンドウのラベル（`tauri.conf.json` の `app.windows`）。
-const MAIN_WINDOW: &str = "main";
+pub const MAIN_WINDOW: &str = "main";
 
 /// メニューの選択を処理する。
 pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
-    match MenuCommand::from_id(event.id().as_ref()) {
-        Some(MenuCommand::OpenFolder) => pick_and_open(app),
-        Some(MenuCommand::Exit) => app.exit(0),
-        // 載せていないコマンドとアプリが作っていない項目は、選ばれることがない。
+    // アプリが作っていない項目は、選ばれることがない。
+    if let Some(command) = MenuCommand::from_id(event.id().as_ref()) {
+        handle_command(app, command);
+    }
+}
+
+/// コマンドを処理する。メニューの選択と、WebViewにフォーカスがあるときのアクセラレータ
+/// （`crate::webview_keys`）の両方から呼ばれる。
+pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
+    match command {
+        MenuCommand::OpenFolder => pick_and_open(app),
+        MenuCommand::Exit => app.exit(0),
+        // 載せていないコマンドは、選ばれることがない。
         _ => {}
     }
 }
