@@ -14,9 +14,9 @@ import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
 import { LINK_REJECTION_MESSAGES } from "./preview/link-click";
 import { MarkdownDocument } from "./preview/MarkdownDocument";
+import { currentEntry, updateCurrentScroll } from "./state/doc-history";
 import {
   completeLoad,
-  type DocumentTab,
   failLoad,
   type LoadIntent,
   navigateWithin,
@@ -33,15 +33,28 @@ import {
   ROOT_PATH,
   setExpanded,
 } from "./state/file-tree";
+import {
+  activateTab,
+  activeTab,
+  adjacentTabId,
+  closeTab,
+  EMPTY_TAB_SET,
+  type OpenTab,
+  openTab,
+  pinTab,
+  type TabSet,
+  updateTab,
+} from "./state/tab-set";
+import { TabBar, tabElementId } from "./tabs/TabBar";
 import { TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
 import type { IpcError } from "./types/generated/IpcError";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
-// タブバーはタブ（9.1）の実装で加える。
-
+/** アクティブタブに表示している本文。本文DOMはアクティブタブだけが持つ（9.1）。 */
 type Shown = {
+  tabId: string;
   content: FileContent;
   view: ViewTarget;
 };
@@ -52,16 +65,16 @@ export default function App() {
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
+  const [tabs, setTabs] = useState<TabSet>(EMPTY_TAB_SET);
   const [shown, setShown] = useState<Shown | null>(null);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
   // Frontendの文言をそのまま表示する。
   const [error, setError] = useState<string | null>(null);
   // 文書の読込で監視スコープを添えるために持つ。
   const scopeRef = useRef<string | null>(null);
-  // 走査の応答は描画を待たずに最新のツリーの世代と照合するため、ツリーはrefにも持つ（5.3）。
+  // 走査と読込の応答は描画を待たずに最新の状態と照合するため、refにも持つ（5.3、6.5）。
   const treeRef = useRef<FileTree>(tree);
-  // 非同期の応答は描画を待たずに最新のタブと照合するため、タブはrefに持つ。
-  const tabRef = useRef<DocumentTab | null>(null);
+  const tabsRef = useRef<TabSet>(tabs);
   const tabSeqRef = useRef(0);
   const documentRef = useRef<HTMLElement>(null);
   // 本文のスクロール位置はプレビュー領域が持つ。ウィンドウ全体はスクロールしない。
@@ -73,16 +86,17 @@ export default function App() {
     );
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `scan` と `updateTree` はrefだけを読み書きし、描画ごとの値に依存しない。購読は1度でよい。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 呼び出す関数はrefだけを読み書きし、描画ごとの値に依存しない。購読は1度でよい。
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
     onWorkspaceOpened((opened) => {
       scopeRef.current = opened.scopeId;
-      tabRef.current = null;
       setWorkspace(opened);
       setShown(null);
       setError(null);
+      // ワークスペースを切り替えるとタブも破棄する（6.1）。
+      updateTabs(EMPTY_TAB_SET);
       // ワークスペースを開くたびに世代を進めた新しいツリーへ替える（5.3）。
       updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
       scan(ROOT_PATH);
@@ -100,6 +114,11 @@ export default function App() {
   function updateTree(next: FileTree) {
     treeRef.current = next;
     setTree(next);
+  }
+
+  function updateTabs(next: TabSet) {
+    tabsRef.current = next;
+    setTabs(next);
   }
 
   /** フォルダーを走査し、陳腐化していなければ結果をツリーへ反映する。 */
@@ -125,79 +144,233 @@ export default function App() {
     if (expanded && needsScan(treeRef.current, path)) scan(path);
   }
 
-  /**
-   * 文書を読み込んで表示する。読み込めなければ理由を示し、表示中の文書は保つ（7.2の
-   * 「存在しない相対リンクは遷移せず、その場で理由を表示する」）。
-   */
-  function load(path: string, intent: LoadIntent) {
-    const scopeId = scopeRef.current;
-    if (scopeId === null) return;
-    tabSeqRef.current += 1;
-    const started = startLoad(
-      tabRef.current,
-      { tabId: `tab-${tabSeqRef.current}`, scopeId },
-      path,
-    );
-    tabRef.current = started.tab;
-    readFile(path).then(
-      (content) => {
-        const tab = tabRef.current;
-        if (tab === null) return;
-        const done = completeLoad(tab, started.token, intent, scrollTop());
-        if (done === undefined) return;
-        tabRef.current = done.tab;
-        setShown({ content, view: done.view });
-        setError(null);
-      },
-      (reason: IpcError) => {
-        const tab = tabRef.current;
-        if (tab === null) return;
-        const failed = failLoad(tab, started.token, intent);
-        if (failed === undefined) return;
-        tabRef.current = failed.tab;
-        setError(reason.message);
-      },
-    );
-  }
-
   function scrollTop() {
     return previewRef.current?.scrollTop ?? 0;
   }
 
-  function open(path: string, anchor: string | null) {
-    const tab = tabRef.current;
-    if (tab !== null && shown !== null && shown.content.path === path) {
-      moveWithin(tab, anchor);
-      return;
-    }
-    load(path, { kind: "push", path, anchor });
+  function findTab(tabId: string): OpenTab | undefined {
+    return tabsRef.current.tabs.find((tab) => tab.tabId === tabId);
   }
 
-  function moveWithin(tab: DocumentTab, anchor: string | null) {
-    if (shown === null) return;
-    const moved = navigateWithin(tab, anchor, scrollTop());
-    tabRef.current = moved.tab;
-    setShown({ content: shown.content, view: moved.view });
+  function isActive(tabId: string) {
+    return tabsRef.current.activeTabId === tabId;
+  }
+
+  /** アクティブタブを離れる前に、本文のスクロール位置を履歴へ残す（9.3）。 */
+  function saveActiveScroll() {
+    const active = activeTab(tabsRef.current);
+    if (!active || shown?.tabId !== active.tabId) return;
+    const top = scrollTop();
+    updateTabs(
+      updateTab(tabsRef.current, active.tabId, (tab) => ({
+        ...tab,
+        history: updateCurrentScroll(tab.history, top),
+      })),
+    );
+  }
+
+  /**
+   * タブへ文書を読み込む。読み込めなければ理由を示し、表示中の文書は保つ（7.2の
+   * 「存在しない相対リンクは遷移せず、その場で理由を表示する」）。最初の読込に失敗した
+   * タブは閉じる。
+   */
+  function load(
+    tabId: string,
+    path: string,
+    intent: LoadIntent,
+    // 表示中のエラーを成功時に消さない。閉じたタブの失敗理由を、代わりに表示する
+    // タブの読込で消さないために使う。
+    keepError = false,
+  ) {
+    const scopeId = scopeRef.current;
+    const tab = findTab(tabId);
+    if (scopeId === null || tab === undefined) return;
+    const started = startLoad(tab, { tabId, scopeId }, path);
+    updateTabs(
+      updateTab(tabsRef.current, tabId, (current) => ({
+        ...current,
+        ...started.tab,
+      })),
+    );
+    readFile(path).then(
+      (content) => {
+        const current = findTab(tabId);
+        if (current === undefined) return;
+        // 読込を待つ間に離れたタブでは、離れたときに残した位置を使う。
+        const leftAt = isActive(tabId)
+          ? scrollTop()
+          : (currentEntry(current.history)?.scrollTop ?? 0);
+        const done = completeLoad(current, started.token, intent, leftAt);
+        if (done === undefined) return;
+        updateTabs(
+          updateTab(tabsRef.current, tabId, (latest) => ({
+            ...latest,
+            ...done.tab,
+          })),
+        );
+        if (isActive(tabId)) {
+          setShown({ tabId, content, view: done.view });
+          if (!keepError) setError(null);
+        }
+      },
+      (reason: IpcError) => {
+        const current = findTab(tabId);
+        if (current === undefined) return;
+        const failed = failLoad(current, started.token, intent);
+        if (failed === undefined) return;
+        const wasActive = isActive(tabId);
+        if (failed.tab === null) {
+          updateTabs(closeTab(tabsRef.current, tabId, Date.now()));
+          if (wasActive) showActive(true);
+        } else {
+          const next = failed.tab;
+          updateTabs(
+            updateTab(tabsRef.current, tabId, (latest) => ({
+              ...latest,
+              ...next,
+            })),
+          );
+        }
+        if (wasActive) setError(reason.message);
+      },
+    );
+  }
+
+  /**
+   * アクティブタブの現在の文書を表示する。非アクティブタブは本文を持たないため、切り替えの
+   * たびに読み直し、離れたときのスクロール位置へ戻す（9.1、9.3）。
+   */
+  function showActive(keepError = false) {
+    const active = activeTab(tabsRef.current);
+    if (!active) {
+      setShown(null);
+      return;
+    }
+    const entry = currentEntry(active.history);
+    // 最初の読込を待っているタブは、その完了で表示される。
+    if (entry === undefined) return;
+    load(
+      active.tabId,
+      entry.path,
+      { kind: "history", index: active.history.index },
+      keepError,
+    );
+  }
+
+  function nextTabId() {
+    tabSeqRef.current += 1;
+    return `tab-${tabSeqRef.current}`;
+  }
+
+  /** ツリーから文書を開く。シングルクリックはプレビュー、`Enter` とダブルクリックは固定。 */
+  function openFromTree(path: string, preview: boolean) {
+    const scopeId = scopeRef.current;
+    if (scopeId === null) return;
+    const before = tabsRef.current.activeTabId;
+    saveActiveScroll();
+    const result = openTab(tabsRef.current, {
+      path,
+      preview,
+      now: Date.now(),
+      fresh: { tabId: nextTabId(), scopeId },
+    });
+    updateTabs(result.set);
+    setError(null);
+    if (result.opened) {
+      load(result.opened.tabId, path, { kind: "push", path, anchor: null });
+    } else if (result.set.activeTabId !== before) {
+      showActive();
+    }
+  }
+
+  function activate(tabId: string) {
+    if (isActive(tabId)) return;
+    saveActiveScroll();
+    updateTabs(activateTab(tabsRef.current, tabId, Date.now()));
+    setError(null);
+    showActive();
+  }
+
+  function close(tabId: string) {
+    const wasActive = isActive(tabId);
+    updateTabs(closeTab(tabsRef.current, tabId, Date.now()));
+    if (wasActive) {
+      setError(null);
+      showActive();
+    }
+  }
+
+  /** タブの中で表示を変える操作は、プレビュータブを固定する。 */
+  function pinActive() {
+    const active = activeTab(tabsRef.current);
+    if (active) updateTabs(pinTab(tabsRef.current, active.tabId));
+  }
+
+  /** 本文のリンクで別の文書を開く。既に別のタブで開いていればそのタブへ切り替える（9.3）。 */
+  function openLink(path: string, anchor: string | null) {
+    const active = activeTab(tabsRef.current);
+    if (!active) return;
+    if (shown?.tabId === active.tabId && shown.content.path === path) {
+      moveWithin(anchor);
+      return;
+    }
+    const other = tabsRef.current.tabs.find((tab) => tab.path === path);
+    if (other) {
+      activate(other.tabId);
+      return;
+    }
+    pinActive();
+    load(active.tabId, path, { kind: "push", path, anchor });
+  }
+
+  function moveWithin(anchor: string | null) {
+    const active = activeTab(tabsRef.current);
+    if (!active || shown?.tabId !== active.tabId) return;
+    const moved = navigateWithin(active, anchor, scrollTop());
+    updateTabs(
+      pinTab(
+        updateTab(tabsRef.current, active.tabId, (tab) => ({
+          ...tab,
+          ...moved.tab,
+        })),
+        active.tabId,
+      ),
+    );
+    setShown({ ...shown, view: moved.view });
     setError(null);
   }
 
   function step(direction: "back" | "forward") {
-    const tab = tabRef.current;
-    if (tab === null || shown === null) return;
-    const result = stepHistory(tab, direction, scrollTop());
+    const active = activeTab(tabsRef.current);
+    if (!active || shown?.tabId !== active.tabId) return;
+    const result = stepHistory(active, direction, scrollTop());
     if (result === undefined) return;
     if (result.kind === "load") {
-      load(result.path, result.intent);
+      load(active.tabId, result.path, result.intent);
       return;
     }
-    tabRef.current = result.tab;
-    setShown({ content: shown.content, view: result.view });
+    const next = result.tab;
+    updateTabs(
+      updateTab(tabsRef.current, active.tabId, (tab) => ({ ...tab, ...next })),
+    );
+    setShown({ ...shown, view: result.view });
     setError(null);
   }
 
   // WebViewの履歴は空のまま保ち、`Alt+←` とマウスのサイドボタンを自前の履歴へつなぐ（9.3）。
+  // タブの移動（`Ctrl+Tab` / `Ctrl+Shift+Tab`）もメニュー項目を持たずWebView内で扱う（10.1）。
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.ctrlKey && !event.altKey && !event.metaKey) {
+        if (event.key !== "Tab") return;
+        event.preventDefault();
+        const next = adjacentTabId(
+          tabsRef.current,
+          event.shiftKey ? "previous" : "next",
+        );
+        if (next) activate(next);
+        return;
+      }
       if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) {
         return;
       }
@@ -228,13 +401,11 @@ export default function App() {
 
   function navigate(target: LinkTarget) {
     switch (target.kind) {
-      case "anchor": {
-        const tab = tabRef.current;
-        if (tab !== null) moveWithin(tab, target.elementId);
+      case "anchor":
+        moveWithin(target.elementId);
         return;
-      }
       case "document":
-        open(target.path, target.elementId);
+        openLink(target.path, target.elementId);
         return;
       case "external":
         // opener の権限は `http` と `https` に限ってある（5.5）。
@@ -266,6 +437,10 @@ export default function App() {
     );
   }
 
+  const active = activeTab(tabs);
+  const visible =
+    shown !== null && shown.tabId === active?.tabId ? shown : null;
+
   return (
     <SidebarLayout
       savedWidth={ui.sidebarWidth}
@@ -281,22 +456,33 @@ export default function App() {
           <h1>{workspace.label}</h1>
           <TreeView
             tree={tree}
-            selectedPath={shown?.content.path ?? null}
+            selectedPath={active?.path ?? null}
             onToggle={toggleDirectory}
-            onOpen={(path) => open(path, null)}
+            onOpen={openFromTree}
           />
         </>
       }
+      previewHeader={
+        tabs.tabs.length > 0 && (
+          <TabBar
+            set={tabs}
+            onActivate={activate}
+            onClose={close}
+            onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
+          />
+        )
+      }
+      previewLabelledBy={active ? tabElementId(active.tabId) : undefined}
     >
       {error && <p role="alert">{error}</p>}
-      {shown && (
+      {visible && (
         <>
           <DocumentFind root={documentRef} />
           <MarkdownDocument
             ref={documentRef}
-            text={shown.content.text}
-            path={shown.content.path}
-            view={shown.view}
+            text={visible.content.text}
+            path={visible.content.path}
+            view={visible.view}
             onNavigate={navigate}
             issueImages={issueImageResources}
             scroller={previewRef}

@@ -184,8 +184,9 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 最近使ったフォルダー（不透明なIDとメニュー）、最後のワークスペースの復元、ウィンドウ配置の保存と復元（[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
 - [x] UI/UX: レイアウト骨格。`src/layout/SidebarLayout.tsx` でサイドバー、境界、プレビュー領域の2ペインを置き、起動時に設定を読んでから描画する。幅は保存値と実効値を分けて持ち、キー操作（`←` / `→`、`Shift`、`Home` / `End`）とドラッグで変えて設定へ保存する。プレビュー領域を独立したスクロール領域にし、戻る／進むのスクロール位置をその `scrollTop` へ移した。表示状態は読んで反映するだけで、切り替えはメニュー項目の単位で加える（[design-decisions.md](./docs/design-decisions.md) 9.3、10.2、11.1）
 - [x] UI/UX: TreeView。`src/state/file-tree.ts` にツリーの状態（取得状態、展開、走査の2層世代）を、`src/tree/TreeView.tsx` にWAI-ARIAのtreeパターンによる表示とキー操作を置き、サイドバーの仮の一覧を置き換えた。フォルダーは展開したときに走査し、失敗はそのフォルダーの中に示す。`hasChildren: false` のフォルダーは展開矢印を出さない（[design-decisions.md](./docs/design-decisions.md) 5.3、6.2、10章）
-- [ ] UI/UX: タブバー（複数タブ、上限と退避、`Ctrl+Tab` / `Ctrl+W`）（[design-decisions.md](./docs/design-decisions.md) 9.1、10章）
-- [ ] UI/UX: Breadcrumbと、メニュー項目の追加（タブを閉じる、サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）
+- [x] UI/UX: タブバー。`src/state/tab-set.ts`（プレビュータブ、固定、重複の回避、上限と退避、閉じたときの隣の選択）と `src/tabs/TabBar.tsx`（tabsパターン、閉じるボタン、中クリック、ダブルクリックで固定）を置き、`Ctrl+Tab` / `Ctrl+Shift+Tab` でタブを移る。ツリーはシングルクリックと `Space` でプレビュー、ダブルクリックと `Enter` で固定タブとして開く（[design-decisions.md](./docs/design-decisions.md) 9.1、9.3、10章）
+- [ ] UI/UX: 「タブを閉じる」のメニュー項目と `Ctrl+W`。Rust側のメニューコマンドをFrontendへ渡すeventの経路を作る（[design-decisions.md](./docs/design-decisions.md) 10.1）
+- [ ] UI/UX: Breadcrumbと、メニュー項目の追加（サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）
 - [ ] UI/UX: テーマ（System / Light / Dark）、`forced-colors`、Reduced Motion、ウィンドウタイトル
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）

@@ -8,6 +8,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import App from "./App";
 import type { FileContent } from "./types/generated/FileContent";
@@ -523,7 +524,7 @@ describe("App", () => {
       });
       // 同じ文書をツリーから選んでも読み直さない。
       await act(async () => {
-        screen.getByText("README.md").click();
+        within(screen.getByRole("tree")).getByText("README.md").click();
       });
 
       const back = new KeyboardEvent("keydown", {
@@ -537,6 +538,129 @@ describe("App", () => {
 
       expect(back.defaultPrevented).toBe(true);
       expect(requested).toEqual(["README.md"]);
+    });
+  });
+
+  describe("タブ（9.1）", () => {
+    const TWO_FILES: ScanResult = {
+      path: "",
+      entries: ["a.md", "b.md"].map((name) => ({
+        path: name,
+        name,
+        kind: "markdown" as const,
+        hasChildren: null,
+      })),
+    };
+
+    /** 2つのファイルがあるワークスペースを開き、読込の順を記録する。 */
+    async function openTwoFiles(
+      text: (path: string) => string = (path) => `## ${path}\n`,
+    ) {
+      const requested: string[] = [];
+      mockBackend({
+        scan: () => TWO_FILES,
+        read: (path) => {
+          requested.push(path);
+          return fileContent(path, text(path));
+        },
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+      );
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => screen.getByRole("tree"));
+      return requested;
+    }
+
+    const treeItem = (name: string) =>
+      within(screen.getByRole("tree")).getByText(name);
+    const tabNames = () =>
+      screen
+        .queryAllByRole("tab")
+        .map(
+          (tab) =>
+            `${tab.querySelector(".tab-title")?.textContent}${tab.classList.contains("tab-preview") ? "(preview)" : ""}`,
+        );
+    const heading = () =>
+      screen.queryByRole("heading", { level: 2 })?.textContent;
+
+    test("シングルクリックはプレビュータブを差し替え、ダブルクリックで固定する", async () => {
+      await openTwoFiles();
+
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 1 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 1 }));
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      expect(tabNames()).toEqual(["b.md(preview)"]);
+
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 2 }));
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 1 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+
+      expect(tabNames()).toEqual(["b.md", "a.md(preview)"]);
+      expect(screen.getByRole("tabpanel").getAttribute("aria-labelledby")).toBe(
+        screen
+          .getAllByRole("tab")
+          .find((tab) => tab.getAttribute("aria-selected") === "true")?.id ??
+          null,
+      );
+    });
+
+    test("プレビュータブの中でリンクをたどると固定する", async () => {
+      await openTwoFiles((path) =>
+        path === "a.md" ? "[次へ](b.md)\n" : "## b.md\n",
+      );
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 1 }));
+      const link = await waitFor(() =>
+        screen.getByRole("link", { name: "次へ" }),
+      );
+
+      await act(async () => link.click());
+
+      await waitFor(() => expect(heading()).toBe("b.md"));
+      expect(tabNames()).toEqual(["b.md"]);
+    });
+
+    test("タブを切り替えると読み直し、閉じると隣のタブを表示する", async () => {
+      const requested = await openTwoFiles();
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("b.md"));
+
+      // `Ctrl+Tab` は次のタブへ（端では先頭へ回る）。
+      const next = new KeyboardEvent("keydown", {
+        key: "Tab",
+        ctrlKey: true,
+        cancelable: true,
+      });
+      await act(async () => {
+        window.dispatchEvent(next);
+      });
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      expect(next.defaultPrevented).toBe(true);
+
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: "a.md を閉じる" })),
+      );
+      await waitFor(() => expect(heading()).toBe("b.md"));
+
+      expect(tabNames()).toEqual(["b.md"]);
+      expect(requested).toEqual(["a.md", "b.md", "a.md", "b.md"]);
+    });
+
+    test("最後のタブを閉じると本文を表示しない", async () => {
+      await openTwoFiles();
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 1 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+
+      await act(async () =>
+        fireEvent.click(screen.getByRole("button", { name: "a.md を閉じる" })),
+      );
+
+      expect(screen.queryByRole("tablist")).toBeNull();
+      expect(heading()).toBeUndefined();
     });
   });
 

@@ -25,6 +25,10 @@ type Props = {
    */
   onWidthCommit: (width: number) => void;
   sidebar: ReactNode;
+  /** プレビュー領域の上に置き、本文と一緒にスクロールさせない要素（タブバー）。 */
+  previewHeader?: ReactNode;
+  /** プレビュー領域を `tabpanel` として示すときの、対応するタブの要素ID。 */
+  previewLabelledBy?: string;
   /** プレビュー領域の中身。 */
   children: ReactNode;
   /** プレビュー領域の要素。スクロール位置の読み書き（9.3）に使う。 */
@@ -47,6 +51,8 @@ export function SidebarLayout({
   sidebar,
   children,
   previewRef,
+  previewHeader,
+  previewLabelledBy,
 }: Props) {
   const [width, setWidth] = useState(savedWidth);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
@@ -146,9 +152,17 @@ export function SidebarLayout({
           />
         </>
       )}
-      <main ref={previewRef} className="preview-area">
-        {children}
-      </main>
+      <div className="preview-column">
+        {previewHeader}
+        <main
+          ref={previewRef}
+          className="preview-area"
+          role={previewLabelledBy ? "tabpanel" : undefined}
+          aria-labelledby={previewLabelledBy}
+        >
+          {children}
+        </main>
+      </div>
     </div>
   );
 }
