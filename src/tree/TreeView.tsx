@@ -14,8 +14,11 @@ type Props = {
   selectedPath: string | null;
   /** フォルダーを展開する・畳む。展開したときの走査は呼び出し側が行う。 */
   onToggle: (path: string, expanded: boolean) => void;
-  /** Markdownファイルを開く。 */
-  onOpen: (path: string) => void;
+  /**
+   * Markdownファイルを開く。`preview` はプレビュータブで開くか（9.1）。シングルクリックと
+   * `Space` はプレビュー、ダブルクリックと `Enter` は固定タブで開く。
+   */
+  onOpen: (path: string, preview: boolean) => void;
 };
 
 /**
@@ -23,7 +26,7 @@ type Props = {
  *
  * WAI-ARIAのtreeパターンに従い、フォーカスは1つの項目だけが持つ（roving tabindex）。
  * 矢印で移動し、`→` で展開または最初の子へ、`←` で畳むか親へ移る。`Home` / `End` で先頭と
- * 末尾へ、`Enter` でフォルダーの開閉とファイルを開く操作を行う。
+ * 末尾へ、`Enter` と `Space` でフォルダーの開閉とファイルを開く操作を行う。
  */
 export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
@@ -36,11 +39,11 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
     items.current.get(path)?.focus();
   }
 
-  function activate(node: FileNode) {
+  function activate(node: FileNode, preview: boolean) {
     if (isExpandable(node)) {
       onToggle(node.path, !tree.expanded.has(node.path));
     } else if (node.kind === "markdown") {
-      onOpen(node.path);
+      onOpen(node.path, preview);
     }
   }
 
@@ -94,7 +97,10 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
         else if (parent !== ROOT_PATH) focus(parent);
         break;
       case "Enter":
-        activate(node);
+        activate(node, false);
+        break;
+      case " ":
+        activate(node, true);
         break;
       default:
         return;
@@ -144,9 +150,15 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
           {/* biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: 行はマウス操作の受け口であり、操作対象は `treeitem` である。キー操作は `role="tree"` の要素がまとめて受ける（WAI-ARIAのtreeパターン）。 */}
           <div
             className="tree-row"
-            onClick={() => {
+            onClick={(event) => {
               focus(node.path);
-              activate(node);
+              // ダブルクリックは1回目のクリックでプレビューとして開いた後に届く。
+              // フォルダーでは開閉を2回繰り返さず、ファイルでは固定する。
+              if (event.detail >= 2) {
+                if (node.kind === "markdown") onOpen(node.path, false);
+                return;
+              }
+              activate(node, true);
             }}
           >
             <span className="tree-toggle" aria-hidden="true">

@@ -45,13 +45,13 @@ function sampleTree(): FileTree {
 
 function mount(tree: FileTree, selectedPath: string | null = null) {
   const toggled: [string, boolean][] = [];
-  const opened: string[] = [];
+  const opened: [string, boolean][] = [];
   render(
     <TreeView
       tree={tree}
       selectedPath={selectedPath}
       onToggle={(path, expanded) => toggled.push([path, expanded])}
-      onOpen={(path) => opened.push(path)}
+      onOpen={(path, preview) => opened.push([path, preview])}
     />,
   );
   return { toggled, opened };
@@ -106,7 +106,10 @@ describe("TreeView", () => {
     ["ArrowRight", "empty", [["empty", true]], []],
     ["ArrowLeft", "docs guide.md", [["docs", false]], []],
     ["Enter", "empty", [["empty", true]], []],
-    ["Enter", "README.md", [], ["README.md"]],
+    [" ", "empty", [["empty", true]], []],
+    // `Enter` は固定タブ、`Space` はプレビュータブで開く（9.1）。
+    ["Enter", "README.md", [], [["README.md", false]]],
+    [" ", "README.md", [], [["README.md", true]]],
     // ファイルの `→` とルート直下の `←` は何もしない。
     ["ArrowRight", "README.md", [], []],
     ["ArrowLeft", "README.md", [], []],
@@ -118,7 +121,7 @@ describe("TreeView", () => {
     fireEvent.keyDown(target, { key });
 
     expect(calls.toggled).toEqual(toggled as [string, boolean][]);
-    expect(calls.opened).toEqual(opened);
+    expect(calls.opened).toEqual(opened as [string, boolean][]);
   });
 
   test("子を持たないフォルダーは展開矢印を出さず、展開の操作を受けない（6.2）", () => {
@@ -146,15 +149,31 @@ describe("TreeView", () => {
     expect(fireEvent.keyDown(target, { key: "Tab" })).toBe(true);
   });
 
-  test("クリックでフォルダーを開閉し、ファイルを開く", () => {
+  test("クリックでフォルダーを開閉し、ファイルをプレビューで開く", () => {
     const calls = mount(sampleTree());
 
     fireEvent.click(screen.getByText("docs"));
     fireEvent.click(screen.getByText("README.md"));
 
     expect(calls.toggled).toEqual([["docs", false]]);
-    expect(calls.opened).toEqual(["README.md"]);
+    expect(calls.opened).toEqual([["README.md", true]]);
     expect(document.activeElement).toBe(item("README.md"));
+  });
+
+  test("ダブルクリックはファイルを固定で開き、フォルダーの開閉を繰り返さない", () => {
+    const calls = mount(sampleTree());
+
+    // ブラウザーは1回目のクリック（detail 1）の後に detail 2 のクリックを送る。
+    for (const name of ["empty", "README.md"]) {
+      fireEvent.click(screen.getByText(name), { detail: 1 });
+      fireEvent.click(screen.getByText(name), { detail: 2 });
+    }
+
+    expect(calls.toggled).toEqual([["empty", true]]);
+    expect(calls.opened).toEqual([
+      ["README.md", true],
+      ["README.md", false],
+    ]);
   });
 
   test("畳まれて見えなくなった項目のフォーカスは、見えている親へ移す", () => {
