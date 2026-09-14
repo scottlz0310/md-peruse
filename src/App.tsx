@@ -24,14 +24,22 @@ import {
   stepHistory,
   type ViewTarget,
 } from "./state/document-tab";
+import {
+  applyScanResult,
+  beginScan,
+  createFileTree,
+  type FileTree,
+  needsScan,
+  ROOT_PATH,
+  setExpanded,
+} from "./state/file-tree";
+import { TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
-import type { FileNode } from "./types/generated/FileNode";
 import type { IpcError } from "./types/generated/IpcError";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
-// サイドバーの一覧は仮であり、ツリー（6.2）の実装で置き換える。タブバーはタブ（9.1）の
-// 実装で加える。
+// タブバーはタブ（9.1）の実装で加える。
 
 type Shown = {
   content: FileContent;
@@ -43,13 +51,15 @@ export default function App() {
   const [ui, setUi] = useState<UiSettings | null>(null);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
-  const [entries, setEntries] = useState<FileNode[]>([]);
+  const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
   const [shown, setShown] = useState<Shown | null>(null);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
   // Frontendの文言をそのまま表示する。
   const [error, setError] = useState<string | null>(null);
-  // 応答が届いた時点のスコープと照合し、切り替え前の要求の応答を捨てる（5.3）。
+  // 文書の読込で監視スコープを添えるために持つ。
   const scopeRef = useRef<string | null>(null);
+  // 走査の応答は描画を待たずに最新のツリーの世代と照合するため、ツリーはrefにも持つ（5.3）。
+  const treeRef = useRef<FileTree>(tree);
   // 非同期の応答は描画を待たずに最新のタブと照合するため、タブはrefに持つ。
   const tabRef = useRef<DocumentTab | null>(null);
   const tabSeqRef = useRef(0);
@@ -63,6 +73,7 @@ export default function App() {
     );
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `scan` と `updateTree` はrefだけを読み書きし、描画ごとの値に依存しない。購読は1度でよい。
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
@@ -70,17 +81,11 @@ export default function App() {
       scopeRef.current = opened.scopeId;
       tabRef.current = null;
       setWorkspace(opened);
-      setEntries([]);
       setShown(null);
       setError(null);
-      scanDirectory("").then(
-        (result) => {
-          if (scopeRef.current === opened.scopeId) setEntries(result.entries);
-        },
-        (reason: IpcError) => {
-          if (scopeRef.current === opened.scopeId) setError(reason.message);
-        },
-      );
+      // ワークスペースを開くたびに世代を進めた新しいツリーへ替える（5.3）。
+      updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
+      scan(ROOT_PATH);
     }).then((stop) => {
       // StrictModeでは購読の完了前に片付けが走る。そのときは直ちに解除する。
       if (disposed) stop();
@@ -91,6 +96,34 @@ export default function App() {
       unlisten?.();
     };
   }, []);
+
+  function updateTree(next: FileTree) {
+    treeRef.current = next;
+    setTree(next);
+  }
+
+  /** フォルダーを走査し、陳腐化していなければ結果をツリーへ反映する。 */
+  function scan(path: string) {
+    const started = beginScan(treeRef.current, path);
+    updateTree(started.tree);
+    scanDirectory(path).then(
+      (result) => {
+        const next = applyScanResult(treeRef.current, started.token, result);
+        if (next) updateTree(next);
+      },
+      (reason: IpcError) => {
+        const next = applyScanResult(treeRef.current, started.token, {
+          message: reason.message,
+        });
+        if (next) updateTree(next);
+      },
+    );
+  }
+
+  function toggleDirectory(path: string, expanded: boolean) {
+    updateTree(setExpanded(treeRef.current, path, expanded));
+    if (expanded && needsScan(treeRef.current, path)) scan(path);
+  }
 
   /**
    * 文書を読み込んで表示する。読み込めなければ理由を示し、表示中の文書は保つ（7.2の
@@ -246,19 +279,12 @@ export default function App() {
       sidebar={
         <>
           <h1>{workspace.label}</h1>
-          <ul>
-            {entries.map((node) => (
-              <li key={node.path}>
-                {node.kind === "markdown" ? (
-                  <button type="button" onClick={() => open(node.path, null)}>
-                    {node.name}
-                  </button>
-                ) : (
-                  node.name
-                )}
-              </li>
-            ))}
-          </ul>
+          <TreeView
+            tree={tree}
+            selectedPath={shown?.content.path ?? null}
+            onToggle={toggleDirectory}
+            onOpen={(path) => open(path, null)}
+          />
         </>
       }
     >

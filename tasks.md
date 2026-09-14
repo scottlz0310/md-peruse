@@ -183,13 +183,13 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] 設定の読み書き（UI/UXの前提）。`src-tauri/src/settings_store.rs` で起動時の読込、読めない設定の退避と既定値での起動（ネイティブダイアログで通知。退避できなければそのセッションは書かない）、一時ファイルとrenameによるdebounce書込み、終了時のflushを実装し、`get_ui_settings_command` / `update_ui_settings_command` を置いた。書込みの失敗は `SettingsSaveFailed` で示す。メインウィンドウとメニューは設定を読んだ後にsetupで作る（[design-decisions.md](./docs/design-decisions.md) 11.1）
 - [ ] 最近使ったフォルダー（不透明なIDとメニュー）、最後のワークスペースの復元、ウィンドウ配置の保存と復元（[design-decisions.md](./docs/design-decisions.md) 9.2、11.1）
 - [x] UI/UX: レイアウト骨格。`src/layout/SidebarLayout.tsx` でサイドバー、境界、プレビュー領域の2ペインを置き、起動時に設定を読んでから描画する。幅は保存値と実効値を分けて持ち、キー操作（`←` / `→`、`Shift`、`Home` / `End`）とドラッグで変えて設定へ保存する。プレビュー領域を独立したスクロール領域にし、戻る／進むのスクロール位置をその `scrollTop` へ移した。表示状態は読んで反映するだけで、切り替えはメニュー項目の単位で加える（[design-decisions.md](./docs/design-decisions.md) 9.3、10.2、11.1）
-- [ ] UI/UX: TreeView（遅延展開、キーボード操作、ARIA）（[design-decisions.md](./docs/design-decisions.md) 6.2、10章）
+- [x] UI/UX: TreeView。`src/state/file-tree.ts` にツリーの状態（取得状態、展開、走査の2層世代）を、`src/tree/TreeView.tsx` にWAI-ARIAのtreeパターンによる表示とキー操作を置き、サイドバーの仮の一覧を置き換えた。フォルダーは展開したときに走査し、失敗はそのフォルダーの中に示す。`hasChildren: false` のフォルダーは展開矢印を出さない（[design-decisions.md](./docs/design-decisions.md) 5.3、6.2、10章）
 - [ ] UI/UX: タブバー（複数タブ、上限と退避、`Ctrl+Tab` / `Ctrl+W`）（[design-decisions.md](./docs/design-decisions.md) 9.1、10章）
 - [ ] UI/UX: Breadcrumbと、メニュー項目の追加（タブを閉じる、サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）
 - [ ] UI/UX: テーマ（System / Light / Dark）、`forced-colors`、Reduced Motion、ウィンドウタイトル
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）
-- [ ] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）
+- [x] 走査応答の世代管理（ワークスペース世代とパス世代）を実装し、同一パスの再走査・別パスの同時走査・ワークスペース切替の競合をテストで固定する（[design-decisions.md](./docs/design-decisions.md) 5.3）。`src/state/file-tree.test.ts` で固定した。監視の `DirectoryChanged` による再走査は、監視イベントをFrontendへつなぐ単位で同じ仕組みに載せる
 - [ ] 監視スコープ（`scopeId`）の採番と破棄を実装し、暗黙のルートが異なる同名のloose tabへイベントが混入しないこと、ワークスペース切替の直前に送出された旧Watcherのイベントが新しいルートへ適用されないことをテストで固定する（[design-decisions.md](./docs/design-decisions.md) 6.4）
 - [ ] 文書読込の世代を実装し、置換直後の再読込（[design-decisions.md](./docs/design-decisions.md) 6.5）で先に開始した読込が後から完了しても、新しい内容を古い内容で上書きしないことを、完了順を反転させた回帰テストで固定する。読込の開始から完了までの間に変更イベントが届く順序（A開始 → B変更 → A完了 → B読込開始）と、タブを閉じて同じパスで開き直した後に旧タブの応答が届く順序も併せて固定する
 - [ ] `notify` のイベントを `watch::RawEvent` へ写像する処理とdebounce窓の時間管理を実装し、実ファイルに対するatomic replaceで開いているタブが `deleted` にならず再読込されることを、MSIX環境の実測列と突き合わせて確認する（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5）

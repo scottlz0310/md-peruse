@@ -77,7 +77,7 @@ async function openReadme() {
   await openWorkspace({ scopeId: "scope-1", label: "docs" });
   await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
   await act(async () => {
-    screen.getByRole("button", { name: "README.md" }).click();
+    screen.getByText("README.md").click();
   });
 }
 
@@ -177,7 +177,7 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
 
     await act(async () => {
-      screen.getByRole("button", { name: "README.md" }).click();
+      screen.getByText("README.md").click();
     });
 
     await waitFor(() =>
@@ -187,19 +187,37 @@ describe("App", () => {
     );
   });
 
-  test("走査の失敗は文言を表示する", async () => {
+  test("走査の失敗はツリーの該当する位置に文言を表示する（6.2）", async () => {
     const failure: IpcError = {
       code: "directoryAccessDenied",
       message: "このフォルダーへアクセスできません。",
       detail: null,
     };
-    mockBackend({ scan: () => Promise.reject(failure) });
+    const scanned: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return path === "" ? ROOT : Promise.reject(failure);
+      },
+    });
     render(<App />);
-    await openWorkspace({ scopeId: "scope-1", label: "docs" });
-
     await waitFor(() =>
-      expect(screen.getByRole("alert").textContent).toBe(failure.message),
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
     );
+    await openWorkspace({ scopeId: "scope-1", label: "root" });
+
+    // フォルダーは展開したときに初めて走査する。
+    const docs = await waitFor(() => screen.getByText("docs"));
+    expect(scanned).toEqual([""]);
+    await act(async () => {
+      docs.click();
+    });
+
+    const group = await waitFor(() => screen.getByRole("group"));
+    await waitFor(() => expect(group.textContent).toBe(failure.message));
+    expect(scanned).toEqual(["", "docs"]);
+    // ツリー全体の失敗にはしない。
+    expect(screen.getByText("README.md")).toBeTruthy();
   });
 
   test("切り替える前に要求した走査の応答は反映しない", async () => {
@@ -352,11 +370,11 @@ describe("App", () => {
     await waitFor(() => expect(screen.getByText("slow.md")).toBeTruthy());
 
     await act(async () => {
-      screen.getByRole("button", { name: "slow.md" }).click();
+      screen.getByText("slow.md").click();
     });
     const pendingSlow = releaseSlow;
     await act(async () => {
-      screen.getByRole("button", { name: "fast.md" }).click();
+      screen.getByText("fast.md").click();
     });
     await waitFor(() =>
       expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
@@ -505,7 +523,7 @@ describe("App", () => {
       });
       // 同じ文書をツリーから選んでも読み直さない。
       await act(async () => {
-        screen.getByRole("button", { name: "README.md" }).click();
+        screen.getByText("README.md").click();
       });
 
       const back = new KeyboardEvent("keydown", {

@@ -109,6 +109,75 @@ body {
   padding: 2rem;
 }
 
+/* ファイルツリー（6.2、10章）。階層は `ul` の入れ子の余白で示す。 */
+.tree,
+.tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tree ul {
+  padding-inline-start: 1rem;
+}
+
+.tree [role="treeitem"] {
+  outline: none;
+}
+
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tree-row:hover {
+  background-color: var(--color-border);
+}
+
+.tree [aria-selected="true"] > .tree-row {
+  background-color: var(--color-border);
+  color: var(--color-accent);
+}
+
+.tree [role="treeitem"]:focus-visible > .tree-row {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.tree-toggle {
+  flex: none;
+  width: 1em;
+  color: var(--color-fg-muted);
+  text-align: center;
+}
+
+.tree-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-status {
+  padding: 0.125rem 0.25rem 0.125rem 1.5rem;
+  color: var(--color-fg-muted);
+}
+
+/* 配色が置き換わると選択とフォーカスが見えなくなるため、システムカラーで示す。 */
+@media (forced-colors: active) {
+  .tree [aria-selected="true"] > .tree-row {
+    background-color: Highlight;
+    color: HighlightText;
+  }
+
+  .tree [role="treeitem"]:focus-visible > .tree-row {
+    outline-color: CanvasText;
+  }
+}
+
 /* 画像を本文の幅に収める。ピクセル寸法の上限（7.3）までの画像は表示幅を大きく超えうる。 */
 .markdown-body img {
   max-width: 100%;
