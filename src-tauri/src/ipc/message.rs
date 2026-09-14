@@ -59,6 +59,9 @@ fn japanese(code: ErrorCode) -> &'static str {
             "ファイルの監視が停止しました。フォルダーを開き直してください。"
         }
         ErrorCode::SettingsCorrupted => "設定ファイルを読み取れません。設定を初期値に戻しました。",
+        ErrorCode::SettingsSaveFailed => {
+            "設定を保存できません。変更は次回の起動に引き継がれません。"
+        }
         ErrorCode::RecentFolderNotFound => "この項目は開けません。一覧を取得し直してください。",
     }
 }
@@ -87,6 +90,9 @@ fn english(code: ErrorCode) -> &'static str {
         ErrorCode::SettingsCorrupted => {
             "Cannot read the settings file. Settings were reset to their defaults."
         }
+        ErrorCode::SettingsSaveFailed => {
+            "Cannot save settings. Changes will not be kept after you close the app."
+        }
         ErrorCode::RecentFolderNotFound => {
             "Cannot open this entry. Refresh the list and try again."
         }
@@ -101,7 +107,7 @@ mod tests {
     ///
     /// `message` の `match` は列挙の漏れをコンパイラが検出するが、この一覧そのものの
     /// 漏れは検出できない。`ErrorCode` を増やしたときはここへも足す。
-    const ALL_CODES: [ErrorCode; 19] = [
+    const ALL_CODES: [ErrorCode; 20] = [
         ErrorCode::WorkspaceAccessDenied,
         ErrorCode::WorkspaceNotFound,
         ErrorCode::PathOutsideWorkspace,
@@ -120,6 +126,7 @@ mod tests {
         ErrorCode::WatcherOverflow,
         ErrorCode::WatcherStopped,
         ErrorCode::SettingsCorrupted,
+        ErrorCode::SettingsSaveFailed,
         ErrorCode::RecentFolderNotFound,
     ];
 

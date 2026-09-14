@@ -76,7 +76,7 @@ fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
             Ok(opened) => {
                 let _ = app.emit(WORKSPACE_OPENED_EVENT, opened);
             }
-            Err(code) => show_error(&app, code),
+            Err(code) => show_error(&app, &[code]),
         }
     });
 }
@@ -114,15 +114,21 @@ fn open_error_code(error: &io::Error) -> ErrorCode {
     }
 }
 
-/// 開けなかった理由をネイティブダイアログで示す（12章）。
+/// 失敗の理由をネイティブダイアログで示す（12章）。複数の理由は1つのダイアログへ並べる。
 ///
 /// Frontendではなくネイティブダイアログにするのは、失敗したのがWebViewの外で始まった
-/// 操作（メニューとダイアログ）だからである。文言は表示時点のUI言語で組み立てる（10.5）。
-fn show_error<R: Runtime>(app: &AppHandle<R>, code: ErrorCode) {
+/// 操作（メニューとダイアログ、起動、設定の書込み）だからである。文言は表示時点のUI言語で
+/// 組み立てる（10.5）。
+pub fn show_error<R: Runtime>(app: &AppHandle<R>, codes: &[ErrorCode]) {
     let language = app.state::<AppState>().language();
+    let text = codes
+        .iter()
+        .map(|code| message(*code, language))
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut dialog = app
         .dialog()
-        .message(message(code, language))
+        .message(text)
         .title("md-peruse")
         .kind(MessageDialogKind::Error);
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {

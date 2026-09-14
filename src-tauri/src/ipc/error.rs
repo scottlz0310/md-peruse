@@ -58,6 +58,11 @@ pub enum ErrorCode {
     WatcherStopped,
     /// 設定ファイルが壊れており読み取れない。
     SettingsCorrupted,
+    /// 設定ファイルへ書き込めない。
+    ///
+    /// 書込みは変更をまとめてから別スレッドで行うため、変更の操作そのものは失敗させず、
+    /// 書込みの失敗としてネイティブダイアログで示す（design-decisions.md 11.1）。
+    SettingsSaveFailed,
     /// 「最近使ったフォルダー」のIDが未知である。
     ///
     /// IDはプロセス内でのみ有効な不透明値であり、対応表はRust側が持つ

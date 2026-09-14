@@ -4,7 +4,8 @@
 //! 読み書きはRust側が担い、Frontendへは表示に必要な値だけを投影して渡す。
 //! Frontendに設定ファイルを直接触らせないことで、`fs` 系のcapabilityを増やさずに
 //! 済む（5.5）。ここに置くのは型と既定値、および値の組み立て規則だけであり、
-//! ファイルI/OとIDの採番はPhase 4で実装する。
+//! ファイルの読み書きは `crate::settings_store` が担う。最近使ったフォルダーのIDの採番は
+//! まだ実装していない。
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -171,6 +172,25 @@ pub struct UiSettings {
     pub font_scale_percent: u16,
     /// 新しいものが先頭。最大 `MAX_RECENT_FOLDERS` 件。
     pub recent_folders: Vec<RecentFolderView>,
+}
+
+/// Frontendから届く設定の変更。指定したものだけを変える。
+///
+/// 値の範囲はFrontendが正本を持ち、送る前に丸める（10.2、10.3）。Rust側で丸め直さない
+/// のは、範囲の定義を言語をまたいで二重に持たないためである。範囲外の値が保存されても、
+/// 次に読み込んだときFrontendが実効値へ丸める。
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct UiSettingsUpdate {
+    #[ts(optional)]
+    pub theme: Option<ThemePreference>,
+    #[ts(optional)]
+    pub sidebar_width: Option<u32>,
+    #[ts(optional)]
+    pub sidebar_visible: Option<bool>,
+    #[ts(optional)]
+    pub font_scale_percent: Option<u16>,
 }
 
 /// 最近使ったフォルダーの表示名を作る。

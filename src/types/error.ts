@@ -29,6 +29,8 @@ const RETRYABLE: Record<ErrorCode, boolean> = {
   decodeFailed: false,
   // 破損した設定は既定値へ戻して続行する。再読込しても壊れたままである。
   settingsCorrupted: false,
+  // 書込みの失敗は変更の操作とは切り離して示す。操作をやり直す対象がない。
+  settingsSaveFailed: false,
   // 同じIDで開き直しても結果は変わらない。回復は一覧の取り直しであり、再試行ではない。
   recentFolderNotFound: false,
 };

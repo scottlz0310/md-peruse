@@ -39,10 +39,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    /// 設定値からUI言語を決めて状態を作る。
-    ///
-    /// 設定の読み込み（11.1）はまだ実装していないため、呼び出し側は既定値
-    /// （`LanguagePreference::System`）を渡す。
+    /// 設定値（11.1）からUI言語を決めて状態を作る。
     pub fn new(preference: LanguagePreference) -> Self {
         Self {
             workspace: Arc::new(Mutex::new(None)),
