@@ -28,11 +28,11 @@
     "hast-util-to-string": "^3.0.1",
     "hast-util-to-text": "^4.0.2",
     "highlight.js": "^11.12.0",
-    "katex": "^0.16.47",
+    "katex": "^0.18.7",
     "lowlight": "^3.3.0",
     "mermaid": "^12.0.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "rehype-sanitize": "^6.0.0",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
@@ -51,13 +51,13 @@
     "@testing-library/react": "^16.3.3",
     "@types/bun": "^1.4.2",
     "@types/jsdom": "^30.0.0",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.7",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
     "hast-util-sanitize": "^5.0.2",
-    "jsdom": "^30.0.1",
+    "jsdom": "^30.1.0",
     "lefthook": "^2.1.14",
     "typescript": "^7.0.2",
-    "vite": "^8.2.2"
+    "vite": "^8.3.0"
   }
 }

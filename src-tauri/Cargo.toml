@@ -37,8 +37,8 @@ windows = { version = "0.62.2", features = [
 # `with_webview` で得るWebView2のcontrollerを直接扱う。どちらもTauri（wry）が依存する版と
 # 揃えており、重複してコンパイルされない。`windows-core` はwebview2-comが使う0.61系の
 # `Interface`（`cast`）を呼ぶためだけに別名で置く。
-webview2-com = "0.38.2"
-webview2-com-core = { package = "windows-core", version = "0.61.2" }
+webview2-com = "0.39.1"
+webview2-com-core = { package = "windows-core", version = "0.100.0" }
 # 画像配信の同時読込数の上限（design-decisions.md 7.3）。Tauriの非同期ランタイムはtokioであり、
 # 待つ側がブロッキングスレッドを占有しないよう非同期のセマフォを使う。Tauriが依存する版と揃える。
 tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
@@ -73,7 +73,7 @@ tauri-plugin-dialog = "2.7.3"
 tauri = { version = "2.11.6", features = ["test"] }
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
 # muda と同じ系列へ解決させる（cargo は semver 互換なら1つへ統一する）。
-muda = "0.19.3"
+muda = "0.20.0"
 
 [profile.release]
 codegen-units = 1
