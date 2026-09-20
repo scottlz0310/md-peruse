@@ -8,7 +8,7 @@ import {
   scanDirectory,
   updateUiSettings,
 } from "./ipc/commands";
-import { onWorkspaceOpened } from "./ipc/events";
+import { onMenuCommand, onWorkspaceOpened } from "./ipc/events";
 import { SidebarLayout } from "./layout/SidebarLayout";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
@@ -61,6 +61,28 @@ type Shown = {
   view: ViewTarget;
 };
 
+/**
+ * Rust側のeventを1度だけ購読する。
+ *
+ * ハンドラーはrefだけを読み書きし、描画ごとの値に依存しない。StrictModeでは購読の完了前に
+ * 片付けが走るため、そのときは直ちに解除する。
+ */
+function useTauriEvent(subscribe: () => Promise<UnlistenFn>) {
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 購読は1度でよい。
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    subscribe().then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+}
+
 export default function App() {
   // 設定を読むまで描画しない。既定値で描いてから切り替えると、幅が一瞬変わって見える。
   const [ui, setUi] = useState<UiSettings | null>(null);
@@ -91,10 +113,7 @@ export default function App() {
     );
   }, []);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: 呼び出す関数はrefだけを読み書きし、描画ごとの値に依存しない。購読は1度でよい。
-  useEffect(() => {
-    let disposed = false;
-    let unlisten: UnlistenFn | undefined;
+  useTauriEvent(() =>
     onWorkspaceOpened((opened) => {
       scopeRef.current = opened.scopeId;
       setWorkspace(opened);
@@ -105,16 +124,15 @@ export default function App() {
       // ワークスペースを開くたびに世代を進めた新しいツリーへ替える（5.3）。
       updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
       scan(ROOT_PATH);
-    }).then((stop) => {
-      // StrictModeでは購読の完了前に片付けが走る。そのときは直ちに解除する。
-      if (disposed) stop();
-      else unlisten = stop;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
-  }, []);
+    }),
+  );
+
+  // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
+  useTauriEvent(() =>
+    onMenuCommand((command) => {
+      if (command === "closeTab") closeActive();
+    }),
+  );
 
   function updateTree(next: FileTree) {
     treeRef.current = next;
@@ -316,6 +334,12 @@ export default function App() {
       setError(null);
       showActive();
     }
+  }
+
+  /** アクティブタブを閉じる（メニューの「タブを閉じる」と `Ctrl+W`。10.1）。 */
+  function closeActive() {
+    const active = activeTab(tabsRef.current);
+    if (active) close(active.tabId);
   }
 
   /** タブの中で表示を変える操作は、プレビュータブを固定する。 */

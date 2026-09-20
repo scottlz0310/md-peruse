@@ -832,6 +832,32 @@ describe("App", () => {
       expect(screen.queryByRole("tablist")).toBeNull();
       expect(heading()).toBeUndefined();
     });
+
+    test("「タブを閉じる」はアクティブタブを閉じ、隣のタブを表示する（10.1）", async () => {
+      await openTwoFiles();
+      await act(async () => fireEvent.click(treeItem("a.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      await act(async () => fireEvent.click(treeItem("b.md"), { detail: 2 }));
+      await waitFor(() => expect(heading()).toBe("b.md"));
+
+      await act(async () => {
+        await emit("menu-command", "closeTab");
+      });
+
+      await waitFor(() => expect(heading()).toBe("a.md"));
+      expect(tabNames()).toEqual(["a.md"]);
+    });
+
+    test("タブが無いときの「タブを閉じる」は何もしない（10.1）", async () => {
+      await openTwoFiles();
+
+      await act(async () => {
+        await emit("menu-command", "closeTab");
+      });
+
+      expect(screen.queryByRole("tablist")).toBeNull();
+      expect(heading()).toBeUndefined();
+    });
   });
 
   test("文書内検索は本文だけを対象にし、一覧のファイル名に一致しない（8.6）", async () => {
