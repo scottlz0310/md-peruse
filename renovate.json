@@ -18,6 +18,14 @@
       "matchManagers": ["bun-version"],
       "groupName": "Bun runtime",
       "automerge": false
+    },
+    {
+      "description": "webview2-com / windows-core / muda は Tauri（wry）が解決する版に一致させる必要がある（src-tauri/Cargo.toml のコメント）。単独で上げると crate が二重にリンクされ、with_webview が返す controller とイベントハンドラの型が別物になってコンパイルが通らない。Tauri の更新に追従してのみ上げるため、Dependency Dashboard での承認制にする",
+      "matchManagers": ["cargo"],
+      "matchPackageNames": ["webview2-com", "windows-core", "muda"],
+      "groupName": "Tauri native crates (follow tauri)",
+      "dependencyDashboardApproval": true,
+      "automerge": false
     }
   ]
 }
