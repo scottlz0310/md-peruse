@@ -1,9 +1,9 @@
 //! 「フォルダーを開く」の処理（design-decisions.md 6.1、10.1）。
 //!
-//! ネイティブメニューから選ばれると、Rust側でフォルダー選択ダイアログを開き、選ばれた
-//! フォルダーをワークスペースとして開く。成功はeventでFrontendへ知らせ、失敗はネイティブ
-//! ダイアログで示す。フォルダーの選択はWebViewを経由しないため、Frontendへファイル
-//! システム系のcapabilityを渡さない（5.5）。
+//! メニューの振り分け（`crate::menu_command`）から呼ばれると、Rust側でフォルダー選択
+//! ダイアログを開き、選ばれたフォルダーをワークスペースとして開く。成功はeventでFrontendへ
+//! 知らせ、失敗はネイティブダイアログで示す。フォルダーの選択はWebViewを経由しないため、
+//! Frontendへファイルシステム系のcapabilityを渡さない（5.5）。
 //!
 //! ダイアログは `tauri-plugin-dialog` をRust側からだけ使う。JSのパッケージは入れず、
 //! capabilityにもdialogの権限を加えない。
@@ -12,14 +12,12 @@ use std::io;
 use std::path::Path;
 use std::sync::Arc;
 
-use tauri::menu::MenuEvent;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use crate::ipc::error::ErrorCode;
 use crate::ipc::message::message;
 use crate::ipc::types::WorkspaceOpenedEvent;
-use crate::menu::MenuCommand;
 use crate::settings::recent_folder_label;
 use crate::state::AppState;
 use crate::watch_runtime::{ChangeSink, TauriChangeSink};
@@ -30,30 +28,11 @@ pub const WORKSPACE_OPENED_EVENT: &str = "workspace-opened";
 /// ダイアログの親にするウィンドウのラベル（`tauri.conf.json` の `app.windows`）。
 pub const MAIN_WINDOW: &str = "main";
 
-/// メニューの選択を処理する。
-pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
-    // アプリが作っていない項目は、選ばれることがない。
-    if let Some(command) = MenuCommand::from_id(event.id().as_ref()) {
-        handle_command(app, command);
-    }
-}
-
-/// コマンドを処理する。メニューの選択と、WebViewにフォーカスがあるときのアクセラレータ
-/// （`crate::webview_keys`）の両方から呼ばれる。
-pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
-    match command {
-        MenuCommand::OpenFolder => pick_and_open(app),
-        MenuCommand::Exit => app.exit(0),
-        // 載せていないコマンドは、選ばれることがない。
-        _ => {}
-    }
-}
-
 /// フォルダー選択ダイアログを開き、選ばれたフォルダーをワークスペースとして開く。
 ///
 /// ダイアログは非同期のAPIを使う。メニューの処理はメインスレッドで呼ばれ、同期のAPIで
 /// 待つとダイアログのメッセージループと競合する。
-fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
+pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
     let app = app.clone();
     let mut dialog = app.dialog().file();
     // 親を指定しないと、ダイアログはメインウィンドウと別の場所（別のディスプレイ）に

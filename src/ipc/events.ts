@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { MenuCommand } from "../types/generated/MenuCommand";
 import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
 
 /**
@@ -14,4 +15,15 @@ export function onWorkspaceOpened(
   return listen<WorkspaceOpenedEvent>("workspace-opened", (event) =>
     handler(event.payload),
   );
+}
+
+/**
+ * Frontendが処理するメニューコマンドを受け取る（design-decisions.md 10.1）。
+ *
+ * メニューの選択と、WebViewにフォーカスがあるときのアクセラレータの両方がここへ届く。
+ */
+export function onMenuCommand(
+  handler: (command: MenuCommand) => void,
+): Promise<UnlistenFn> {
+  return listen<MenuCommand>("menu-command", (event) => handler(event.payload));
 }

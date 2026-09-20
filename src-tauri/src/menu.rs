@@ -118,7 +118,11 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 2] = [MenuCommand::OpenFolder, MenuCommand::Exit];
+pub const IMPLEMENTED: [MenuCommand; 3] = [
+    MenuCommand::OpenFolder,
+    MenuCommand::CloseTab,
+    MenuCommand::Exit,
+];
 
 /// コマンドの表示名。
 ///
@@ -128,6 +132,8 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
     match (command, language) {
         (MenuCommand::OpenFolder, Language::Ja) => "フォルダーを開く(&O)...",
         (MenuCommand::OpenFolder, Language::En) => "&Open Folder...",
+        (MenuCommand::CloseTab, Language::Ja) => "タブを閉じる(&W)",
+        (MenuCommand::CloseTab, Language::En) => "&Close Tab",
         (MenuCommand::Exit, Language::Ja) => "終了(&X)",
         (MenuCommand::Exit, Language::En) => "E&xit",
         _ => unreachable!("メニューへ載せていないコマンドの表示名: {command:?}"),
@@ -162,6 +168,8 @@ pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> taur
         true,
         &[
             &item(MenuCommand::OpenFolder)?,
+            &PredefinedMenuItem::separator(manager)?,
+            &item(MenuCommand::CloseTab)?,
             &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::Exit)?,
         ],
@@ -207,7 +215,7 @@ mod tests {
         for command in IMPLEMENTED {
             assert!(file.get(&command.id()).is_some(), "{command:?} が無い");
         }
-        assert!(file.get(&MenuCommand::CloseTab.id()).is_none());
+        assert!(file.get(&MenuCommand::CloseWorkspace.id()).is_none());
     }
 
     /// すべての割り当てが実際のパーサーを通ることを固定する。

@@ -5,6 +5,7 @@ pub mod image;
 pub mod ipc;
 pub mod limits;
 pub mod menu;
+pub mod menu_command;
 pub mod natural_order;
 pub mod open_folder;
 pub mod path_guard;
@@ -30,7 +31,7 @@ pub fn run() {
         // Rust側からだけ使う。capabilityへdialogの権限を加えないため、Frontendからは
         // 呼べない（design-decisions.md 5.5）。
         .plugin(tauri_plugin_dialog::init())
-        .on_menu_event(open_folder::handle_menu_event)
+        .on_menu_event(menu_command::handle_menu_event)
         .setup(|app| {
             setup(app)?;
             Ok(())

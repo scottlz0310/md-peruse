@@ -1240,6 +1240,8 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 
 コマンドの識別子とアクセラレータの正本は `src-tauri/src/menu.rs` とする。
 
+メニューの選択と、WebViewにフォーカスがあるときのアクセラレータ（`webview_keys.rs`）は同じ振り分け（`src-tauri/src/menu_command.rs`）へ集まり、下の表の「処理する側」に従って、Rust側の担当モジュールへ渡すか、Tauri event `menu-command` でFrontendへ送る。payloadは `MenuCommand` の識別子（camelCase）である。コマンドごとにeventを分けないのは、受け手がFrontendの1か所であり、項目が増えるたびにevent名と購読を足すことになるためである。
+
 | メニュー | 項目 | コマンド | アクセラレータ | 処理する側 |
 | --- | --- | --- | --- | --- |
 | ファイル | フォルダーを開く... | `openFolder` | `Ctrl+O` | Rust（ダイアログ） |

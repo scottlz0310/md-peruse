@@ -168,7 +168,7 @@ pub fn attach<R: Runtime>(window: &WebviewWindow<R>) -> tauri::Result<()> {
                 match route(key) {
                     KeyRoute::Command(command) => {
                         args.SetHandled(true)?;
-                        crate::open_folder::handle_command(&app, command);
+                        crate::menu_command::handle_command(&app, command);
                     }
                     KeyRoute::MenuAccessKey(character) => {
                         args.SetHandled(true)?;
@@ -236,15 +236,15 @@ mod tests {
                 KeyRoute::Page,
             ),
             ("O", key(0x4F), KeyRoute::Page),
-            // メニューへ載せていないコマンドの割り当てはページへ渡す。
             (
                 "Ctrl+W",
                 KeyPress {
                     ctrl: true,
                     ..key(0x57)
                 },
-                KeyRoute::Page,
+                KeyRoute::Command(MenuCommand::CloseTab),
             ),
+            // メニューへ載せていないコマンドの割り当てはページへ渡す。
             ("F5", key(0x74), KeyRoute::Page),
             (
                 "Alt+F",

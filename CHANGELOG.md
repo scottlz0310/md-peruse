@@ -14,6 +14,7 @@
 ## [Unreleased]
 
 ### Added
+- ファイルメニューに「タブを閉じる」を加えた（[design-decisions.md](./docs/design-decisions.md) 10.1）。`Ctrl+W` でもアクティブタブを閉じる
 - 複数の文書をタブで開けるようにした（[design-decisions.md](./docs/design-decisions.md) 9.1）
   - ツリーのシングルクリックは斜体の「プレビュータブ」で開き、次にクリックした文書で差し替わる。ダブルクリックや `Enter` で開くと、差し替わらない固定タブになる
   - プレビュータブはダブルクリックするか、中でリンクをたどると固定タブになる
