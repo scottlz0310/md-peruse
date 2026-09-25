@@ -20,7 +20,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-opener": "^2.5.5",
-    "dompurify": "^3.4.15",
+    "dompurify": "^3.4.16",
     "github-slugger": "^2.0.0",
     "hast-util-from-html-isomorphic": "^2.0.0",
     "hast-util-heading-rank": "^3.0.0",
@@ -28,7 +28,7 @@
     "hast-util-to-string": "^3.0.1",
     "hast-util-to-text": "^4.0.2",
     "highlight.js": "^11.12.0",
-    "katex": "^0.18.7",
+    "katex": "^0.18.9",
     "lowlight": "^3.3.0",
     "mermaid": "^12.0.0",
     "react": "^19.3.0",
