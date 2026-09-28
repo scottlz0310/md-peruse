@@ -898,7 +898,7 @@ describe("App", () => {
 
     type FontAction =
       | { menu: string }
-      | { key: { code: string; shiftKey?: boolean } };
+      | { key: { key: string; code: string; shiftKey?: boolean } };
 
     test.each<[string, FontAction[], number[], string]>([
       ["メニューで大きくする", [{ menu: "increaseFontSize" }], [110], "1.1"],
@@ -910,31 +910,45 @@ describe("App", () => {
         "1",
       ],
       [
-        "Ctrl+Shift+= で大きくする",
-        [{ key: { code: "Equal", shiftKey: true } }],
+        "US配列の Ctrl+Shift+= で大きくする",
+        [{ key: { key: "+", code: "Equal", shiftKey: true } }],
+        [110],
+        "1.1",
+      ],
+      [
+        "JIS配列の Ctrl+Shift+; で大きくする",
+        [{ key: { key: "+", code: "Semicolon", shiftKey: true } }],
         [110],
         "1.1",
       ],
       [
         "テンキーの + で大きくする",
-        [{ key: { code: "NumpadAdd" } }],
+        [{ key: { key: "+", code: "NumpadAdd" } }],
         [110],
         "1.1",
       ],
       [
         "テンキーの - で小さくする",
-        [{ key: { code: "NumpadSubtract" } }],
+        [{ key: { key: "-", code: "NumpadSubtract" } }],
         [90],
         "0.9",
       ],
       [
         "テンキーの 0 で既定に戻す",
-        [{ key: { code: "NumpadAdd" } }, { key: { code: "Numpad0" } }],
+        [
+          { key: { key: "+", code: "NumpadAdd" } },
+          { key: { key: "0", code: "Numpad0" } },
+        ],
         [110, 100],
         "1",
       ],
       // `Ctrl+=` はメニューのアクセラレータとしてRust側が受ける。ページでも扱うと二重になる。
-      ["Ctrl+= はページで扱わない", [{ key: { code: "Equal" } }], [], "1"],
+      [
+        "Ctrl+= はページで扱わない",
+        [{ key: { key: "=", code: "Equal" } }],
+        [],
+        "1",
+      ],
       // 既定のまま既定に戻しても書き込まない。
       ["変わらなければ保存しない", [{ menu: "resetFontSize" }], [], "1"],
     ])("文字サイズ: %s", async (_, actions, saved, scale) => {

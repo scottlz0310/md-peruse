@@ -73,14 +73,15 @@ type Shown = {
  * WebView内で文字サイズの操作へ割り当てるキー（10.3）。
  *
  * `Ctrl+=` / `Ctrl+-` / `Ctrl+0` はメニューのアクセラレータとしてRust側が受け、ページへ
- * 届かない。1つの項目で表せない `Ctrl+Shift+=`（`Ctrl` + `+`）とテンキーをここで扱う。
+ * 届かない。1つの項目で表せない `Ctrl` + `+` とテンキーをここで扱う。
+ *
+ * `+` は物理キーではなく入力される文字で見る。US配列では `Shift` + `=`、JIS配列では
+ * `Shift` + `;` のキーであり、`code` で判定するとどちらかの配列で効かない（実測）。
+ * テンキーの `+` も同じ文字になる。
  */
 function fontSizeCommandOf(event: KeyboardEvent): MenuCommand | null {
+  if (event.key === "+") return "increaseFontSize";
   switch (event.code) {
-    case "Equal":
-      return event.shiftKey ? "increaseFontSize" : null;
-    case "NumpadAdd":
-      return "increaseFontSize";
     case "NumpadSubtract":
       return "decreaseFontSize";
     case "Numpad0":

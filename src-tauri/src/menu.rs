@@ -70,7 +70,7 @@ pub enum MenuCommand {
 ///
 /// 文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを
 /// 厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。
-/// メニューには代表として `Ctrl+Equal` を表示し、`Ctrl+Shift+Equal` とテンキーの
+/// メニューには代表として `Ctrl+Equal` を表示し、`Ctrl` + `+` とテンキーの
 /// `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` はWebView内で同じ操作へ割り当てる（10.3）。
 ///
 /// `Ctrl` + `=` / `-` / `0` を文字サイズへ割り当てるため、WebViewのズームホットキーは
