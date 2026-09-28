@@ -631,6 +631,7 @@ export default function App() {
       <main className="app">
         <h1>md-peruse</h1>
         <p>メニューの「ファイル」から「フォルダーを開く」を選んでください。</p>
+        {error && <p role="alert">{error}</p>}
       </main>
     );
   }

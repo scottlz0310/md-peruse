@@ -1129,22 +1129,28 @@ describe("App", () => {
       await waitFor(() => expect(titles.at(-1)).toBe("md-peruse"));
     });
 
-    test("タイトルを設定できなければ理由を示す", async () => {
-      mockBackend({
-        scan: () => ROOT,
-        setTitle: (title) => {
-          if (title !== "md-peruse") throw new Error("タイトルを設定できない");
-        },
-      });
-      render(<App />);
-      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    test.each([
+      ["welcome", "md-peruse", false],
+      ["ワークスペースの表示中", "docs - md-peruse", true],
+    ])(
+      "%sにタイトルを設定できなければ理由を示す",
+      async (_, failing, opens) => {
+        mockBackend({
+          scan: () => ROOT,
+          setTitle: (title) => {
+            if (title === failing) throw new Error("タイトルを設定できない");
+          },
+        });
+        render(<App />);
+        if (opens) await openWorkspace({ scopeId: "scope-1", label: "docs" });
 
-      await waitFor(() =>
-        expect(screen.getByRole("alert").textContent).toContain(
-          "タイトルを設定できない",
-        ),
-      );
-    });
+        await waitFor(() =>
+          expect(screen.getByRole("alert").textContent).toContain(
+            "タイトルを設定できない",
+          ),
+        );
+      },
+    );
   });
 
   describe("パンくず（10.1.1）", () => {
