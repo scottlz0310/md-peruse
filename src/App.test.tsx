@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { emit } from "@tauri-apps/api/event";
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import {
   act,
   cleanup,
@@ -26,6 +26,7 @@ type Handlers = {
   openUrl?: (url: string) => void;
   issue?: (request: ImageResourceRequest) => ImageResource[];
   updateSettings?: (update: UiSettingsUpdate) => void;
+  setTitle?: (title: string) => void;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -48,6 +49,10 @@ function mockBackend(handlers: Handlers) {
         );
         return null;
       }
+      if (command === "plugin:window|set_title") {
+        handlers.setTitle?.((payload as { value: string }).value);
+        return null;
+      }
       if (command === "plugin:opener|open_url" && handlers.openUrl) {
         handlers.openUrl((payload as { url: string }).url);
         return null;
@@ -66,6 +71,8 @@ function mockBackend(handlers: Handlers) {
     },
     { shouldMockEvents: true },
   );
+  // `getCurrentWindow` が現在のウィンドウのラベルを読むため。
+  mockWindows("main");
 }
 
 function fileContent(path: string, text: string): FileContent {
@@ -1087,6 +1094,63 @@ describe("App", () => {
 
       expect(screen.queryByRole("alert")).toBeNull();
     });
+  });
+
+  describe("ウィンドウタイトル（10.1.2）", () => {
+    test("welcome、ワークスペース、表示中の文書に合わせて変わり、閉じると戻る", async () => {
+      const titles: string[] = [];
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => fileContent(path, "## 本文\n"),
+        setTitle: (title) => titles.push(title),
+      });
+      render(<App />);
+      await waitFor(() => expect(titles.at(-1)).toBe("md-peruse"));
+
+      await openWorkspace({ scopeId: "scope-1", label: "src\\docs" });
+      await waitFor(() => expect(titles.at(-1)).toBe("src\\docs - md-peruse"));
+
+      await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
+      await act(async () => {
+        screen.getByText("README.md").click();
+      });
+      await waitFor(() =>
+        expect(titles.at(-1)).toBe("README.md - src\\docs - md-peruse"),
+      );
+
+      await act(async () => {
+        await emit("menu-command", "closeTab");
+      });
+      await waitFor(() => expect(titles.at(-1)).toBe("src\\docs - md-peruse"));
+
+      await act(async () => {
+        await emit("workspace-closed");
+      });
+      await waitFor(() => expect(titles.at(-1)).toBe("md-peruse"));
+    });
+
+    test.each([
+      ["welcome", "md-peruse", false],
+      ["ワークスペースの表示中", "docs - md-peruse", true],
+    ])(
+      "%sにタイトルを設定できなければ理由を示す",
+      async (_, failing, opens) => {
+        mockBackend({
+          scan: () => ROOT,
+          setTitle: (title) => {
+            if (title === failing) throw new Error("タイトルを設定できない");
+          },
+        });
+        render(<App />);
+        if (opens) await openWorkspace({ scopeId: "scope-1", label: "docs" });
+
+        await waitFor(() =>
+          expect(screen.getByRole("alert").textContent).toContain(
+            "タイトルを設定できない",
+          ),
+        );
+      },
+    );
   });
 
   describe("パンくず（10.1.1）", () => {
