@@ -16,6 +16,9 @@ export const FONT_SCALE_STEPS = [80, 90, 100, 110, 125, 150, 175, 200] as const;
 
 export type FontScalePercent = (typeof FONT_SCALE_STEPS)[number];
 
+/** 「既定に戻す」で戻す倍率。`DEFAULT_FONT_SCALE_PERCENT`（Rust）と同じ値にする。 */
+export const DEFAULT_FONT_SCALE: FontScalePercent = 100;
+
 /**
  * 任意の値を段階のいずれかへ丸める。
  *
@@ -25,7 +28,7 @@ export type FontScalePercent = (typeof FONT_SCALE_STEPS)[number];
  */
 export function normalizeFontScale(percent: number): FontScalePercent {
   if (!Number.isFinite(percent)) {
-    return 100;
+    return DEFAULT_FONT_SCALE;
   }
   let nearest: FontScalePercent = FONT_SCALE_STEPS[0];
   let smallestDistance = Number.POSITIVE_INFINITY;

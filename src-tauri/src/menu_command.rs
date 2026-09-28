@@ -27,7 +27,12 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
     match command {
         MenuCommand::OpenFolder => open_folder::pick_and_open(app),
         MenuCommand::Exit => app.exit(0),
-        MenuCommand::CloseTab => forward(app, command),
+        MenuCommand::CloseTab
+        | MenuCommand::ToggleSidebar
+        | MenuCommand::ReloadDocument
+        | MenuCommand::IncreaseFontSize
+        | MenuCommand::DecreaseFontSize
+        | MenuCommand::ResetFontSize => forward(app, command),
         // 載せていないコマンドは、選ばれることがない。
         _ => {}
     }
@@ -43,24 +48,33 @@ fn forward<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
     use tauri::Listener;
 
     /// Frontend担当のコマンドは、識別子をそのままeventで届ける。
     #[test]
     fn frontend_commands_are_forwarded_as_events() {
-        let app = tauri::test::mock_app();
-        let received = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&received);
-        app.listen(MENU_COMMAND_EVENT, move |event| {
-            assert_eq!(event.payload(), "\"closeTab\"");
-            seen.fetch_add(1, Ordering::SeqCst);
-        });
+        let cases = [
+            (MenuCommand::CloseTab, "\"closeTab\""),
+            (MenuCommand::ToggleSidebar, "\"toggleSidebar\""),
+            (MenuCommand::ReloadDocument, "\"reloadDocument\""),
+            (MenuCommand::IncreaseFontSize, "\"increaseFontSize\""),
+            (MenuCommand::DecreaseFontSize, "\"decreaseFontSize\""),
+            (MenuCommand::ResetFontSize, "\"resetFontSize\""),
+        ];
+        for (command, expected) in cases {
+            let app = tauri::test::mock_app();
+            let payloads = Arc::new(Mutex::new(Vec::new()));
+            let seen = Arc::clone(&payloads);
+            app.listen(MENU_COMMAND_EVENT, move |event| {
+                seen.lock().unwrap().push(event.payload().to_owned());
+            });
 
-        handle_command(app.handle(), MenuCommand::CloseTab);
+            handle_command(app.handle(), command);
 
-        assert_eq!(received.load(Ordering::SeqCst), 1);
+            assert_eq!(*payloads.lock().unwrap(), [expected], "{command:?}");
+        }
     }
 
     /// Rust側で処理するコマンドと、メニューへ載せていないコマンドはeventを送らない。
