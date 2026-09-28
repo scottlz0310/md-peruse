@@ -9,7 +9,7 @@ import {
   setExpanded,
 } from "../state/file-tree";
 import type { FileNode } from "../types/generated/FileNode";
-import { TreeView } from "./TreeView";
+import { type FocusRequest, TreeView } from "./TreeView";
 
 const dir = (path: string): FileNode => ({
   path,
@@ -52,6 +52,8 @@ function mount(tree: FileTree, selectedPath: string | null = null) {
       selectedPath={selectedPath}
       onToggle={(path, expanded) => toggled.push([path, expanded])}
       onOpen={(path, preview) => opened.push([path, preview])}
+      focusRequest={null}
+      onFocusRequestSettled={() => {}}
     />,
   );
   return { toggled, opened };
@@ -184,6 +186,8 @@ describe("TreeView", () => {
         selectedPath={null}
         onToggle={() => {}}
         onOpen={() => {}}
+        focusRequest={null}
+        onFocusRequestSettled={() => {}}
       />,
     );
     const guide = item("guide.md");
@@ -195,6 +199,8 @@ describe("TreeView", () => {
         selectedPath={null}
         onToggle={() => {}}
         onOpen={() => {}}
+        focusRequest={null}
+        onFocusRequestSettled={() => {}}
       />,
     );
 
@@ -220,5 +226,130 @@ describe("TreeView", () => {
     mount(tree);
 
     expect(screen.getByRole("group").textContent).toBe(text);
+  });
+});
+
+describe("フォーカスの要求（10.1.1）", () => {
+  /** 表示名から項目を引く。走査中のフォルダーは中の文言も名前に含むため、名前では引かない。 */
+  const itemOf = (label: string) =>
+    screen.getByText(label).closest('[role="treeitem"]');
+
+  /** docs/ を展開して走査している途中のツリーと、その走査の成功・失敗。 */
+  function scanningDocs() {
+    const root = load(createFileTree(1), ROOT_PATH, [
+      dir("docs"),
+      dir("empty"),
+      file("README.md"),
+    ]);
+    const started = beginScan(setExpanded(root, "docs", true), "docs");
+    return {
+      waiting: started.tree,
+      arrived: applyScanResult(started.tree, started.token, {
+        entries: [dir("docs/sub")],
+      }) as FileTree,
+      failed: applyScanResult(started.tree, started.token, {
+        message: "アクセスできません",
+      }) as FileTree,
+    };
+  }
+
+  /** ツリーの外にフォーカスを移せるよう、ボタンを並べて描画する。 */
+  function mountWith(tree: FileTree, request: FocusRequest | null) {
+    const settled: FocusRequest[] = [];
+    const view = (next: FileTree, nextRequest: FocusRequest | null) => (
+      <>
+        <button type="button">外</button>
+        <TreeView
+          tree={next}
+          selectedPath={null}
+          onToggle={() => {}}
+          onOpen={() => {}}
+          focusRequest={nextRequest}
+          onFocusRequestSettled={(done) => settled.push(done)}
+        />
+      </>
+    );
+    const { rerender } = render(view(tree, request));
+    return {
+      settled,
+      update: (next: FileTree, nextRequest = request) =>
+        rerender(view(next, nextRequest)),
+    };
+  }
+
+  test.each([
+    ["見えているフォルダーへ移す", "empty", "empty"],
+    ["ルートは先頭の項目へ移す", ROOT_PATH, "docs"],
+  ])("%s", (_, path, label) => {
+    const request = { path };
+    const { settled } = mountWith(sampleTree(), request);
+
+    expect(document.activeElement).toBe(itemOf(label));
+    expect((itemOf(label) as HTMLElement).tabIndex).toBe(0);
+    expect(settled).toEqual([request]);
+  });
+
+  test("祖先の走査を待つ間は祖先に置き、見えたら移す", () => {
+    const { waiting, arrived } = scanningDocs();
+    const request = { path: "docs/sub" };
+    const { settled, update } = mountWith(waiting, request);
+
+    expect(document.activeElement).toBe(itemOf("docs"));
+    expect(settled).toEqual([]);
+
+    update(arrived);
+
+    expect(document.activeElement).toBe(itemOf("sub"));
+    expect(settled).toEqual([request]);
+  });
+
+  test("祖先の走査に失敗したら、その祖先で止める", () => {
+    const { waiting, failed } = scanningDocs();
+    const request = { path: "docs/sub" };
+    const { settled, update } = mountWith(waiting, request);
+
+    update(failed);
+
+    expect(document.activeElement).toBe(itemOf("docs"));
+    expect(settled).toEqual([request]);
+  });
+
+  test("待つ間にツリーを操作したら取り下げ、走査が終わってもフォーカスを奪わない", () => {
+    const { waiting, arrived } = scanningDocs();
+    const request = { path: "docs/sub" };
+    const { settled, update } = mountWith(waiting, request);
+
+    fireEvent.keyDown(itemOf("docs") as Element, { key: "ArrowDown" });
+    expect(settled).toEqual([request]);
+    // 呼び出し側が要求を片付ける前に描画し直しても、処理し終えた要求は扱わない。
+    update(arrived);
+
+    expect(document.activeElement).toBe(itemOf("empty"));
+  });
+
+  test("待つ間にフォーカスがツリーの外へ出たら取り下げる", () => {
+    const { waiting, arrived } = scanningDocs();
+    const request = { path: "docs/sub" };
+    const { settled, update } = mountWith(waiting, request);
+
+    const outside = screen.getByRole("button", { name: "外" });
+    outside.focus();
+    update(arrived);
+
+    expect(document.activeElement).toBe(outside);
+    expect(settled).toEqual([request]);
+  });
+
+  test("同じフォルダーを選び直すと、もう一度移す", () => {
+    const first = { path: "empty" };
+    const { settled, update } = mountWith(sampleTree(), first);
+    fireEvent.keyDown(itemOf("empty") as Element, { key: "End" });
+    expect(document.activeElement).toBe(itemOf("README.md"));
+
+    const second = { path: "empty" };
+    update(sampleTree(), second);
+
+    expect(document.activeElement).toBe(itemOf("empty"));
+    expect(settled).toEqual([first, second]);
   });
 });

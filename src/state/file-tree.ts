@@ -165,3 +165,38 @@ export function visibleNodes(tree: FileTree): VisibleNode[] {
   walk(ROOT_PATH, 1);
   return result;
 }
+
+/**
+ * ルート直下から `path` までの各階層のパスを、ルートに近い順に並べる。ルート自身は
+ * 含めない。`docs/guide/a.md` なら `docs`、`docs/guide`、`docs/guide/a.md` となる。
+ */
+export function pathChain(path: string): string[] {
+  if (path === ROOT_PATH) return [];
+  const names = path.split("/");
+  return names.map((_, index) => names.slice(0, index + 1).join("/"));
+}
+
+/**
+ * フォルダーをツリーで見せるとき、いまフォーカスを置く項目（パンくず。10.1.1）。
+ *
+ * `path` が見えていればその項目、見えていなければ見えている最も近い祖先を返す。ルートは
+ * 項目ではないため、先頭の項目を指す。`done` は、これ以上待っても置き場所が変わらないか
+ * である。祖先の走査が終わるまでは `false` とし、走査に失敗した祖先があればそこで止まる。
+ */
+export function revealFocus(
+  tree: FileTree,
+  path: string,
+): { path: string | null; done: boolean } {
+  const visible = new Set(visibleNodes(tree).map(({ node }) => node.path));
+  const chain = pathChain(path);
+  const ancestors = [ROOT_PATH, ...chain.slice(0, -1)];
+  const loading = ancestors.some(
+    (folder) => tree.directories.get(folder)?.status === "loading",
+  );
+  if (path === ROOT_PATH) {
+    const [first] = visible;
+    return { path: first ?? null, done: first !== undefined || !loading };
+  }
+  const nearest = chain.filter((folder) => visible.has(folder)).at(-1) ?? null;
+  return { path: nearest, done: nearest === path || !loading };
+}

@@ -14,6 +14,7 @@
 ## [Unreleased]
 
 ### Added
+- タブバーの下にパンくずリストを加えた（[design-decisions.md](./docs/design-decisions.md) 10.1.1）。表示中の文書のパスをワークスペース名から順に示し、フォルダーを選ぶとツリーでそのフォルダーまで展開してフォーカスを移す。ワークスペース名はツリーの先頭へ移る。サイドバーが非表示なら表示する
 - ファイルメニューに「ワークスペースを閉じる」を加えた（[design-decisions.md](./docs/design-decisions.md) 6.1、10.1）。開いているタブとツリーを閉じ、フォルダーの監視も止めて、起動直後の案内に戻る
 - 表示メニューを加えた（[design-decisions.md](./docs/design-decisions.md) 10.1、10.3）
   - 「サイドバーの表示切り替え」（`Ctrl+B`）。表示状態は次回の起動に引き継ぐ

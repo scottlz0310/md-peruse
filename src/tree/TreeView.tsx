@@ -1,12 +1,19 @@
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import {
   type FileTree,
   isExpandable,
   ROOT_PATH,
+  revealFocus,
   type VisibleNode,
   visibleNodes,
 } from "../state/file-tree";
 import type { FileNode } from "../types/generated/FileNode";
+
+/**
+ * 外からフォーカスを移してほしいフォルダー（パンくず。10.1.1）。ルートは先頭の項目を
+ * 指す。同じパスを選び直しても別の要求として扱うため、要求ごとに新しいオブジェクトを作る。
+ */
+export type FocusRequest = { readonly path: string };
 
 type Props = {
   tree: FileTree;
@@ -19,6 +26,10 @@ type Props = {
    * `Space` はプレビュー、ダブルクリックと `Enter` は固定タブで開く。
    */
   onOpen: (path: string, preview: boolean) => void;
+  /** 処理していないフォーカスの要求。 */
+  focusRequest: FocusRequest | null;
+  /** 要求を処理し終えたか、取り下げた。呼び出し側は要求を片付ける。 */
+  onFocusRequestSettled: (request: FocusRequest) => void;
 };
 
 /**
@@ -27,10 +38,25 @@ type Props = {
  * WAI-ARIAのtreeパターンに従い、フォーカスは1つの項目だけが持つ（roving tabindex）。
  * 矢印で移動し、`→` で展開または最初の子へ、`←` で畳むか親へ移る。`Home` / `End` で先頭と
  * 末尾へ、`Enter` と `Space` でフォルダーの開閉とファイルを開く操作を行う。
+ *
+ * フォーカスの要求は、対象の項目が見えるまで待つ。祖先の走査を待つ間は、見えている最も
+ * 近い祖先にフォーカスを置く。待つ間に利用者がツリーを操作するか、フォーカスがツリーの外へ
+ * 出たら取り下げる。走査が後から終わっても、利用者の操作からフォーカスを奪わないためである。
  */
-export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
+export function TreeView({
+  tree,
+  selectedPath,
+  onToggle,
+  onOpen,
+  focusRequest,
+  onFocusRequestSettled,
+}: Props) {
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLLIElement>());
+  const root = useRef<HTMLUListElement>(null);
+  // 要求を待つ間にフォーカスを置いた項目。処理し終えた要求は再び扱わない。
+  const placed = useRef<{ request: FocusRequest; path: string } | null>(null);
+  const settled = useRef<FocusRequest | null>(null);
   const visible = visibleNodes(tree);
   const current = currentFocus(visible, focusedPath, selectedPath);
 
@@ -38,6 +64,37 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
     setFocusedPath(path);
     items.current.get(path)?.focus();
   }
+
+  function settle(request: FocusRequest) {
+    placed.current = null;
+    settled.current = request;
+    onFocusRequestSettled(request);
+  }
+
+  /** 待っている要求を、利用者の操作で取り下げる。 */
+  function cancelFocusRequest() {
+    if (focusRequest !== null && focusRequest !== settled.current) {
+      settle(focusRequest);
+    }
+  }
+
+  // 走査の応答でツリーが変わるたびに、要求の置き場所を見直す。
+  useEffect(() => {
+    if (focusRequest === null || focusRequest === settled.current) return;
+    const waiting =
+      placed.current?.request === focusRequest ? placed.current.path : null;
+    if (waiting !== null && !root.current?.contains(document.activeElement)) {
+      settle(focusRequest);
+      return;
+    }
+    const target = revealFocus(tree, focusRequest.path);
+    if (target.path !== null && target.path !== waiting) focus(target.path);
+    placed.current =
+      target.path === null
+        ? null
+        : { request: focusRequest, path: target.path };
+    if (target.done) settle(focusRequest);
+  });
 
   function activate(node: FileNode, preview: boolean) {
     if (isExpandable(node)) {
@@ -48,6 +105,7 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLUListElement>) {
+    cancelFocusRequest();
     // キーを受けた項目を起点にする。フォーカスの記録（state）は描画を経て更新されるため、
     // フォーカスの移動と同じ描画のうちに届いたキーでは古い位置を指しうる。
     const target =
@@ -151,6 +209,7 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
           <div
             className="tree-row"
             onClick={(event) => {
+              cancelFocusRequest();
               focus(node.path);
               // ダブルクリックは1回目のクリックでプレビューとして開いた後に届く。
               // フォルダーでは開閉を2回繰り返さず、ファイルでは固定する。
@@ -177,6 +236,7 @@ export function TreeView({ tree, selectedPath, onToggle, onOpen }: Props) {
 
   return (
     <ul
+      ref={root}
       // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: 項目の並びを `ul` と `li` で持ち、`tree` / `treeitem` の役割を与える（WAI-ARIAのtreeパターン）。
       role="tree"
       aria-label="ファイル"

@@ -4,9 +4,12 @@ import {
   applyScanResult,
   beginScan,
   createFileTree,
+  type DirectoryState,
   type FileTree,
   needsScan,
+  pathChain,
   ROOT_PATH,
+  revealFocus,
   setExpanded,
   visibleNodes,
 } from "./file-tree";
@@ -162,5 +165,72 @@ describe("visibleNodes", () => {
   test("展開状態が変わらない操作は同じツリーを返す", () => {
     const tree = loadedRoot([dir("a")]);
     expect(setExpanded(tree, "a", false)).toBe(tree);
+  });
+});
+
+describe("pathChain", () => {
+  test.each([
+    ["docs/guide/a.md", ["docs", "docs/guide", "docs/guide/a.md"]],
+    ["README.md", ["README.md"]],
+    [ROOT_PATH, []],
+  ])("%s", (path, expected) => {
+    expect(pathChain(path)).toEqual(expected);
+  });
+});
+
+describe("revealFocus（10.1.1）", () => {
+  const loaded = (...entries: FileNode[]): DirectoryState => ({
+    status: "loaded",
+    entries,
+  });
+  const loading: DirectoryState = { status: "loading" };
+  const failed: DirectoryState = { status: "failed", message: "x" };
+
+  /** a/ と x.md を持つルート。a と a/b を展開済みにする。 */
+  function treeWith(states: [string, DirectoryState][]): FileTree {
+    const tree: FileTree = {
+      ...createFileTree(1),
+      directories: new Map([
+        [ROOT_PATH, loaded(dir("a"), file("x.md"))],
+        ...states,
+      ]),
+    };
+    return setExpanded(setExpanded(tree, "a", true), "a/b", true);
+  }
+
+  test.each<
+    [string, [string, DirectoryState][], string, string | null, boolean]
+  >([
+    ["見えている項目", [["a", loaded(dir("a/b"))]], "a/b", "a/b", true],
+    ["祖先の走査中は見えている祖先で待つ", [["a", loading]], "a/b", "a", false],
+    [
+      "深い階層でも最も近い祖先で待つ",
+      [
+        ["a", loaded(dir("a/b"))],
+        ["a/b", loading],
+      ],
+      "a/b/c",
+      "a/b",
+      false,
+    ],
+    ["祖先の走査に失敗したらそこで止まる", [["a", failed]], "a/b", "a", true],
+    ["ルートは先頭の項目", [], ROOT_PATH, "a", true],
+  ])("%s", (_, states, path, expected, done) => {
+    expect(revealFocus(treeWith(states), path)).toEqual({
+      path: expected,
+      done,
+    });
+  });
+
+  test.each<[string, DirectoryState, boolean]>([
+    ["走査中", loading, false],
+    ["失敗", failed, true],
+  ])("ルートが%sで項目がなければ置き場所はない", (_, root, done) => {
+    const tree: FileTree = {
+      ...createFileTree(1),
+      directories: new Map([[ROOT_PATH, root]]),
+    };
+    expect(revealFocus(tree, ROOT_PATH)).toEqual({ path: null, done });
+    expect(revealFocus(tree, "a")).toEqual({ path: null, done });
   });
 });

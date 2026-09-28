@@ -192,6 +192,57 @@ body {
   }
 }
 
+/* パンくず（10.1.1）。長いパスはタブバーと同じく横にスクロールさせる。 */
+.breadcrumb {
+  flex: none;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.875rem;
+  white-space: nowrap;
+}
+
+.breadcrumb ol {
+  display: flex;
+  margin: 0;
+  padding: 0.25rem 0.75rem;
+  list-style: none;
+}
+
+.breadcrumb li {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+
+.breadcrumb button {
+  padding: 0 0.25rem;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--color-fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.breadcrumb button:hover {
+  background-color: var(--color-border);
+  color: var(--color-fg);
+}
+
+.breadcrumb button:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.breadcrumb-separator {
+  padding: 0 0.125rem;
+  color: var(--color-fg-muted);
+}
+
+.breadcrumb [aria-current="page"] {
+  padding: 0 0.25rem;
+}
+
 /* ファイルツリー（6.2、10章）。階層は `ul` の入れ子の余白で示す。 */
 .tree,
 .tree ul {
