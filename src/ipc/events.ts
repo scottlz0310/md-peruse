@@ -18,6 +18,15 @@ export function onWorkspaceOpened(
 }
 
 /**
+ * ワークスペースを閉じたことを受け取る（design-decisions.md 6.1、10.1）。
+ *
+ * Rust側は監視と画像resource IDを破棄してから送る。
+ */
+export function onWorkspaceClosed(handler: () => void): Promise<UnlistenFn> {
+  return listen("workspace-closed", () => handler());
+}
+
+/**
  * Frontendが処理するメニューコマンドを受け取る（design-decisions.md 10.1）。
  *
  * メニューの選択と、WebViewにフォーカスがあるときのアクセラレータの両方がここへ届く。

@@ -8,7 +8,11 @@ import {
   scanDirectory,
   updateUiSettings,
 } from "./ipc/commands";
-import { onMenuCommand, onWorkspaceOpened } from "./ipc/events";
+import {
+  onMenuCommand,
+  onWorkspaceClosed,
+  onWorkspaceOpened,
+} from "./ipc/events";
 import { SidebarLayout } from "./layout/SidebarLayout";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
@@ -151,17 +155,13 @@ export default function App() {
 
   useTauriEvent(() =>
     onWorkspaceOpened((opened) => {
-      scopeRef.current = opened.scopeId;
-      setWorkspace(opened);
-      updateShown(null);
-      setError(null);
-      // ワークスペースを切り替えるとタブも破棄する（6.1）。
-      updateTabs(EMPTY_TAB_SET);
-      // ワークスペースを開くたびに世代を進めた新しいツリーへ替える（5.3）。
-      updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
+      resetWorkspace(opened);
       scan(ROOT_PATH);
     }),
   );
+
+  // 閉じると、切り替えと同じ破棄を行ってwelcome状態へ戻す（6.1）。
+  useTauriEvent(() => onWorkspaceClosed(() => resetWorkspace(null)));
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
   useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
@@ -211,6 +211,21 @@ export default function App() {
     if (uiRef.current?.fontScalePercent !== percent) {
       saveUi({ fontScalePercent: percent });
     }
+  }
+
+  /**
+   * ワークスペースを替える。タブ、表示中の本文、ツリーを破棄する（6.1）。
+   *
+   * ツリーは世代を進めて作り直す。閉じる前や切り替える前に始めた走査・読込の応答は、
+   * 世代とタブの照合で捨てられる（5.3、6.5）。
+   */
+  function resetWorkspace(next: WorkspaceOpenedEvent | null) {
+    scopeRef.current = next?.scopeId ?? null;
+    setWorkspace(next);
+    updateShown(null);
+    setError(null);
+    updateTabs(EMPTY_TAB_SET);
+    updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
   }
 
   function updateTree(next: FileTree) {

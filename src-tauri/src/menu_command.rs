@@ -26,6 +26,10 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
     match command {
         MenuCommand::OpenFolder => open_folder::pick_and_open(app),
+        // 閉じ終わりは待たない。完了は `workspace-closed` で知らせる。
+        MenuCommand::CloseWorkspace => {
+            open_folder::close(app);
+        }
         MenuCommand::Exit => app.exit(0),
         MenuCommand::CloseTab
         | MenuCommand::ToggleSidebar
@@ -48,9 +52,11 @@ fn forward<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::LanguagePreference;
+    use crate::state::AppState;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
-    use tauri::Listener;
+    use tauri::{Listener, Manager};
 
     /// Frontend担当のコマンドは、識別子をそのままeventで届ける。
     #[test]
@@ -80,15 +86,18 @@ mod tests {
     /// Rust側で処理するコマンドと、メニューへ載せていないコマンドはeventを送らない。
     #[test]
     fn other_commands_are_not_forwarded() {
-        let app = tauri::test::mock_app();
-        let received = Arc::new(AtomicUsize::new(0));
-        let seen = Arc::clone(&received);
-        app.listen(MENU_COMMAND_EVENT, move |_| {
-            seen.fetch_add(1, Ordering::SeqCst);
-        });
+        for command in [MenuCommand::CloseWorkspace, MenuCommand::About] {
+            let app = tauri::test::mock_app();
+            app.manage(AppState::new(LanguagePreference::System));
+            let received = Arc::new(AtomicUsize::new(0));
+            let seen = Arc::clone(&received);
+            app.listen(MENU_COMMAND_EVENT, move |_| {
+                seen.fetch_add(1, Ordering::SeqCst);
+            });
 
-        handle_command(app.handle(), MenuCommand::CloseWorkspace);
+            handle_command(app.handle(), command);
 
-        assert_eq!(received.load(Ordering::SeqCst), 0);
+            assert_eq!(received.load(Ordering::SeqCst), 0, "{command:?}");
+        }
     }
 }

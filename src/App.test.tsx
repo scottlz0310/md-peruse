@@ -253,6 +253,71 @@ describe("App", () => {
     expect(screen.queryByText("README.md")).toBeNull();
   });
 
+  describe("ワークスペースを閉じる（6.1）", () => {
+    async function closeWorkspace() {
+      await act(async () => {
+        await emit("workspace-closed");
+      });
+    }
+
+    test("タブとツリーを破棄してwelcome状態へ戻る", async () => {
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => fileContent(path, "## 本文\n"),
+      });
+      render(<App />);
+      await openReadme();
+      await waitFor(() => expect(screen.getByRole("tablist")).toBeTruthy());
+
+      await closeWorkspace();
+
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+        "md-peruse",
+      );
+      expect(screen.queryByRole("navigation")).toBeNull();
+      expect(screen.queryByRole("tablist")).toBeNull();
+    });
+
+    test("閉じる前に始めた読込の応答は表示しない", async () => {
+      let release: (content: FileContent) => void = () => {};
+      mockBackend({
+        scan: () => ROOT,
+        read: () =>
+          new Promise<FileContent>((resolve) => {
+            release = resolve;
+          }),
+      });
+      render(<App />);
+      await openReadme();
+      const pending = release;
+
+      await closeWorkspace();
+      await act(async () => {
+        pending(fileContent("README.md", "## 古い本文\n"));
+      });
+
+      expect(screen.queryByText("古い本文")).toBeNull();
+      expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+        "md-peruse",
+      );
+    });
+
+    test("開き直すと、閉じる前に変えた幅で表示する", async () => {
+      mockBackend({ scan: () => ROOT });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      const separator = await waitFor(() => screen.getByRole("separator"));
+      fireEvent.keyDown(separator, { key: "ArrowRight" });
+
+      await closeWorkspace();
+      await openWorkspace({ scopeId: "scope-2", label: "docs" });
+
+      const reopened = await waitFor(() => screen.getByRole("separator"));
+      expect(reopened.getAttribute("aria-valuenow")).toBe("296");
+      await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
+    });
+  });
+
   test("本文中の相対リンクで別の文書を開く（7.2）", async () => {
     const read: string[] = [];
     mockBackend({
