@@ -1268,7 +1268,9 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 
 アクセラレータの表記は、Tauriが内部で使う `muda` の形式に従う。キーはW3Cの `KeyboardEvent.code` に対応する名前であり、`Plus` のような記号名は受け付けない。Tauriはパースに失敗した文字列を無言で捨て、アクセラレータなしの項目として登録する。ビルドもテストも通り、実行するまで「効かないショートカット」に気づけないため、すべての割り当てを実際のパーサーへ通すテスト（`accelerators_are_parsable`）で固定する。パーサーが何でも受け入れるようになった場合に備え、既知の無効な表記で反証も取る。WebViewにフォーカスがあるときの照合は表記を仮想キーへ自前で変換するため、すべての割り当てが変換でき、修飾キーが `muda` の解釈と一致することもテスト（`every_accelerator_is_routable`）で固定する。
 
-文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。メニューには代表として `Ctrl+Equal` を表示し、`Ctrl+Shift+Equal` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる。
+文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。メニューには代表として `Ctrl+Equal` を表示し、`Ctrl` + `+` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる。
+
+`Ctrl` + `+` は物理キー（`KeyboardEvent.code`）ではなく入力される文字（`key` が `+`）で判定する。`+` はUS配列では `Shift` + `=`、JIS配列では `Shift` + `;` のキーであり、`code` の `Equal` で判定するとJIS配列で効かなかった（実測）。なお `Ctrl+Equal` は仮想キー `VK_OEM_PLUS` として登録され、JIS配列ではこのキーが `;` の位置にあるため `Ctrl+;` で拡大する。Chromeのズームと同じ割り当てである。
 
 `Ctrl` + `=` / `-` / `0` をアプリへ割り当てるため、WebViewのズームホットキーは無効にする。有効なままだと、WebView全体の拡大とプレビュー本文の拡大が同じキーで二重に起きる。本文だけを拡大する方針（10.3）を保つための措置であり、設定はwebview側で行う。
 
@@ -1310,7 +1312,8 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 ### 10.3 文字サイズ
 
 - 変更対象はプレビュー本文とし、ツリーとメニューはOSのスケーリングに従う。
-- メニューのアクセラレータは `Ctrl+Equal` / `Ctrl+Minus` / `Ctrl+0` とする。`Ctrl+Shift+Equal` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる（10.1）。
+- 倍率が効くのは本文の文字（見出し、段落、リスト、表、コード、数式）である。Mermaidの図と画像は倍率に連動させず、それぞれ本来の幅で表示し、表示幅より広ければ縮める（8.4）。図のラベルはSVGが `font-size` を固定値で持つため文字の倍率を継承しない。図全体を拡大しても、幅の広い図は表示幅で頭打ちになり効果が限られるためである。
+- メニューのアクセラレータは `Ctrl+Equal` / `Ctrl+Minus` / `Ctrl+0` とする。`Ctrl` + `+` とテンキーの `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` / `Ctrl+Numpad0` はWebView内で同じ操作へ割り当てる（10.1）。
 - 文字サイズの反映もペイン幅と同じく `style` 要素へのCSSカスタムプロパティで行う（10.2、5.5）。
 
 倍率の段階を `80 / 90 / 100 / 110 / 125 / 150 / 175 / 200 %` の8段階とする。正本は `src/state/font-scale.ts` とする。

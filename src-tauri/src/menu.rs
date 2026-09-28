@@ -70,7 +70,7 @@ pub enum MenuCommand {
 ///
 /// 文字サイズの拡大は `Ctrl+Equal`（`=` キー）とする。`muda` のアクセラレータは修飾キーを
 /// 厳密に見るため、1つの項目で `Ctrl+=` と `Ctrl+Shift+=`（`Ctrl` + `+`）の両方は表せない。
-/// メニューには代表として `Ctrl+Equal` を表示し、`Ctrl+Shift+Equal` とテンキーの
+/// メニューには代表として `Ctrl+Equal` を表示し、`Ctrl` + `+` とテンキーの
 /// `Ctrl+NumpadAdd` / `Ctrl+NumpadSubtract` はWebView内で同じ操作へ割り当てる（10.3）。
 ///
 /// `Ctrl` + `=` / `-` / `0` を文字サイズへ割り当てるため、WebViewのズームホットキーは
@@ -118,10 +118,15 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 3] = [
+pub const IMPLEMENTED: [MenuCommand; 8] = [
     MenuCommand::OpenFolder,
     MenuCommand::CloseTab,
     MenuCommand::Exit,
+    MenuCommand::ToggleSidebar,
+    MenuCommand::ReloadDocument,
+    MenuCommand::IncreaseFontSize,
+    MenuCommand::DecreaseFontSize,
+    MenuCommand::ResetFontSize,
 ];
 
 /// コマンドの表示名。
@@ -136,6 +141,16 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::CloseTab, Language::En) => "&Close Tab",
         (MenuCommand::Exit, Language::Ja) => "終了(&X)",
         (MenuCommand::Exit, Language::En) => "E&xit",
+        (MenuCommand::ToggleSidebar, Language::Ja) => "サイドバーの表示切り替え(&S)",
+        (MenuCommand::ToggleSidebar, Language::En) => "Toggle &Sidebar",
+        (MenuCommand::ReloadDocument, Language::Ja) => "再読み込み(&R)",
+        (MenuCommand::ReloadDocument, Language::En) => "&Reload",
+        (MenuCommand::IncreaseFontSize, Language::Ja) => "文字を大きく(&I)",
+        (MenuCommand::IncreaseFontSize, Language::En) => "&Increase Font Size",
+        (MenuCommand::DecreaseFontSize, Language::Ja) => "文字を小さく(&D)",
+        (MenuCommand::DecreaseFontSize, Language::En) => "&Decrease Font Size",
+        (MenuCommand::ResetFontSize, Language::Ja) => "文字サイズを既定に戻す(&E)",
+        (MenuCommand::ResetFontSize, Language::En) => "R&eset Font Size",
         _ => unreachable!("メニューへ載せていないコマンドの表示名: {command:?}"),
     }
 }
@@ -144,6 +159,13 @@ fn file_menu_label(language: Language) -> &'static str {
     match language {
         Language::Ja => "ファイル(&F)",
         Language::En => "&File",
+    }
+}
+
+fn view_menu_label(language: Language) -> &'static str {
+    match language {
+        Language::Ja => "表示(&V)",
+        Language::En => "&View",
     }
 }
 
@@ -174,7 +196,20 @@ pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> taur
             &item(MenuCommand::Exit)?,
         ],
     )?;
-    Menu::with_items(manager, &[&file])
+    let view = Submenu::with_items(
+        manager,
+        view_menu_label(language),
+        true,
+        &[
+            &item(MenuCommand::ToggleSidebar)?,
+            &item(MenuCommand::ReloadDocument)?,
+            &PredefinedMenuItem::separator(manager)?,
+            &item(MenuCommand::IncreaseFontSize)?,
+            &item(MenuCommand::DecreaseFontSize)?,
+            &item(MenuCommand::ResetFontSize)?,
+        ],
+    )?;
+    Menu::with_items(manager, &[&file, &view])
 }
 
 #[cfg(test)]
@@ -208,14 +243,27 @@ mod tests {
     fn the_menu_contains_only_implemented_commands() {
         let app = tauri::test::mock_app();
         let menu = build(app.handle(), Language::Ja).expect("メニューを組み立てられない");
-        // `Menu::get` はサブメニューの中を探さないため、ファイルメニューから引く。
-        let items = menu.items().expect("メニューの項目を取れない");
-        let file = items[0].as_submenu().expect("先頭がサブメニューではない");
+        // `Menu::get` はサブメニューの中を探さないため、各サブメニューから引く。
+        let submenus: Vec<_> = menu
+            .items()
+            .expect("メニューの項目を取れない")
+            .into_iter()
+            .map(|item| {
+                item.as_submenu()
+                    .expect("最上位がサブメニューではない")
+                    .clone()
+            })
+            .collect();
+        let contains = |command: MenuCommand| {
+            submenus
+                .iter()
+                .any(|submenu| submenu.get(&command.id()).is_some())
+        };
 
         for command in IMPLEMENTED {
-            assert!(file.get(&command.id()).is_some(), "{command:?} が無い");
+            assert!(contains(command), "{command:?} が無い");
         }
-        assert!(file.get(&MenuCommand::CloseWorkspace.id()).is_none());
+        assert!(!contains(MenuCommand::CloseWorkspace));
     }
 
     /// すべての割り当てが実際のパーサーを通ることを固定する。

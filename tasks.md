@@ -186,7 +186,9 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] UI/UX: TreeView。`src/state/file-tree.ts` にツリーの状態（取得状態、展開、走査の2層世代）を、`src/tree/TreeView.tsx` にWAI-ARIAのtreeパターンによる表示とキー操作を置き、サイドバーの仮の一覧を置き換えた。フォルダーは展開したときに走査し、失敗はそのフォルダーの中に示す。`hasChildren: false` のフォルダーは展開矢印を出さない（[design-decisions.md](./docs/design-decisions.md) 5.3、6.2、10章）
 - [x] UI/UX: タブバー。`src/state/tab-set.ts`（プレビュータブ、固定、重複の回避、上限と退避、閉じたときの隣の選択）と `src/tabs/TabBar.tsx`（tabsパターン、閉じるボタン、中クリック、ダブルクリックで固定）を置き、`Ctrl+Tab` / `Ctrl+Shift+Tab` でタブを移る。ツリーはシングルクリックと `Space` でプレビュー、ダブルクリックと `Enter` で固定タブとして開く（[design-decisions.md](./docs/design-decisions.md) 9.1、9.3、10章）
 - [x] UI/UX: 「タブを閉じる」のメニュー項目と `Ctrl+W`。メニューの振り分けを `src-tauri/src/menu_command.rs` へ移し、Frontendが処理するコマンドをTauri event `menu-command` で渡す経路を作った。`menu.rs` の `IMPLEMENTED` に `CloseTab` を足したことで、WebViewにフォーカスがあるときも `webview_keys.rs` が同じ割り当てで拾う（[design-decisions.md](./docs/design-decisions.md) 10.1）
-- [ ] UI/UX: Breadcrumbと、メニュー項目の追加（サイドバー、再読み込み、文字サイズ）（[design-decisions.md](./docs/design-decisions.md) 10.1、10.1.1、10.3）
+- [x] UI/UX: 表示メニュー（サイドバーの表示切り替え、再読み込み、文字サイズ）。Frontend担当のコマンドを `menu-command` eventで受け、表示状態と文字サイズを設定へ保存する。再読み込みは読込の理由 `reload` として履歴を動かさず、失敗しても履歴と表示を保つ。文字サイズは `style` 要素で本文の `--font-scale` へ書き、`Ctrl` + `+`（入力文字で判定し、US配列とJIS配列の両方で効く）とテンキーはWebView内で同じ操作へ割り当てる（[design-decisions.md](./docs/design-decisions.md) 10.1、10.3）
+- [ ] UI/UX: 「ワークスペースを閉じる」のメニュー項目（[design-decisions.md](./docs/design-decisions.md) 6.1、10.1）
+- [ ] UI/UX: Breadcrumb（[design-decisions.md](./docs/design-decisions.md) 10.1.1）
 - [ ] UI/UX: テーマ（System / Light / Dark）、`forced-colors`、Reduced Motion、ウィンドウタイトル
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）

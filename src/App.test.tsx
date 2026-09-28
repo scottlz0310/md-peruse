@@ -860,6 +860,171 @@ describe("App", () => {
     });
   });
 
+  describe("表示メニュー（10.1、10.3）", () => {
+    function menuCommand(command: string) {
+      return act(async () => {
+        await emit("menu-command", command);
+      });
+    }
+
+    /** 本文の文字サイズを渡す `style` 要素の倍率。 */
+    function fontScale() {
+      const style = [...document.querySelectorAll("style")].find((element) =>
+        element.textContent?.includes("--font-scale"),
+      );
+      return style?.textContent?.match(/--font-scale: ([\d.]+)/)?.[1];
+    }
+
+    test("サイドバーの表示を切り替え、表示状態を保存する", async () => {
+      const updates: UiSettingsUpdate[] = [];
+      mockBackend({ scan: () => ROOT, updateSettings: (u) => updates.push(u) });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => expect(screen.getByRole("navigation")).toBeTruthy());
+
+      await menuCommand("toggleSidebar");
+      expect(screen.queryByRole("navigation")).toBeNull();
+      expect(screen.queryByRole("separator")).toBeNull();
+
+      await menuCommand("toggleSidebar");
+      expect(screen.getByRole("navigation")).toBeTruthy();
+      await waitFor(() =>
+        expect(updates).toEqual([
+          { sidebarVisible: false },
+          { sidebarVisible: true },
+        ]),
+      );
+    });
+
+    type FontAction =
+      | { menu: string }
+      | { key: { key: string; code: string; shiftKey?: boolean } };
+
+    test.each<[string, FontAction[], number[], string]>([
+      ["メニューで大きくする", [{ menu: "increaseFontSize" }], [110], "1.1"],
+      ["メニューで小さくする", [{ menu: "decreaseFontSize" }], [90], "0.9"],
+      [
+        "既定に戻す",
+        [{ menu: "increaseFontSize" }, { menu: "resetFontSize" }],
+        [110, 100],
+        "1",
+      ],
+      [
+        "US配列の Ctrl+Shift+= で大きくする",
+        [{ key: { key: "+", code: "Equal", shiftKey: true } }],
+        [110],
+        "1.1",
+      ],
+      [
+        "JIS配列の Ctrl+Shift+; で大きくする",
+        [{ key: { key: "+", code: "Semicolon", shiftKey: true } }],
+        [110],
+        "1.1",
+      ],
+      [
+        "テンキーの + で大きくする",
+        [{ key: { key: "+", code: "NumpadAdd" } }],
+        [110],
+        "1.1",
+      ],
+      [
+        "テンキーの - で小さくする",
+        [{ key: { key: "-", code: "NumpadSubtract" } }],
+        [90],
+        "0.9",
+      ],
+      [
+        "テンキーの 0 で既定に戻す",
+        [
+          { key: { key: "+", code: "NumpadAdd" } },
+          { key: { key: "0", code: "Numpad0" } },
+        ],
+        [110, 100],
+        "1",
+      ],
+      // `Ctrl+=` はメニューのアクセラレータとしてRust側が受ける。ページでも扱うと二重になる。
+      [
+        "Ctrl+= はページで扱わない",
+        [{ key: { key: "=", code: "Equal" } }],
+        [],
+        "1",
+      ],
+      // 既定のまま既定に戻しても書き込まない。
+      ["変わらなければ保存しない", [{ menu: "resetFontSize" }], [], "1"],
+    ])("文字サイズ: %s", async (_, actions, saved, scale) => {
+      const updates: UiSettingsUpdate[] = [];
+      mockBackend({ scan: () => ROOT, updateSettings: (u) => updates.push(u) });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => expect(fontScale()).toBe("1"));
+
+      for (const action of actions) {
+        if ("menu" in action) {
+          await menuCommand(action.menu);
+        } else {
+          await act(async () =>
+            fireEvent.keyDown(window, { ...action.key, ctrlKey: true }),
+          );
+        }
+      }
+
+      expect(fontScale()).toBe(scale);
+      await waitFor(() =>
+        expect(updates).toEqual(
+          saved.map((fontScalePercent) => ({ fontScalePercent })),
+        ),
+      );
+    });
+
+    test("再読み込みは表示中の文書を読み直し、失敗しても表示を保つ", async () => {
+      const missing: IpcError = {
+        code: "fileNotFound",
+        message: "ファイルが見つかりません。",
+        detail: "README.md",
+      };
+      const versions: (FileContent | IpcError)[] = [
+        fileContent("README.md", "## 1版\n"),
+        fileContent("README.md", "## 2版\n"),
+        missing,
+      ];
+      mockBackend({
+        scan: () => ROOT,
+        read: () => {
+          const next = versions.shift();
+          if (next === undefined) throw new Error("想定外の読込");
+          return "code" in next ? Promise.reject(next) : next;
+        },
+      });
+      render(<App />);
+      await openReadme();
+      const heading = () =>
+        screen.getByRole("heading", { level: 2 }).textContent;
+      await waitFor(() => expect(heading()).toBe("1版"));
+
+      await menuCommand("reloadDocument");
+      await waitFor(() => expect(heading()).toBe("2版"));
+
+      await menuCommand("reloadDocument");
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toBe(missing.message),
+      );
+      expect(heading()).toBe("2版");
+      expect(screen.getAllByRole("tab")).toHaveLength(1);
+    });
+
+    test("タブが無いときの再読み込みは何もしない", async () => {
+      mockBackend({ scan: () => ROOT });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => expect(screen.getByRole("navigation")).toBeTruthy());
+
+      // 読込を始めれば、`read` を用意していないため想定外のcommandで失敗する。
+      await menuCommand("reloadDocument");
+
+      expect(screen.queryByRole("alert")).toBeNull();
+    });
+  });
+
   test("文書内検索は本文だけを対象にし、一覧のファイル名に一致しない（8.6）", async () => {
     // happy-domはCSS Custom Highlight APIを持たない。登録された範囲だけを控える。
     // `CSS` はアクセスのたびに新しいオブジェクトを返すため、プロパティごと差し替える。

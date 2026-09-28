@@ -244,8 +244,13 @@ mod tests {
                 },
                 KeyRoute::Command(MenuCommand::CloseTab),
             ),
-            // メニューへ載せていないコマンドの割り当てはページへ渡す。
-            ("F5", key(0x74), KeyRoute::Page),
+            (
+                "F5",
+                key(0x74),
+                KeyRoute::Command(MenuCommand::ReloadDocument),
+            ),
+            // 割り当てのないキーはページへ渡す。
+            ("F6", key(0x75), KeyRoute::Page),
             (
                 "Alt+F",
                 KeyPress {

@@ -38,6 +38,10 @@ export type LoadIntent =
       /** 戻る／進むで履歴の `index` の項目へ移る。 */
       readonly kind: "history";
       readonly index: number;
+    }
+  | {
+      /** 表示中の文書を読み直す（メニューの「再読み込み」。10.1）。履歴は動かさない。 */
+      readonly kind: "reload";
     };
 
 /**
@@ -77,6 +81,13 @@ export function completeLoad(
   if (!isCurrentLoad(tab, token) || tab.status === "deleted") return undefined;
   const loaded = applyLoadResult(tab, token, "succeeded");
   const left = updateCurrentScroll(tab.history, scrollTop);
+  if (intent.kind === "reload") {
+    // 読み直しても読んでいた位置に留まる。
+    return {
+      tab: { ...loaded, history: left },
+      view: { anchor: null, scrollTop },
+    };
+  }
   if (intent.kind === "push") {
     return {
       tab: {
@@ -109,8 +120,8 @@ export function completeLoad(
 /**
  * 読込の失敗をタブへ反映する。表示中の文書はそのまま保つ（7.2）。
  *
- * 戻る／進むで読めなかった項目は履歴から取り除く（9.3）。最初の読込が失敗して履歴が空の
- * ままなら、タブを閉じて `tab: null` を返す。応答が古ければ `undefined` を返す。
+ * 戻る／進むで読めなかった項目は履歴から取り除く（9.3）。読み直しの失敗では履歴を保つ。
+ * 最初の読込が失敗して履歴が空のままなら、タブを閉じて `tab: null` を返す。応答が古ければ `undefined` を返す。
  */
 export function failLoad(
   tab: DocumentTab,
@@ -118,6 +129,8 @@ export function failLoad(
   intent: LoadIntent,
 ): { tab: DocumentTab | null } | undefined {
   if (!isCurrentLoad(tab, token)) return undefined;
+  // 読み直せなかった文書は、最後に読めた内容のまま履歴にも残す。
+  if (intent.kind === "reload") return { tab };
   if (intent.kind === "history") {
     return {
       tab: { ...tab, history: removeHistoryEntryAt(tab.history, intent.index) },

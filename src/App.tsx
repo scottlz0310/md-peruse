@@ -34,6 +34,12 @@ import {
   setExpanded,
 } from "./state/file-tree";
 import {
+  DEFAULT_FONT_SCALE,
+  decreaseFontScale,
+  increaseFontScale,
+  normalizeFontScale,
+} from "./state/font-scale";
+import {
   activateTab,
   activeTab,
   adjacentTabId,
@@ -51,7 +57,9 @@ import { TabBar, tabElementId } from "./tabs/TabBar";
 import { TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
 import type { IpcError } from "./types/generated/IpcError";
+import type { MenuCommand } from "./types/generated/MenuCommand";
 import type { UiSettings } from "./types/generated/UiSettings";
+import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
 /** アクティブタブに表示している本文。本文DOMはアクティブタブだけが持つ（9.1）。 */
@@ -60,6 +68,28 @@ type Shown = {
   content: FileContent;
   view: ViewTarget;
 };
+
+/**
+ * WebView内で文字サイズの操作へ割り当てるキー（10.3）。
+ *
+ * `Ctrl+=` / `Ctrl+-` / `Ctrl+0` はメニューのアクセラレータとしてRust側が受け、ページへ
+ * 届かない。1つの項目で表せない `Ctrl` + `+` とテンキーをここで扱う。
+ *
+ * `+` は物理キーではなく入力される文字で見る。US配列では `Shift` + `=`、JIS配列では
+ * `Shift` + `;` のキーであり、`code` で判定するとどちらかの配列で効かない（実測）。
+ * テンキーの `+` も同じ文字になる。
+ */
+function fontSizeCommandOf(event: KeyboardEvent): MenuCommand | null {
+  if (event.key === "+") return "increaseFontSize";
+  switch (event.code) {
+    case "NumpadSubtract":
+      return "decreaseFontSize";
+    case "Numpad0":
+      return "resetFontSize";
+    default:
+      return null;
+  }
+}
 
 /**
  * Rust側のeventを1度だけ購読する。
@@ -86,6 +116,8 @@ function useTauriEvent(subscribe: () => Promise<UnlistenFn>) {
 export default function App() {
   // 設定を読むまで描画しない。既定値で描いてから切り替えると、幅が一瞬変わって見える。
   const [ui, setUi] = useState<UiSettings | null>(null);
+  // メニューコマンドのハンドラーは最初の描画のものが残るため、設定もrefで読む。
+  const uiRef = useRef<UiSettings | null>(ui);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
@@ -108,8 +140,12 @@ export default function App() {
   const previewRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
-    getUiSettings().then(setUi, (reason: unknown) =>
-      setStartupError(String(reason)),
+    getUiSettings().then(
+      (loaded) => {
+        uiRef.current = loaded;
+        setUi(loaded);
+      },
+      (reason: unknown) => setStartupError(String(reason)),
     );
   }, []);
 
@@ -128,11 +164,54 @@ export default function App() {
   );
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
-  useTauriEvent(() =>
-    onMenuCommand((command) => {
-      if (command === "closeTab") closeActive();
-    }),
-  );
+  useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
+
+  function handleCommand(command: MenuCommand) {
+    const current = uiRef.current;
+    switch (command) {
+      case "closeTab":
+        closeActive();
+        return;
+      case "reloadDocument":
+        reloadActive();
+        return;
+      case "toggleSidebar":
+        if (current) saveUi({ sidebarVisible: !current.sidebarVisible });
+        return;
+      case "increaseFontSize":
+        if (current) saveFontScale(increaseFontScale(current.fontScalePercent));
+        return;
+      case "decreaseFontSize":
+        if (current) saveFontScale(decreaseFontScale(current.fontScalePercent));
+        return;
+      case "resetFontSize":
+        saveFontScale(DEFAULT_FONT_SCALE);
+        return;
+    }
+  }
+
+  /** 表示の設定を変えて保存する。書込みのまとめはRust側が行う（11.1）。 */
+  function saveUi(
+    update: Pick<
+      UiSettingsUpdate,
+      "sidebarWidth" | "sidebarVisible" | "fontScalePercent"
+    >,
+  ) {
+    const current = uiRef.current;
+    if (current === null) return;
+    const next = { ...current, ...update };
+    uiRef.current = next;
+    setUi(next);
+    updateUiSettings(update).catch((reason: unknown) =>
+      setError(String(reason)),
+    );
+  }
+
+  function saveFontScale(percent: number) {
+    if (uiRef.current?.fontScalePercent !== percent) {
+      saveUi({ fontScalePercent: percent });
+    }
+  }
 
   function updateTree(next: FileTree) {
     treeRef.current = next;
@@ -342,6 +421,16 @@ export default function App() {
     if (active) close(active.tabId);
   }
 
+  /**
+   * 表示中の文書を読み直す（メニューの「再読み込み」。10.1）。読込中のタブは、その完了で
+   * 最新の内容が表示されるため読み直さない。
+   */
+  function reloadActive() {
+    const active = activeTab(tabsRef.current);
+    if (!active || pendingPath(active) !== null) return;
+    load(active.tabId, active.path, { kind: "reload" });
+  }
+
   /** タブの中で表示を変える操作は、プレビュータブを固定する。 */
   function pinActive() {
     const active = activeTab(tabsRef.current);
@@ -421,13 +510,20 @@ export default function App() {
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.ctrlKey && !event.altKey && !event.metaKey) {
-        if (event.key !== "Tab") return;
-        event.preventDefault();
-        const next = adjacentTabId(
-          tabsRef.current,
-          event.shiftKey ? "previous" : "next",
-        );
-        if (next) activate(next);
+        if (event.key === "Tab") {
+          event.preventDefault();
+          const next = adjacentTabId(
+            tabsRef.current,
+            event.shiftKey ? "previous" : "next",
+          );
+          if (next) activate(next);
+          return;
+        }
+        const command = fontSizeCommandOf(event);
+        if (command) {
+          event.preventDefault();
+          handleCommand(command);
+        }
         return;
       }
       if (!event.altKey || event.ctrlKey || event.shiftKey || event.metaKey) {
@@ -497,6 +593,8 @@ export default function App() {
   }
 
   const active = activeTab(tabs);
+  // 本文の文字サイズはCSSカスタムプロパティで渡す。CSPが `style` 属性を許可しない（5.5）。
+  const fontScale = normalizeFontScale(ui.fontScalePercent);
   const visible =
     shown !== null && shown.tabId === active?.tabId ? shown : null;
 
@@ -504,11 +602,7 @@ export default function App() {
     <SidebarLayout
       savedWidth={ui.sidebarWidth}
       sidebarVisible={ui.sidebarVisible}
-      onWidthCommit={(sidebarWidth) => {
-        updateUiSettings({ sidebarWidth }).catch((reason: unknown) =>
-          setError(String(reason)),
-        );
-      }}
+      onWidthCommit={(sidebarWidth) => saveUi({ sidebarWidth })}
       previewRef={previewRef}
       sidebar={
         <>
@@ -533,6 +627,7 @@ export default function App() {
       }
       previewLabelledBy={active ? tabElementId(active.tabId) : undefined}
     >
+      <style>{`.markdown-body { --font-scale: ${fontScale / 100}; }`}</style>
       {error && <p role="alert">{error}</p>}
       {visible && (
         <>

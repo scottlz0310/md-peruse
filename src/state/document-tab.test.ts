@@ -72,6 +72,22 @@ describe("startLoad / completeLoad", () => {
     });
   });
 
+  test("読み直しは履歴を動かさず、読んでいた位置に留まる", () => {
+    const current = tabAt(
+      [entry("a.md", null, 0), entry("b.md", "user-content-x", 0)],
+      1,
+    );
+
+    const { tab, view } = load(current, "b.md", { kind: "reload" }, 320);
+
+    expect(tab.path).toBe("b.md");
+    expect(tab.history).toEqual({
+      entries: [entry("a.md", null, 0), entry("b.md", "user-content-x", 320)],
+      index: 1,
+    });
+    expect(view).toEqual({ anchor: null, scrollTop: 320 });
+  });
+
   test("後から始めた読込があれば、先の応答を捨てる", () => {
     const first = startLoad(null, FRESH, "slow.md");
     const second = startLoad(first.tab, FRESH, "fast.md");
@@ -134,6 +150,16 @@ describe("failLoad", () => {
       path: "missing.md",
       anchor: null,
     });
+
+    expect(failed?.tab?.path).toBe("a.md");
+    expect(failed?.tab?.history).toEqual(current.history);
+  });
+
+  test("読み直せなくても、その文書を履歴から取り除かない", () => {
+    const current = tabAt([entry("a.md", null, 0)], 0);
+    const started = startLoad(current, FRESH, "a.md");
+
+    const failed = failLoad(started.tab, started.token, { kind: "reload" });
 
     expect(failed?.tab?.path).toBe("a.md");
     expect(failed?.tab?.history).toEqual(current.history);
