@@ -29,7 +29,6 @@ type Handlers = {
 };
 
 const UI_SETTINGS: UiSettings = {
-  theme: "system",
   language: "system",
   effectiveLanguage: "ja",
   sidebarWidth: 280,

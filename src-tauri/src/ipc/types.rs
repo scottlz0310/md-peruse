@@ -183,23 +183,6 @@ pub struct WorkspaceOpenedEvent {
     pub label: String,
 }
 
-/// 配色テーマ。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/types/generated/")]
-pub enum Theme {
-    Light,
-    Dark,
-}
-
-/// OSの配色設定が変わったときの通知。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/types/generated/")]
-pub struct ThemeChangedEvent {
-    pub theme: Theme,
-}
-
 /// ディレクトリ1階層の走査結果。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]

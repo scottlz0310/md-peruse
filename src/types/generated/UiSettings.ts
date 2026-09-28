@@ -2,16 +2,16 @@
 import type { Language } from "./Language";
 import type { LanguagePreference } from "./LanguagePreference";
 import type { RecentFolderView } from "./RecentFolderView";
-import type { ThemePreference } from "./ThemePreference";
 
 /**
  * Frontendへ渡す設定の投影。
  *
  * `Settings` をそのまま渡さないのは、絶対パスとウィンドウ配置がFrontendの表示に
  * 不要であり、7.1の「ネイティブ絶対パスをFrontendのURLまたはDOMへ露出しない」を
- * 例外なく保つためである。
+ * 例外なく保つためである。テーマも含めない。切り替えと適用をRust側で行い、Frontendは
+ * `prefers-color-scheme` で追従するためである（10.1）。
  */
-export type UiSettings = { theme: ThemePreference, 
+export type UiSettings = { 
 /**
  * 言語の選択。メニューのチェック状態に使う。
  */

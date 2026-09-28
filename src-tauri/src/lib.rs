@@ -16,6 +16,7 @@ pub mod settings_store;
 pub mod startup;
 pub mod state;
 pub mod telemetry;
+pub mod theme;
 pub mod watch;
 pub mod watch_runtime;
 pub mod webview_keys;
@@ -67,11 +68,12 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         // の内容は表示しない（7.1）。
         Box::new(move |_| open_folder::show_error(&handle, &[ErrorCode::SettingsSaveFailed])),
     );
+    let saved_theme = store.settings().theme;
     app.manage(AppState::new(store.settings().language));
     app.manage(store);
 
     let language = app.state::<AppState>().language();
-    app.set_menu(menu::build(app.handle(), language)?)?;
+    app.set_menu(menu::build(app.handle(), language, saved_theme)?)?;
 
     let config = app
         .config()
@@ -81,7 +83,10 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         .find(|window| window.label == open_folder::MAIN_WINDOW)
         .expect("メインウィンドウは tauri.conf.json で定義する")
         .clone();
-    let window = WebviewWindowBuilder::from_config(app.handle(), &config)?.build()?;
+    // 作った後にテーマを切り替えると、起動直後に別の配色が一瞬見える。
+    let window = WebviewWindowBuilder::from_config(app.handle(), &config)?
+        .theme(theme::window_theme(saved_theme))
+        .build()?;
     webview_keys::attach(&window)?;
 
     let notice: &[ErrorCode] = match outcome {

@@ -62,12 +62,11 @@ const _: () = {
 
 /// 配色テーマの設定値。
 ///
-/// IPCの `Theme`（5.3）がOSから得た実際の配色を表す2値であるのに対し、こちらは
-/// ユーザーの選択を表す。`System` を選んだときの実際の配色は `ThemeChangedEvent`
-/// で受け取るため、両者を同じ型で表さない。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+/// 切り替えも適用もRust側で行い（`crate::theme`）、Frontendへは渡さない。WebViewの
+/// `prefers-color-scheme` がウィンドウのテーマに従うため、Frontendは値を知らなくても
+/// 配色を追従できる（10.1）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[ts(export, export_to = "../../src/types/generated/")]
 pub enum ThemePreference {
     #[default]
     System,
@@ -154,12 +153,12 @@ pub struct RecentFolderView {
 ///
 /// `Settings` をそのまま渡さないのは、絶対パスとウィンドウ配置がFrontendの表示に
 /// 不要であり、7.1の「ネイティブ絶対パスをFrontendのURLまたはDOMへ露出しない」を
-/// 例外なく保つためである。
+/// 例外なく保つためである。テーマも含めない。切り替えと適用をRust側で行い、Frontendは
+/// `prefers-color-scheme` で追従するためである（10.1）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct UiSettings {
-    pub theme: ThemePreference,
     /// 言語の選択。メニューのチェック状態に使う。
     pub language: LanguagePreference,
     /// 選択とOSの表示言語から決まった実際の表示言語（10.5）。
@@ -183,8 +182,6 @@ pub struct UiSettings {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct UiSettingsUpdate {
-    #[ts(optional)]
-    pub theme: Option<ThemePreference>,
     #[ts(optional)]
     pub sidebar_width: Option<u32>,
     #[ts(optional)]

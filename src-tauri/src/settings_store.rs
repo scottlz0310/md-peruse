@@ -20,7 +20,9 @@ use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::i18n::Language;
-use crate::settings::{SCHEMA_VERSION, SETTINGS_FILE_NAME, Settings, UiSettings, UiSettingsUpdate};
+use crate::settings::{
+    SCHEMA_VERSION, SETTINGS_FILE_NAME, Settings, ThemePreference, UiSettings, UiSettingsUpdate,
+};
 
 /// 変更から書込みまで待つ時間。
 ///
@@ -79,6 +81,15 @@ impl SettingsStore {
         (store, outcome)
     }
 
+    /// 書込みを行わないストア。他のモジュールのテストで `mock_app` へ登録するために使う。
+    #[cfg(test)]
+    pub(crate) fn without_saving(settings: Settings) -> Self {
+        Self {
+            current: Mutex::new(settings),
+            writer: None,
+        }
+    }
+
     /// 現在の設定。
     pub fn settings(&self) -> Settings {
         self.lock().clone()
@@ -90,7 +101,6 @@ impl SettingsStore {
     pub fn ui_settings(&self, effective_language: Language) -> UiSettings {
         let settings = self.lock();
         UiSettings {
-            theme: settings.theme,
             language: settings.language,
             effective_language,
             sidebar_width: settings.sidebar_width,
@@ -102,20 +112,28 @@ impl SettingsStore {
 
     /// Frontendから届いた変更を反映し、書込みを予約する。値が変わらなければ書かない。
     pub fn update(&self, update: UiSettingsUpdate) {
+        self.modify(|settings| {
+            if let Some(width) = update.sidebar_width {
+                settings.sidebar_width = width;
+            }
+            if let Some(visible) = update.sidebar_visible {
+                settings.sidebar_visible = visible;
+            }
+            if let Some(percent) = update.font_scale_percent {
+                settings.font_scale_percent = percent;
+            }
+        });
+    }
+
+    /// テーマの選択を反映し、書込みを予約する。値が変わらなければ書かない。
+    pub fn set_theme(&self, theme: ThemePreference) {
+        self.modify(|settings| settings.theme = theme);
+    }
+
+    fn modify(&self, change: impl FnOnce(&mut Settings)) {
         let mut settings = self.lock();
         let before = settings.clone();
-        if let Some(theme) = update.theme {
-            settings.theme = theme;
-        }
-        if let Some(width) = update.sidebar_width {
-            settings.sidebar_width = width;
-        }
-        if let Some(visible) = update.sidebar_visible {
-            settings.sidebar_visible = visible;
-        }
-        if let Some(percent) = update.font_scale_percent {
-            settings.font_scale_percent = percent;
-        }
+        change(&mut settings);
         if *settings != before
             && let Some(writer) = &self.writer
         {
@@ -299,7 +317,7 @@ impl Drop for Writer {
 mod tests {
     use super::*;
     use crate::i18n::LanguagePreference;
-    use crate::settings::{DEFAULT_SIDEBAR_WIDTH, ThemePreference};
+    use crate::settings::DEFAULT_SIDEBAR_WIDTH;
     use std::sync::Arc;
 
     /// テスト用の一時フォルダー。終了時に削除する。
@@ -448,14 +466,8 @@ mod tests {
     #[test]
     fn a_store_without_saving_does_not_write() {
         let dir = TempDir::new("readonly");
-        let store = SettingsStore {
-            current: Mutex::new(Settings::default()),
-            writer: None,
-        };
-        store.update(UiSettingsUpdate {
-            theme: Some(ThemePreference::Dark),
-            ..UiSettingsUpdate::default()
-        });
+        let store = SettingsStore::without_saving(Settings::default());
+        store.set_theme(ThemePreference::Dark);
         store.flush();
         assert_eq!(store.settings().theme, ThemePreference::Dark);
         assert!(!dir.settings_file().exists());
@@ -490,8 +502,8 @@ mod tests {
         let dir = TempDir::new("flush");
         let (store, _) = open(&dir, Duration::from_secs(60));
 
+        store.set_theme(ThemePreference::Light);
         store.update(UiSettingsUpdate {
-            theme: Some(ThemePreference::Light),
             sidebar_visible: Some(false),
             font_scale_percent: Some(125),
             ..UiSettingsUpdate::default()
@@ -532,6 +544,7 @@ mod tests {
             sidebar_width: Some(DEFAULT_SIDEBAR_WIDTH),
             ..UiSettingsUpdate::default()
         });
+        store.set_theme(ThemePreference::default());
         store.flush();
         assert!(!dir.settings_file().exists());
     }
@@ -553,7 +566,7 @@ mod tests {
         assert_eq!(outcome, LoadOutcome::Loaded);
 
         store.update(UiSettingsUpdate {
-            theme: Some(ThemePreference::Dark),
+            sidebar_visible: Some(false),
             ..UiSettingsUpdate::default()
         });
         store.flush();

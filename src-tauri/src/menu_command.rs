@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 
 use crate::menu::MenuCommand;
 use crate::open_folder;
+use crate::theme;
 
 /// Frontendが処理するメニューコマンドを運ぶTauri eventの名前。
 pub const MENU_COMMAND_EVENT: &str = "menu-command";
@@ -31,6 +32,9 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
             open_folder::close(app);
         }
         MenuCommand::Exit => app.exit(0),
+        MenuCommand::UseSystemTheme | MenuCommand::UseLightTheme | MenuCommand::UseDarkTheme => {
+            theme::select(app, command)
+        }
         MenuCommand::CloseTab
         | MenuCommand::ToggleSidebar
         | MenuCommand::ReloadDocument
