@@ -5,11 +5,15 @@
 //! 処理は `crate::open_folder` などコマンドごとの担当が持つ。
 
 use serde::{Deserialize, Serialize};
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{
+    CheckMenuItem, IsMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
+};
 use tauri::{Manager, Runtime};
 use ts_rs::TS;
 
 use crate::i18n::Language;
+use crate::settings::ThemePreference;
+use crate::theme;
 
 /// メニュー項目が表すコマンド。
 ///
@@ -118,13 +122,16 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 9] = [
+pub const IMPLEMENTED: [MenuCommand; 12] = [
     MenuCommand::OpenFolder,
     MenuCommand::CloseWorkspace,
     MenuCommand::CloseTab,
     MenuCommand::Exit,
     MenuCommand::ToggleSidebar,
     MenuCommand::ReloadDocument,
+    MenuCommand::UseSystemTheme,
+    MenuCommand::UseLightTheme,
+    MenuCommand::UseDarkTheme,
     MenuCommand::IncreaseFontSize,
     MenuCommand::DecreaseFontSize,
     MenuCommand::ResetFontSize,
@@ -148,6 +155,12 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::ToggleSidebar, Language::En) => "Toggle &Sidebar",
         (MenuCommand::ReloadDocument, Language::Ja) => "再読み込み(&R)",
         (MenuCommand::ReloadDocument, Language::En) => "&Reload",
+        (MenuCommand::UseSystemTheme, Language::Ja) => "システム(&S)",
+        (MenuCommand::UseSystemTheme, Language::En) => "&System",
+        (MenuCommand::UseLightTheme, Language::Ja) => "ライト(&L)",
+        (MenuCommand::UseLightTheme, Language::En) => "&Light",
+        (MenuCommand::UseDarkTheme, Language::Ja) => "ダーク(&D)",
+        (MenuCommand::UseDarkTheme, Language::En) => "&Dark",
         (MenuCommand::IncreaseFontSize, Language::Ja) => "文字を大きく(&I)",
         (MenuCommand::IncreaseFontSize, Language::En) => "&Increase Font Size",
         (MenuCommand::DecreaseFontSize, Language::Ja) => "文字を小さく(&D)",
@@ -172,12 +185,23 @@ fn view_menu_label(language: Language) -> &'static str {
     }
 }
 
-/// メニューを組み立てる。
+fn theme_menu_label(language: Language) -> &'static str {
+    match language {
+        Language::Ja => "テーマ(&T)",
+        Language::En => "&Theme",
+    }
+}
+
+/// メニューを組み立てる。`theme` は保存済みのテーマで、その項目にチェックを付ける。
 ///
 /// 終了は `PredefinedMenuItem::quit` を使わず、自前の項目にする。コマンドの識別子を
 /// 1つの経路（`MenuCommand::from_id`）で扱い、メニューの選択をすべて同じ場所で処理する
 /// ためである。
-pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> tauri::Result<Menu<R>> {
+pub fn build<R: Runtime, M: Manager<R>>(
+    manager: &M,
+    language: Language,
+    theme: ThemePreference,
+) -> tauri::Result<Menu<R>> {
     let item = |command: MenuCommand| {
         MenuItem::with_id(
             manager,
@@ -200,6 +224,23 @@ pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> taur
             &item(MenuCommand::Exit)?,
         ],
     )?;
+    let theme_choices = theme::CHOICES
+        .iter()
+        .map(|&(command, preference)| {
+            CheckMenuItem::with_id(
+                manager,
+                command.id(),
+                label(command, language),
+                true,
+                preference == theme,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let theme_items: Vec<&dyn IsMenuItem<R>> = theme_choices
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<R>)
+        .collect();
     let view = Submenu::with_items(
         manager,
         view_menu_label(language),
@@ -208,12 +249,45 @@ pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> taur
             &item(MenuCommand::ToggleSidebar)?,
             &item(MenuCommand::ReloadDocument)?,
             &PredefinedMenuItem::separator(manager)?,
+            &Submenu::with_items(manager, theme_menu_label(language), true, &theme_items)?,
+            &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::IncreaseFontSize)?,
             &item(MenuCommand::DecreaseFontSize)?,
             &item(MenuCommand::ResetFontSize)?,
         ],
     )?;
     Menu::with_items(manager, &[&file, &view])
+}
+
+/// テーマの項目のチェックを、選択中の1つだけに付け直す。
+///
+/// チェック付きの項目は、選ばれるとmudaがチェックを反転してからイベントを送る。
+/// 選択中の項目を選び直すとチェックが外れ、別の項目を選ぶと2つにチェックが付くため、
+/// 選ばれるたびに3つとも付け直す。
+pub fn check_theme<R: Runtime>(menu: &Menu<R>, theme: ThemePreference) -> tauri::Result<()> {
+    for (command, preference) in theme::CHOICES {
+        if let Some(item) = theme_item(menu, command) {
+            item.set_checked(preference == theme)?;
+        }
+    }
+    Ok(())
+}
+
+/// テーマの項目を引く。
+pub fn theme_item<R: Runtime>(menu: &Menu<R>, command: MenuCommand) -> Option<CheckMenuItem<R>> {
+    find(menu.items().ok()?, &command.id())?
+        .as_check_menuitem()
+        .cloned()
+}
+
+/// サブメニューの中まで項目を探す。`Menu::get` と `Submenu::get` は直下しか探さない。
+fn find<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
+    items.into_iter().find_map(|item| {
+        if item.id().as_ref() == id {
+            return Some(item);
+        }
+        find(item.as_submenu()?.items().ok()?, id)
+    })
 }
 
 #[cfg(test)]
@@ -246,28 +320,39 @@ mod tests {
     #[test]
     fn the_menu_contains_only_implemented_commands() {
         let app = tauri::test::mock_app();
-        let menu = build(app.handle(), Language::Ja).expect("メニューを組み立てられない");
-        // `Menu::get` はサブメニューの中を探さないため、各サブメニューから引く。
-        let submenus: Vec<_> = menu
-            .items()
-            .expect("メニューの項目を取れない")
-            .into_iter()
-            .map(|item| {
-                item.as_submenu()
-                    .expect("最上位がサブメニューではない")
-                    .clone()
-            })
-            .collect();
+        let menu = build(app.handle(), Language::Ja, ThemePreference::System)
+            .expect("メニューを組み立てられない");
         let contains = |command: MenuCommand| {
-            submenus
-                .iter()
-                .any(|submenu| submenu.get(&command.id()).is_some())
+            find(
+                menu.items().expect("メニューの項目を取れない"),
+                &command.id(),
+            )
+            .is_some()
         };
 
         for command in IMPLEMENTED {
             assert!(contains(command), "{command:?} が無い");
         }
         assert!(!contains(MenuCommand::About));
+    }
+
+    /// 保存済みのテーマの項目だけにチェックが付いた状態で組み立てる。
+    #[test]
+    fn the_saved_theme_is_checked() {
+        for (_, saved) in theme::CHOICES {
+            let app = tauri::test::mock_app();
+            let menu =
+                build(app.handle(), Language::Ja, saved).expect("メニューを組み立てられない");
+
+            for (command, preference) in theme::CHOICES {
+                let item = theme_item(&menu, command).expect("テーマの項目が無い");
+                assert_eq!(
+                    item.is_checked().unwrap(),
+                    preference == saved,
+                    "保存値 {saved:?} の {command:?}"
+                );
+            }
+        }
     }
 
     /// すべての割り当てが実際のパーサーを通ることを固定する。

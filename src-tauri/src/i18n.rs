@@ -14,7 +14,7 @@ use ts_rs::TS;
 /// 実際に表示する言語。
 ///
 /// 設定値の `LanguagePreference` と分けるのは、`System` を選んだときの実際の言語を
-/// 表す値が別に要るためである。配色の `Theme` と `ThemePreference` と同じ関係にある。
+/// 表す値が別に要るためである。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]

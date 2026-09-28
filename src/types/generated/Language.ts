@@ -4,6 +4,6 @@
  * 実際に表示する言語。
  *
  * 設定値の `LanguagePreference` と分けるのは、`System` を選んだときの実際の言語を
- * 表す値が別に要るためである。配色の `Theme` と `ThemePreference` と同じ関係にある。
+ * 表す値が別に要るためである。
  */
 export type Language = "ja" | "en";
