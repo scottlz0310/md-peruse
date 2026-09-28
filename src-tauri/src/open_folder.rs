@@ -1,8 +1,9 @@
-//! 「フォルダーを開く」の処理（design-decisions.md 6.1、10.1）。
+//! 「フォルダーを開く」と「ワークスペースを閉じる」の処理（design-decisions.md 6.1、10.1）。
 //!
 //! メニューの振り分け（`crate::menu_command`）から呼ばれると、Rust側でフォルダー選択
 //! ダイアログを開き、選ばれたフォルダーをワークスペースとして開く。成功はeventでFrontendへ
-//! 知らせ、失敗はネイティブダイアログで示す。フォルダーの選択はWebViewを経由しないため、
+//! 知らせ、失敗はネイティブダイアログで示す。閉じるときもRust側で状態を破棄してから
+//! eventで知らせる。フォルダーの選択はWebViewを経由しないため、
 //! Frontendへファイルシステム系のcapabilityを渡さない（5.5）。
 //!
 //! ダイアログは `tauri-plugin-dialog` をRust側からだけ使う。JSのパッケージは入れず、
@@ -24,6 +25,9 @@ use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 
 /// ワークスペースを開いたことを運ぶTauri eventの名前。
 pub const WORKSPACE_OPENED_EVENT: &str = "workspace-opened";
+
+/// ワークスペースを閉じたことを運ぶTauri eventの名前。payloadは持たない。
+pub const WORKSPACE_CLOSED_EVENT: &str = "workspace-closed";
 
 /// ダイアログの親にするウィンドウのラベル（`tauri.conf.json` の `app.windows`）。
 pub const MAIN_WINDOW: &str = "main";
@@ -58,6 +62,16 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
             Err(code) => show_error(&app, &[code]),
         }
     });
+}
+
+/// ワークスペースを閉じ、Frontendをwelcome状態へ戻す（6.1）。
+///
+/// 監視の停止と画像resource IDの破棄はRust側の状態にあるため、Frontendへ任せず
+/// ここで行う。開いていない状態で選ばれても、同じ通知を送ってwelcome状態を保つ。
+pub fn close<R: Runtime>(app: &AppHandle<R>) {
+    app.state::<AppState>().close_workspace();
+    // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
+    let _ = app.emit(WORKSPACE_CLOSED_EVENT, ());
 }
 
 /// 選ばれたフォルダーをワークスペースとして開き、Frontendへ送る通知を作る。
@@ -123,6 +137,8 @@ mod tests {
     use crate::ipc::types::FileChangeEvent;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::Mutex;
+    use tauri::Listener;
 
     struct DiscardingSink;
 
@@ -175,6 +191,29 @@ mod tests {
             "絶対パスを含む: {}",
             opened.label
         );
+    }
+
+    /// 閉じるとRust側の状態を破棄してから、Frontendへ通知する（6.1）。
+    #[test]
+    fn closing_discards_the_workspace_and_notifies() {
+        let temp = TempDir::new("close");
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new(LanguagePreference::System));
+        let state = app.state::<AppState>();
+        open_selected_folder(&state, temp.path(), Arc::new(DiscardingSink)).expect("開けない");
+        let scopes_at_notice = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&scopes_at_notice);
+        let handle = app.handle().clone();
+        app.listen(WORKSPACE_CLOSED_EVENT, move |_| {
+            seen.lock()
+                .unwrap()
+                .push(handle.state::<AppState>().scope_id());
+        });
+
+        close(app.handle());
+
+        // 通知の時点で、既に閉じている。
+        assert_eq!(*scopes_at_notice.lock().unwrap(), [None]);
     }
 
     /// 開けなかった場合は理由を返し、現在のワークスペースを保つ。

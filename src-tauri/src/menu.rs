@@ -118,8 +118,9 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 8] = [
+pub const IMPLEMENTED: [MenuCommand; 9] = [
     MenuCommand::OpenFolder,
+    MenuCommand::CloseWorkspace,
     MenuCommand::CloseTab,
     MenuCommand::Exit,
     MenuCommand::ToggleSidebar,
@@ -137,6 +138,8 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
     match (command, language) {
         (MenuCommand::OpenFolder, Language::Ja) => "フォルダーを開く(&O)...",
         (MenuCommand::OpenFolder, Language::En) => "&Open Folder...",
+        (MenuCommand::CloseWorkspace, Language::Ja) => "ワークスペースを閉じる(&K)",
+        (MenuCommand::CloseWorkspace, Language::En) => "Close Wor&kspace",
         (MenuCommand::CloseTab, Language::Ja) => "タブを閉じる(&W)",
         (MenuCommand::CloseTab, Language::En) => "&Close Tab",
         (MenuCommand::Exit, Language::Ja) => "終了(&X)",
@@ -190,6 +193,7 @@ pub fn build<R: Runtime, M: Manager<R>>(manager: &M, language: Language) -> taur
         true,
         &[
             &item(MenuCommand::OpenFolder)?,
+            &item(MenuCommand::CloseWorkspace)?,
             &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::CloseTab)?,
             &PredefinedMenuItem::separator(manager)?,
@@ -263,7 +267,7 @@ mod tests {
         for command in IMPLEMENTED {
             assert!(contains(command), "{command:?} が無い");
         }
-        assert!(!contains(MenuCommand::CloseWorkspace));
+        assert!(!contains(MenuCommand::About));
     }
 
     /// すべての割り当てが実際のパーサーを通ることを固定する。
