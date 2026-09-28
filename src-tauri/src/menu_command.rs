@@ -26,7 +26,10 @@ pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
 pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
     match command {
         MenuCommand::OpenFolder => open_folder::pick_and_open(app),
-        MenuCommand::CloseWorkspace => open_folder::close(app),
+        // 閉じ終わりは待たない。完了は `workspace-closed` で知らせる。
+        MenuCommand::CloseWorkspace => {
+            open_folder::close(app);
+        }
         MenuCommand::Exit => app.exit(0),
         MenuCommand::CloseTab
         | MenuCommand::ToggleSidebar

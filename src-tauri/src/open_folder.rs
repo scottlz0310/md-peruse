@@ -11,7 +11,8 @@
 
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::{self, JoinHandle};
 
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
@@ -28,6 +29,18 @@ pub const WORKSPACE_OPENED_EVENT: &str = "workspace-opened";
 
 /// ワークスペースを閉じたことを運ぶTauri eventの名前。payloadは持たない。
 pub const WORKSPACE_CLOSED_EVENT: &str = "workspace-closed";
+
+/// ワークスペースの開閉と、その通知の送出を一続きにするロック。
+///
+/// 閉じる処理は別スレッドで行うため、開く処理と入れ違うことがある。状態の変更と送出を
+/// まとめて直列にしないと、`workspace-opened` の後に古い `workspace-closed` が届き、
+/// Rust側では開いているのにFrontendはwelcome状態になる。
+static LIFECYCLE: Mutex<()> = Mutex::new(());
+
+fn lock_lifecycle() -> MutexGuard<'static, ()> {
+    // `panic = "abort"` の下では毒される経路が生じない（12章）。
+    LIFECYCLE.lock().expect("ワークスペース開閉のロックに失敗")
+}
 
 /// ダイアログの親にするウィンドウのラベル（`tauri.conf.json` の `app.windows`）。
 pub const MAIN_WINDOW: &str = "main";
@@ -54,6 +67,7 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
         };
         let state = app.state::<AppState>();
         let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
+        let _lifecycle = lock_lifecycle();
         match open_selected_folder(&state, &path, sink) {
             // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
             Ok(opened) => {
@@ -68,10 +82,18 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
 ///
 /// 監視の停止と画像resource IDの破棄はRust側の状態にあるため、Frontendへ任せず
 /// ここで行う。開いていない状態で選ばれても、同じ通知を送ってwelcome状態を保つ。
-pub fn close<R: Runtime>(app: &AppHandle<R>) {
-    app.state::<AppState>().close_workspace();
-    // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
-    let _ = app.emit(WORKSPACE_CLOSED_EVENT, ());
+///
+/// 別スレッドで閉じる。走査と読込はワークスペースのロックを保持したままファイルI/Oを
+/// 行うため、応答の遅いストレージに対する処理の最中に閉じると、ロックの解放まで待つ。
+/// メニューの処理（メインスレッド）で待つと、その間ウィンドウが応答しなくなる。
+pub fn close<R: Runtime>(app: &AppHandle<R>) -> JoinHandle<()> {
+    let app = app.clone();
+    thread::spawn(move || {
+        let _lifecycle = lock_lifecycle();
+        app.state::<AppState>().close_workspace();
+        // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
+        let _ = app.emit(WORKSPACE_CLOSED_EVENT, ());
+    })
 }
 
 /// 選ばれたフォルダーをワークスペースとして開き、Frontendへ送る通知を作る。
@@ -137,7 +159,6 @@ mod tests {
     use crate::ipc::types::FileChangeEvent;
     use std::fs;
     use std::path::PathBuf;
-    use std::sync::Mutex;
     use tauri::Listener;
 
     struct DiscardingSink;
@@ -194,8 +215,11 @@ mod tests {
     }
 
     /// 閉じるとRust側の状態を破棄してから、Frontendへ通知する（6.1）。
+    ///
+    /// 走査や読込がワークスペースのロックを保持している間も、呼び出し元（メニューの処理）は
+    /// 待たずに戻る。閉じる処理はロックの解放を待ち、その後に通知する。
     #[test]
-    fn closing_discards_the_workspace_and_notifies() {
+    fn closing_waits_for_io_off_the_caller_and_then_notifies() {
         let temp = TempDir::new("close");
         let app = tauri::test::mock_app();
         app.manage(AppState::new(LanguagePreference::System));
@@ -210,7 +234,21 @@ mod tests {
                 .push(handle.state::<AppState>().scope_id());
         });
 
-        close(app.handle());
+        // 走査や読込がロックを保持している状態を模す。同じスレッドで閉じていれば、ここで
+        // 止まって戻らない。
+        let closing = state
+            .workspace()
+            .with(|_| {
+                let closing = close(app.handle());
+                thread::sleep(std::time::Duration::from_millis(50));
+                assert!(
+                    scopes_at_notice.lock().unwrap().is_empty(),
+                    "I/Oの最中に閉じ終えた"
+                );
+                closing
+            })
+            .expect("ワークスペースが開いていない");
+        closing.join().expect("閉じる処理が失敗した");
 
         // 通知の時点で、既に閉じている。
         assert_eq!(*scopes_at_notice.lock().unwrap(), [None]);
