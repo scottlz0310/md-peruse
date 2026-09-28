@@ -1,6 +1,7 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
+import { Breadcrumb } from "./breadcrumb/Breadcrumb";
 import {
   getUiSettings,
   issueImageResources,
@@ -34,6 +35,7 @@ import {
   createFileTree,
   type FileTree,
   needsScan,
+  pathChain,
   ROOT_PATH,
   setExpanded,
 } from "./state/file-tree";
@@ -58,7 +60,7 @@ import {
   updateTab,
 } from "./state/tab-set";
 import { TabBar, tabElementId } from "./tabs/TabBar";
-import { TreeView } from "./tree/TreeView";
+import { type FocusRequest, TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
 import type { IpcError } from "./types/generated/IpcError";
 import type { MenuCommand } from "./types/generated/MenuCommand";
@@ -125,6 +127,9 @@ export default function App() {
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
+  // パンくずで選んだフォルダー。ツリーが処理し終えたら片付ける。残すと、サイドバーを
+  // 表示し直したときに作り直されたツリーが同じ要求をもう一度処理する。
+  const [treeFocus, setTreeFocus] = useState<FocusRequest | null>(null);
   const [tabs, setTabs] = useState<TabSet>(EMPTY_TAB_SET);
   const [shown, setShown] = useState<Shown | null>(null);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
@@ -226,6 +231,7 @@ export default function App() {
     setError(null);
     updateTabs(EMPTY_TAB_SET);
     updateTree(createFileTree(treeRef.current.workspaceGeneration + 1));
+    setTreeFocus(null);
   }
 
   function updateTree(next: FileTree) {
@@ -264,6 +270,18 @@ export default function App() {
   function toggleDirectory(path: string, expanded: boolean) {
     updateTree(setExpanded(treeRef.current, path, expanded));
     if (expanded && needsScan(treeRef.current, path)) scan(path);
+  }
+
+  /**
+   * パンくずで選んだフォルダーをツリーで見せ、フォーカスを移す（10.1.1）。サイドバーが
+   * 非表示なら表示する。祖先とそのフォルダーを展開し、未取得のものは並行して走査する。
+   */
+  function revealFolder(path: string) {
+    if (uiRef.current?.sidebarVisible === false) {
+      saveUi({ sidebarVisible: true });
+    }
+    for (const folder of pathChain(path)) toggleDirectory(folder, true);
+    setTreeFocus({ path });
   }
 
   function scrollTop() {
@@ -627,17 +645,28 @@ export default function App() {
             selectedPath={active?.path ?? null}
             onToggle={toggleDirectory}
             onOpen={openFromTree}
+            focusRequest={treeFocus}
+            onFocusRequestSettled={(request) =>
+              setTreeFocus((current) => (current === request ? null : current))
+            }
           />
         </>
       }
       previewHeader={
-        tabs.tabs.length > 0 && (
-          <TabBar
-            set={tabs}
-            onActivate={activate}
-            onClose={close}
-            onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
-          />
+        active && (
+          <>
+            <TabBar
+              set={tabs}
+              onActivate={activate}
+              onClose={close}
+              onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
+            />
+            <Breadcrumb
+              rootLabel={workspace.label}
+              path={active.path}
+              onSelect={revealFolder}
+            />
+          </>
         )
       }
       previewLabelledBy={active ? tabElementId(active.tabId) : undefined}

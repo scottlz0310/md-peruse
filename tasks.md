@@ -188,7 +188,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] UI/UX: 「タブを閉じる」のメニュー項目と `Ctrl+W`。メニューの振り分けを `src-tauri/src/menu_command.rs` へ移し、Frontendが処理するコマンドをTauri event `menu-command` で渡す経路を作った。`menu.rs` の `IMPLEMENTED` に `CloseTab` を足したことで、WebViewにフォーカスがあるときも `webview_keys.rs` が同じ割り当てで拾う（[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [x] UI/UX: 表示メニュー（サイドバーの表示切り替え、再読み込み、文字サイズ）。Frontend担当のコマンドを `menu-command` eventで受け、表示状態と文字サイズを設定へ保存する。再読み込みは読込の理由 `reload` として履歴を動かさず、失敗しても履歴と表示を保つ。文字サイズは `style` 要素で本文の `--font-scale` へ書き、`Ctrl` + `+`（入力文字で判定し、US配列とJIS配列の両方で効く）とテンキーはWebView内で同じ操作へ割り当てる（[design-decisions.md](./docs/design-decisions.md) 10.1、10.3）
 - [x] UI/UX: 「ワークスペースを閉じる」のメニュー項目。Rust側（`open_folder::close`）で監視と画像resource IDを破棄してから `workspace-closed` eventを送り、Frontendは切り替えと同じ手順でタブ、本文、ツリーを破棄してwelcome状態へ戻す。最後のワークスペースの記録を消す処理は、最後のワークスペースの復元と一緒に扱う（[design-decisions.md](./docs/design-decisions.md) 6.1、10.1）
-- [ ] UI/UX: Breadcrumb（[design-decisions.md](./docs/design-decisions.md) 10.1.1）
+- [x] UI/UX: Breadcrumb。`src/breadcrumb/Breadcrumb.tsx` をタブバーの下に置き、アクティブタブのパスをワークスペース名から順に示す。フォルダーのセグメントを選ぶと、サイドバーを表示し、祖先とそのフォルダーを展開して未取得のものを走査し、`TreeView` へフォーカスの要求を渡す。ツリーは走査を待つ間は見えている最も近い祖先にフォーカスを置き、利用者がツリーを操作するかフォーカスが外へ出たら要求を取り下げる（[design-decisions.md](./docs/design-decisions.md) 10.1.1）
 - [ ] UI/UX: テーマ（System / Light / Dark）、`forced-colors`、Reduced Motion、ウィンドウタイトル
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）
@@ -257,6 +257,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] WebView2のブラウザーアクセラレータキーが有効なままである件。まとめて無効化した（4-2以降のアクセラレータの項目で対応。[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
+- [ ] 幅の狭いウィンドウでは、タブバーとパンくずに太いクラシックな横スクロールバーが出て、パンくずは末尾（表示中の文書名）が見切れる（`overflow-x: auto` のまま）。表示中の文書名はアクティブタブにも出ており、パンくずの目的は上位フォルダーへ移ることなので操作上の支障はない。細いスクロールバー（`scrollbar-width: thin`）にするか、パスが変わったときに末尾が見える位置へスクロールするかを、テーマの単位で見た目と併せて決める（UI/UXのBreadcrumbの実機確認で発見）
 - [ ] UTF-32 LEのBOM（`FF FE 00 00`）がUTF-16 LEのBOM（`FF FE`）を前置しているため、UTF-32 LEのファイルをUTF-16 LEとしてデコードし、NUL文字が並んだ本文を「読めた」として表示する。[design-decisions.md](./docs/design-decisions.md) 6.3は未対応の文字コードについて「原因を表示する」と定めており、この経路だけがそれに反する。`FF FE 00 00` を先に判定して `DecodeFailed` とするかを決める（Phase 4-1cのファイル読込実装時に発見。UTF-32をエディタの既定にする経路がなく、優先度は低い）
 
 ## 未決事項の一覧

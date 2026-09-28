@@ -1090,6 +1090,155 @@ describe("App", () => {
     });
   });
 
+  describe("パンくず（10.1.1）", () => {
+    const DEEP: Record<string, ScanResult> = {
+      "": ROOT,
+      docs: {
+        path: "docs",
+        entries: [
+          {
+            path: "docs/guide",
+            name: "guide",
+            kind: "directory",
+            hasChildren: true,
+          },
+        ],
+      },
+      "docs/guide": {
+        path: "docs/guide",
+        entries: [
+          {
+            path: "docs/guide/a.md",
+            name: "a.md",
+            kind: "markdown",
+            hasChildren: null,
+          },
+        ],
+      },
+    };
+
+    /**
+     * READMEのリンクで docs/guide/a.md を開く。ツリーは畳んだまま（docs 以下は未走査）に
+     * なる。`scan` を渡すと、docs 以下の走査をその応答に差し替える。
+     */
+    async function openDeepDocument(
+      options: {
+        scan?: (path: string) => ScanResult | Promise<ScanResult>;
+        updateSettings?: (update: UiSettingsUpdate) => void;
+      } = {},
+    ) {
+      const scanned: string[] = [];
+      mockBackend({
+        scan: (path) => {
+          scanned.push(path);
+          if (path !== "" && options.scan) return options.scan(path);
+          const result = DEEP[path];
+          if (result === undefined) throw new Error(`想定外の走査: ${path}`);
+          return result;
+        },
+        read: (path) =>
+          path === "README.md"
+            ? fileContent(path, "[ガイド](docs/guide/a.md)\n")
+            : fileContent(path, "## ガイド\n"),
+        updateSettings: options.updateSettings,
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+      );
+      await openWorkspace({ scopeId: "scope-1", label: "ws" });
+      expect(breadcrumb()).toBeNull();
+      await act(async () =>
+        fireEvent.click(await waitFor(() => screen.getByText("README.md"))),
+      );
+      const link = await waitFor(() =>
+        screen.getByRole("link", { name: "ガイド" }),
+      );
+      await act(async () => link.click());
+      await waitFor(() => expect(breadcrumb()?.textContent).toContain("a.md"));
+      return scanned;
+    }
+
+    const breadcrumb = () =>
+      screen.queryByRole("navigation", { name: "パンくずリスト" });
+    const selectCrumb = (name: string) =>
+      act(async () => {
+        const nav = breadcrumb();
+        if (nav === null) throw new Error("パンくずが無い");
+        fireEvent.click(within(nav).getByRole("button", { name }));
+      });
+    const treeItemOf = (label: string) =>
+      within(screen.getByRole("tree"))
+        .getByText(label)
+        .closest('[role="treeitem"]');
+    const expandedItems = () =>
+      screen
+        .getAllByRole("treeitem")
+        .filter((item) => item.getAttribute("aria-expanded") === "true")
+        .map((item) => item.querySelector(".tree-label")?.textContent);
+
+    test.each([
+      ["先頭のセグメントはツリーの先頭へ移る", "ws", "docs", [""], []],
+      ["フォルダーを展開して移る", "docs", "docs", ["", "docs"], ["docs"]],
+      [
+        "未走査の祖先も走査して展開し、見えてから移る",
+        "guide",
+        "guide",
+        ["", "docs", "docs/guide"],
+        ["docs", "guide"],
+      ],
+    ])("%s", async (_, crumb, focused, scans, expanded) => {
+      const scanned = await openDeepDocument();
+
+      await selectCrumb(crumb);
+
+      await waitFor(() =>
+        expect(document.activeElement).toBe(treeItemOf(focused)),
+      );
+      expect(scanned).toEqual(scans);
+      expect(expandedItems()).toEqual(expanded);
+    });
+
+    test("サイドバーが非表示なら表示して保存してから移る", async () => {
+      const updates: UiSettingsUpdate[] = [];
+      await openDeepDocument({ updateSettings: (u) => updates.push(u) });
+      await act(async () => {
+        await emit("menu-command", "toggleSidebar");
+      });
+      expect(screen.queryByRole("tree")).toBeNull();
+
+      await selectCrumb("guide");
+
+      await waitFor(() =>
+        expect(document.activeElement).toBe(treeItemOf("guide")),
+      );
+      await waitFor(() =>
+        expect(updates).toEqual([
+          { sidebarVisible: false },
+          { sidebarVisible: true },
+        ]),
+      );
+    });
+
+    test("走査を待つ間にワークスペースを閉じたら、開き直したツリーでフォーカスを動かさない", async () => {
+      // docs 以下の走査は応答しない。
+      await openDeepDocument({ scan: () => new Promise<ScanResult>(() => {}) });
+      await selectCrumb("guide");
+      await waitFor(() =>
+        expect(document.activeElement).toBe(treeItemOf("docs")),
+      );
+
+      await act(async () => {
+        await emit("workspace-closed");
+      });
+      await openWorkspace({ scopeId: "scope-2", label: "ws" });
+      await waitFor(() => screen.getByRole("tree"));
+
+      expect(document.activeElement).toBe(document.body);
+      expect(breadcrumb()).toBeNull();
+    });
+  });
+
   test("文書内検索は本文だけを対象にし、一覧のファイル名に一致しない（8.6）", async () => {
     // happy-domはCSS Custom Highlight APIを持たない。登録された範囲だけを控える。
     // `CSS` はアクセスのたびに新しいオブジェクトを返すため、プロパティごと差し替える。
