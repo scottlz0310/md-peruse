@@ -190,7 +190,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] UI/UX: 「ワークスペースを閉じる」のメニュー項目。Rust側（`open_folder::close`）で監視と画像resource IDを破棄してから `workspace-closed` eventを送り、Frontendは切り替えと同じ手順でタブ、本文、ツリーを破棄してwelcome状態へ戻す。最後のワークスペースの記録を消す処理は、最後のワークスペースの復元と一緒に扱う（[design-decisions.md](./docs/design-decisions.md) 6.1、10.1）
 - [x] UI/UX: Breadcrumb。`src/breadcrumb/Breadcrumb.tsx` をタブバーの下に置き、アクティブタブのパスをワークスペース名から順に示す。フォルダーのセグメントを選ぶと、サイドバーを表示し、祖先とそのフォルダーを展開して未取得のものを走査し、`TreeView` へフォーカスの要求を渡す。ツリーは走査を待つ間は見えている最も近い祖先にフォーカスを置き、利用者がツリーを操作するかフォーカスが外へ出たら要求を取り下げる（[design-decisions.md](./docs/design-decisions.md) 10.1.1）
 - [x] UI/UX: テーマ（System / Light / Dark）。表示メニューのサブメニュー「テーマ」にチェック付きの3項目を置き、Rust側（`src-tauri/src/theme.rs`）で設定へ保存してウィンドウとメニューバーへ適用する。起動時は保存したテーマでウィンドウを作る。Frontendは変えず、WebViewの `prefers-color-scheme` で本文、コードハイライト、Mermaidの図が追従する（実測）。使われなくなった `Theme` / `ThemeChangedEvent` を削除し、`UiSettings` / `UiSettingsUpdate` からテーマを外した（[design-decisions.md](./docs/design-decisions.md) 10.1、11.1）
-- [ ] UI/UX: ウィンドウタイトル
+- [x] UI/UX: ウィンドウタイトル。「文書名 - ワークスペース名 - md-peruse」（タブが無ければ「ワークスペース名 - md-peruse」、ワークスペースが無ければ「md-peruse」）とし、Frontendが `core:window:allow-set-title` でアクティブタブの変化に合わせて設定する。組み立ては `src/state/window-title.ts`（[design-decisions.md](./docs/design-decisions.md) 5.5、10.1.2）
 - [ ] UI/UX: `forced-colors` とReduced Motionの点検（狭いウィンドウでタブバーとパンくずに出る横スクロールバーの扱いを含む）
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）

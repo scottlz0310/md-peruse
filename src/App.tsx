@@ -14,6 +14,7 @@ import {
   onWorkspaceClosed,
   onWorkspaceOpened,
 } from "./ipc/events";
+import { setWindowTitle } from "./ipc/window";
 import { SidebarLayout } from "./layout/SidebarLayout";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
@@ -59,6 +60,7 @@ import {
   type TabSet,
   updateTab,
 } from "./state/tab-set";
+import { windowTitle } from "./state/window-title";
 import { TabBar, tabElementId } from "./tabs/TabBar";
 import { type FocusRequest, TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
@@ -170,6 +172,14 @@ export default function App() {
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
   useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
+
+  const title = windowTitle(
+    workspace?.label ?? null,
+    activeTab(tabs)?.path ?? null,
+  );
+  useEffect(() => {
+    setWindowTitle(title).catch((reason: unknown) => setError(String(reason)));
+  }, [title]);
 
   function handleCommand(command: MenuCommand) {
     const current = uiRef.current;

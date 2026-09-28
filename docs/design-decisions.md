@@ -455,16 +455,17 @@ form-action 'none';
 
 Mermaid 12はSVGの要素へインラインの `style` 属性を出力する（Phase 4-2でChromiumにより実測）。flowchart、sequence、class、state、ER、gantt、pie、mindmapのいずれでも使われ、プロパティは `fill`、`stroke`、`stroke-width`、`stroke-dasharray`、`stroke-dashoffset`、`text-anchor`、`font-size`、`font-weight` と、svg要素の `max-width` だけだった。CSPは緩めず、DOMPurifyのフックでSVGの表示属性として正当なものだけを属性へ移してから `style` 属性を落とす（8.4）。単に落とすだけでは、円グラフの凡例の色が失われ、図が本来の幅を越えて表示幅いっぱいに引き伸ばされた（実測）。当初の「落としたうえで自前CSSで補う」は、図ごとに動的に決まる色をCSSで補えないため改めた。
 
-capabilityは `src-tauri/capabilities/default.json` に次の3つだけを置く。
+capabilityは `src-tauri/capabilities/default.json` に次の4つだけを置く。
 
 | 権限 | 用途 |
 | --- | --- |
 | `core:event:allow-listen` | Rustから送るファイル変更イベント、言語変更イベント、ドラッグ状態（5.3、10.4、10.5）の受信 |
 | `core:event:allow-unlisten` | 上記の解除 |
+| `core:window:allow-set-title` | ウィンドウタイトルを表示中の文書へ合わせる（10.1.2） |
 | `opener:allow-open-url`（`http://*`、`https://*` へ限定） | 外部リンクをOS既定ブラウザーで開く（7.2） |
 
 - `core:default` は使用しない。このセットに含まれる `core:image:default` は `allow-from-path` を持ち、Frontendから渡された任意のパスの画像を読み取れる。`core:path:default` はパス解決APIをFrontendへ公開する。いずれも上記方針と衝突する。`core:tray:default` はトレイアイコンを使わないため付与しない。
-- `core:window:default`、`core:webview:default`、`core:app:default` も付与しない。参照系が中心とはいえ、`core:webview:default` には `allow-internal-toggle-devtools` が含まれ、`core:app:default` はアプリ識別子やバンドル種別をFrontendへ公開する。現時点で呼ぶ予定がなく、必要になった時点で個別の権限を足す。
+- `core:window:default`、`core:webview:default`、`core:app:default` も付与しない。参照系が中心とはいえ、`core:webview:default` には `allow-internal-toggle-devtools` が含まれ、`core:app:default` はアプリ識別子やバンドル種別をFrontendへ公開する。必要になった時点で個別の権限を足す。ウィンドウタイトルの設定（`core:window:allow-set-title`）はこの方針で足した1つである。
 - `core:event:allow-emit` は付与しない。FrontendからRustへの通信はcommandで行い、Frontend発のイベントを使わない（5.3）。
 - ファイルシステム系プラグインのcapabilityをFrontendへ付与しない。フォルダー選択はネイティブメニューからRust側のダイアログで行い（10.1）、読込はRust側のcommandで行う。
 - アプリ自身のcommand（`generate_handler!` で登録したもの）はcapabilityへ列挙しなくても呼べる。Tauriのpermissionが対象とするのはプラグインとcoreのcommandである。Frontendを結線した実機（`tauri dev`、Windows 11 26200）で、`scan_directory_command` と `read_file_command` を3権限のまま呼べることを確認した。
@@ -1300,6 +1301,13 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 
 待つ間に利用者がツリーを操作するか、フォーカスがツリーの外へ出たら、その要求を取り下げる。走査が後から終わっても、利用者が移った先からフォーカスを奪わないためである。ワークスペースを閉じたときや切り替えたときも取り下げる。実装の正本は `src/tree/TreeView.tsx` と `src/state/file-tree.ts` の `revealFocus` とする。
 
+### 10.1.2 ウィンドウタイトル
+
+- 「文書名 - ワークスペース名 - md-peruse」とする。タブが無いときは「ワークスペース名 - md-peruse」、ワークスペースを開いていないときは「md-peruse」とする。
+- 具体的なものから並べるのは、タスクバーやAlt+Tabでは先頭しか見えないことがあるためである。文書名だけでは同名の文書（`README.md` など）がどのフォルダーのものか区別できないため、ワークスペース名を添える。ワークスペース相対パスを出す案は、深い階層でタイトルが長くなって文書名が見切れ、階層はパンくず（10.1.1）でも分かるため採らない。
+- ワークスペース名はRust側が絶対パスの末尾2コンポーネントに限って渡す表示名であり（11.1）、タイトルにも絶対パスは現れない（7.1）。タイトルはタスクバーやアクセシビリティ機構を通じてアプリの外へ出るため、この制約を保つ。
+- アクティブタブを知っているのはFrontendのため、Frontendが `core:window:allow-set-title`（5.5）でタイトルを設定する。Rust側のcommandで文字列を受け取る案は、Frontendが任意の文字列を渡せる点で権限と変わらず、commandとその呼び出しの分だけコードが増えるため採らない。Tauriのウィンドウタイトルは `document.title` と同期しない（実測）ため、明示的に設定する。組み立ての正本は `src/state/window-title.ts` とする。
+
 ### 10.2 ペイン境界の操作
 
 - `role="separator"`、`aria-orientation="vertical"`、`aria-valuenow`、`aria-valuemin`、`aria-valuemax`、`tabindex="0"` を設定する。
@@ -1957,7 +1965,7 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | happy-domとTesting Libraryの組合せで成立。退避条件を明文化 | 4.8、14.5 |
 | Tauri command/eventの型、version、request ID、cancel、error契約 | 型はRust側を正本に `ts-rs` で生成。version・request ID・cancelは導入せず、エラーは `IpcError` と `ErrorCode` で表す | 5.3 |
 | custom image protocolのresource ID生成、無効化、キャッシュ方針 | ワークスペース単位のソルトと変更世代のHMAC。文書単位で発行し、ワークスペース切替で無効化 | 5.4 |
-| CSPの最終値とTauri capabilityの最小集合 | `style-src` を elem と attr へ分け、`font-src` は `'none'`。capabilityは `core:event` の listen / unlisten と `opener:allow-open-url` の3つだけ | 5.5 |
+| CSPの最終値とTauri capabilityの最小集合 | `style-src` を elem と attr へ分け、`font-src` は `'none'`。capabilityは `core:event` の listen / unlisten と `opener:allow-open-url` の3つだけ（UI/UXでウィンドウタイトル用の `core:window:allow-set-title` を加えて4つ） | 5.5 |
 | 永続化する状態と設定ファイルのスキーマ | `src-tauri/src/settings.rs` を正本とし、`schemaVersion` は1。読み書きはRust側が担い、Frontendへは絶対パスを含まない `UiSettings` を投影する | 11.1 |
 | 最近使ったフォルダーと最後のワークスペース復元 | いずれも初期版へ含める。復元は最後のワークスペースだけを対象とし、タブは復元しない | 9.2、11.1 |
 | ファイル削除、rename、atomic replace後のタブ状態と、置換時の再読込例外の可否 | タブは `loaded` / `stale` / `deleted` の3状態。renameは追跡してパスを追従させ、置換直後の読込失敗は同一イベントにつき1回だけ再読込を許す（案B） | 6.4、6.5 |
