@@ -9,6 +9,7 @@ import {
   getUiSettings,
   getWorkspace,
   issueImageResources,
+  notifyFrontendReady,
   openRecentFolder,
   readFile,
   scanDirectory,
@@ -246,6 +247,11 @@ export default function App() {
   // 適用すると新しいワークスペースを古いもので上書きする。同じワークスペースが通知と応答の
   // 両方で届いたときは、スコープIDで見分けて二重に開かない。閉じると、切り替えと同じ破棄を行って
   // welcome状態へ戻す（6.1）。
+  //
+  // 文書を開く指示（`open-document`）もここで購読し、問い合わせの応答を反映してから、準備が
+  // 済んだことをRustへ知らせる（9.2）。関連付け起動で渡されたファイルは、その知らせまで
+  // Rustが保留する。購読より先に知らせると指示を受け取れず、応答の反映より先に知らせると、
+  // 開いていないワークスペースのスコープIDの指示を捨ててしまう。
   // biome-ignore lint/correctness/useExhaustiveDependencies: 購読は1度でよい。
   useEffect(() => {
     let disposed = false;
@@ -265,20 +271,24 @@ export default function App() {
         notified = true;
         resetWorkspace(null);
       }),
+      onOpenDocument((event) => handleOpenDocument(event)),
     ])
-      .then(([stopOpened, stopClosed]) => {
+      .then(([stopOpened, stopClosed, stopDocument]) => {
         const stop = () => {
           stopOpened();
           stopClosed();
+          stopDocument();
         };
         if (disposed) {
           stop();
           return undefined;
         }
         unlisten = stop;
-        return getWorkspace().then((current) => {
-          if (current !== null && !notified) open(current);
-        });
+        return getWorkspace()
+          .then((current) => {
+            if (current !== null && !notified) open(current);
+          })
+          .then(notifyFrontendReady);
       })
       .catch((reason: unknown) => setStartupError(String(reason)));
     return () => {
@@ -296,9 +306,9 @@ export default function App() {
   useTauriEvent(() => onWatcherError((event) => handleWatcherError(event)));
   useTauriEvent(() => onImagesChanged((event) => handleImagesChanged(event)));
 
-  // ドラッグの受け入れ可否と、ドロップされたファイルを開く指示（10.4）。
+  // ドラッグの受け入れ可否（10.4）。ドロップされたファイルを開く指示は、ワークスペースの
+  // 購読と一緒に受け取る。
   useTauriEvent(() => onDragState(setDragState));
-  useTauriEvent(() => onOpenDocument((event) => handleOpenDocument(event)));
 
   // loose tab（9.1）のスコープは、そのタブがある間だけ開いておく。タブを閉じたとき、上限で
   // 退避されたとき、ワークスペースの切り替えで破棄されたときに、Rust側のスコープと監視を

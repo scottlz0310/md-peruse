@@ -18,7 +18,7 @@ use tauri::{AppHandle, DragDropEvent, Emitter, Manager, Runtime, WebviewWindow, 
 use crate::drop::{DropPlan, DroppedEntry, DroppedKind, plan_drop};
 use crate::ipc::error::ErrorCode;
 use crate::ipc::types::DragState;
-use crate::open_document::open_document;
+use crate::open_document::open_documents;
 use crate::open_folder::{open_path, show_error};
 
 /// ドラッグの状態を運ぶTauri eventの名前。payloadは `DragState`。
@@ -114,10 +114,8 @@ fn execute<R: Runtime>(app: &AppHandle<R>, paths: &[PathBuf]) {
             fail(code);
         }
     }
-    for file in &plan.files {
-        if let Err(code) = open_document(app, Path::new(file)) {
-            fail(code);
-        }
+    for code in open_documents(app, &plan.files) {
+        fail(code);
     }
     if !failures.is_empty() {
         show_error(app, &failures);

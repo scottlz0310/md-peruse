@@ -48,6 +48,8 @@ type Handlers = {
     | Promise<WorkspaceOpenedEvent | null>;
   /** 最近使ったフォルダーの項目を開く要求（`open_recent_folder_command`）。 */
   openRecent?: (id: string) => void | Promise<void>;
+  /** 準備が済んだ知らせ（`frontend_ready_command`）。Rustが保留したファイルを開く契機。 */
+  onFrontendReady?: () => void | Promise<void>;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -65,6 +67,8 @@ function mockBackend(handlers: Handlers) {
     (command, payload) => {
       if (command === "get_workspace_command")
         return Promise.resolve(handlers.currentWorkspace?.() ?? null);
+      if (command === "frontend_ready_command")
+        return Promise.resolve(handlers.onFrontendReady?.());
       if (command === "open_recent_folder_command")
         return handlers.openRecent?.((payload as { id: string }).id);
       if (command === "get_ui_settings_command")
@@ -2981,5 +2985,107 @@ describe("App: ワークスペース外のファイルとドラッグ＆ドロ�
     });
 
     expect(screen.getByText("ここにドロップして開く")).toBeTruthy();
+  });
+});
+
+describe("App: 起動時に渡されたファイル（9.2）", () => {
+  const RESTORED: WorkspaceOpenedEvent = {
+    scopeId: "scope-restored",
+    label: "dev\\docs",
+  };
+  const heading = () => screen.getByRole("heading", { level: 2 }).textContent;
+
+  test("準備が済んだ知らせは、購読と問い合わせの後に1度だけ送る", async () => {
+    const calls: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      currentWorkspace: () => {
+        calls.push("workspace");
+        return null;
+      },
+      onFrontendReady: () => {
+        calls.push("ready");
+      },
+    });
+    render(<App />);
+
+    await waitFor(() => expect(calls).toContain("ready"));
+
+    expect(calls).toEqual(["workspace", "ready"]);
+  });
+
+  test("知らせの応答で届く、ワークスペース内の文書の指示を開く", async () => {
+    // Rustは、知らせを受けてから保留したファイルを開き、`open-document` を送る。開くワーク
+    // スペースは、問い合わせの応答で反映済みでなければならない。
+    const reads: [string, string][] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push([scopeId, path]);
+        return fileContent(path, "## 起動時の文書\n");
+      },
+      currentWorkspace: () => RESTORED,
+      onFrontendReady: async () => {
+        await emit("open-document", {
+          scopeId: RESTORED.scopeId,
+          path: "README.md",
+          label: null,
+        });
+      },
+    });
+    render(<App />);
+
+    await waitFor(() => expect(heading()).toBe("起動時の文書"));
+
+    expect(reads).toEqual([["scope-restored", "README.md"]]);
+    // ワークスペースの通常タブとして開く。ツリーも出ている。
+    expect(screen.getByRole("tree", { name: "ファイル" })).toBeTruthy();
+  });
+
+  test("知らせの応答で届く、ワークスペース外の文書の指示をloose tabで開く", async () => {
+    const reads: [string, string][] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push([scopeId, path]);
+        return fileContent(path, "## 外の文書\n");
+      },
+      currentWorkspace: () => RESTORED,
+      onFrontendReady: async () => {
+        await emit("open-document", {
+          scopeId: "loose-launch",
+          path: "outside.md",
+          label: "work\\notes",
+        });
+      },
+    });
+    render(<App />);
+
+    await waitFor(() => expect(heading()).toBe("外の文書"));
+
+    expect(reads).toEqual([["loose-launch", "outside.md"]]);
+    // 復元したワークスペースも、そのまま開いている。
+    expect(screen.getByRole("tree", { name: "ファイル" })).toBeTruthy();
+  });
+
+  test("起動後に2つ目の起動で届く指示は、既存のウィンドウのタブとして開く", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, `## ${path}\n`),
+      currentWorkspace: () => RESTORED,
+    });
+    render(<App />);
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    await act(async () => {
+      await emit("open-document", {
+        scopeId: "loose-second",
+        path: "second.md",
+        label: "work\\notes",
+      });
+    });
+
+    await waitFor(() => expect(heading()).toBe("second.md"));
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
   });
 });

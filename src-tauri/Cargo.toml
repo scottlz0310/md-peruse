@@ -66,6 +66,9 @@ getrandom = "0.4.3"
 hmac = "0.13.0"
 sha2 = "0.11.0"
 tauri-plugin-dialog = "2.7.3"
+# 関連付け起動を起動中のインスタンスへ渡す（design-decisions.md 9.2）。2つ目のプロセスは
+# 引数を渡して終了し、起動中のインスタンスがそれを受け取る。
+tauri-plugin-single-instance = "2.4.5"
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。

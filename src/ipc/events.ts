@@ -87,10 +87,12 @@ export function onDragState(
 }
 
 /**
- * 文書をタブで開く指示を受け取る（design-decisions.md 9.1、10.4）。
+ * 文書をタブで開く指示を受け取る（design-decisions.md 9.1、9.2、10.4）。
  *
- * ドロップされたファイルを、Rust側が開く場所（ワークスペースの通常タブ、またはloose tab）を
- * 決めて知らせる。開き先はスコープIDとスコープ相対パスで、絶対パスは含まない。
+ * ドロップされたファイルと、関連付け起動で渡されたファイルを、Rust側が開く場所（ワーク
+ * スペースの通常タブ、またはloose tab）を決めて知らせる。開き先はスコープIDとスコープ相対
+ * パスで、絶対パスは含まない。起動時に渡されたファイルは、`notifyFrontendReady` を呼ぶまで
+ * 届かない。
  */
 export function onOpenDocument(
   handler: (event: OpenDocumentEvent) => void,
