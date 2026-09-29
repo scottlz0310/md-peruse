@@ -11,6 +11,7 @@ pub mod natural_order;
 pub mod open_folder;
 pub mod path_guard;
 pub mod read;
+pub mod recent;
 pub mod scan;
 pub mod settings;
 pub mod settings_store;
@@ -21,10 +22,14 @@ pub mod theme;
 pub mod watch;
 pub mod watch_runtime;
 pub mod webview_keys;
+pub mod window_placement;
 
 use ipc::error::ErrorCode;
+use recent::RecentFolders;
 use settings_store::{LoadOutcome, SettingsStore};
 use state::AppState;
+use std::thread;
+
 use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 
 pub fn run() {
@@ -40,7 +45,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ipc::commands::get_ui_settings_command,
+            ipc::commands::get_workspace_command,
             ipc::commands::issue_image_resources_command,
+            ipc::commands::open_recent_folder_command,
             ipc::commands::read_file_command,
             ipc::commands::scan_directory_command,
             ipc::commands::update_ui_settings_command
@@ -59,7 +66,11 @@ pub fn run() {
 ///
 /// メインウィンドウは `tauri.conf.json` で自動生成せず（`create: false`）、ここで作る。
 /// 自動生成するとsetupより前にWebViewが読み込まれ、状態を登録する前にcommandが呼ばれうる。
-/// メニューもUI言語が設定から決まるため、設定を読んだ後に組み立てる。
+/// メニューもUI言語と最近使ったフォルダーが設定から決まるため、設定を読んだ後に組み立てる。
+/// ウィンドウの配置も設定から決まるため、作るときに適用する。
+///
+/// 最後のワークスペースは、ウィンドウを作ったあとに別のスレッドで開き直す。応答の遅い
+/// ストレージで、ウィンドウの表示を待たせないためである（9.2）。
 fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     let handle = app.handle().clone();
     let (store, outcome) = SettingsStore::open(
@@ -69,17 +80,21 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         // の内容は表示しない（7.1）。
         Box::new(move |_| open_folder::show_error(&handle, &[ErrorCode::SettingsSaveFailed])),
     );
-    let saved_theme = store.settings().theme;
-    let saved_language = store.settings().language;
-    app.manage(AppState::new(saved_language));
+    let settings = store.settings();
+    let recents = RecentFolders::new();
+    recents.sync(&settings.recent_folders);
+    let recent_folders = recents.views();
+    app.manage(AppState::new(settings.language));
+    app.manage(recents);
     app.manage(store);
 
     let language = app.state::<AppState>().language();
     app.set_menu(menu::build(
         app.handle(),
         language,
-        saved_theme,
-        saved_language,
+        settings.theme,
+        settings.language,
+        &recent_folders,
     )?)?;
 
     let config = app
@@ -90,11 +105,21 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         .find(|window| window.label == open_folder::MAIN_WINDOW)
         .expect("メインウィンドウは tauri.conf.json で定義する")
         .clone();
-    // 作った後にテーマを切り替えると、起動直後に別の配色が一瞬見える。
+    let restored = window_placement::placement_to_restore(app.handle(), settings.window);
+    // 作った後にテーマを切り替えると、起動直後に別の配色が一瞬見える。配置も同じで、
+    // 復元するときは非表示で作り、配置してから表示する。
     let window = WebviewWindowBuilder::from_config(app.handle(), &config)?
-        .theme(theme::window_theme(saved_theme))
+        .theme(theme::window_theme(settings.theme))
+        .visible(restored.is_none())
         .build()?;
+    if let Some(placement) = restored {
+        window_placement::apply(&window, placement)?;
+    }
     webview_keys::attach(&window)?;
+    window_placement::track(&window);
+
+    let restore_handle = app.handle().clone();
+    thread::spawn(move || open_folder::restore_last_workspace(&restore_handle));
 
     let notice: &[ErrorCode] = match outcome {
         LoadOutcome::Loaded => &[],

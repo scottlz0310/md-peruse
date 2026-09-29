@@ -31,6 +31,13 @@ type Handlers = {
   ui?: Partial<UiSettings>;
   /** 設定の取得を受けたときの処理。応答を遅らせたり、その間に何かを起こしたりするために使う。 */
   onLoadUi?: () => void | Promise<void>;
+  /** 起動時の問い合わせ（`get_workspace_command`）への応答。既定は「開いていない」。 */
+  currentWorkspace?: () =>
+    | WorkspaceOpenedEvent
+    | null
+    | Promise<WorkspaceOpenedEvent | null>;
+  /** 最近使ったフォルダーの項目を開く要求（`open_recent_folder_command`）。 */
+  openRecent?: (id: string) => void | Promise<void>;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -46,6 +53,10 @@ const UI_SETTINGS: UiSettings = {
 function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
+      if (command === "get_workspace_command")
+        return Promise.resolve(handlers.currentWorkspace?.() ?? null);
+      if (command === "open_recent_folder_command")
+        return handlers.openRecent?.((payload as { id: string }).id);
       if (command === "get_ui_settings_command")
         return Promise.resolve(handlers.onLoadUi?.()).then(() => ({
           ...UI_SETTINGS,
@@ -1648,5 +1659,240 @@ describe("App: md-peruse について（11.3）", () => {
       screen.getByRole("dialog", { name: "About md-peruse" }),
     ).toBeTruthy();
     expect(screen.getByText("Version 9.8.7")).toBeTruthy();
+  });
+});
+
+describe("App: ワークスペースの復元と最近使ったフォルダー（9.2、11.1）", () => {
+  const RESTORED: WorkspaceOpenedEvent = {
+    scopeId: "scope-restored",
+    label: "dev\\docs",
+  };
+  const OTHER: WorkspaceOpenedEvent = {
+    scopeId: "scope-other",
+    label: "work\\notes",
+  };
+  const RECENTS = [
+    { id: "recent-1-0", label: "dev\\docs" },
+    { id: "recent-1-1", label: "work\\notes" },
+  ];
+
+  const sidebarLabel = () =>
+    screen.getByRole("heading", { level: 1 }).textContent;
+
+  const recentLabels = (section: HTMLElement) =>
+    within(section)
+      .getAllByRole("button")
+      .map((button) => button.textContent);
+
+  test("起動時に問い合わせて、Rustが開き直したワークスペースを表示する", async () => {
+    // Rustは、WebViewが購読する前にワークスペースを開き直している。通知は誰にも届かない。
+    mockBackend({ scan: () => ROOT, currentWorkspace: () => RESTORED });
+    render(<App />);
+
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    expect(sidebarLabel()).toBe("dev\\docs");
+    expect(screen.getByText("README.md")).toBeTruthy();
+  });
+
+  test("問い合わせの時点で、開閉の購読は済んでいる", async () => {
+    // 問い合わせの直後にワークスペースが開かれても、その通知は購読済みで受け取れる。
+    // 購読より先に問い合わせると、その通知を逃す。
+    mockBackend({
+      scan: () => ROOT,
+      currentWorkspace: async () => {
+        await emit("workspace-opened", RESTORED);
+        return null;
+      },
+    });
+    render(<App />);
+
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    expect(sidebarLabel()).toBe("dev\\docs");
+  });
+
+  test("問い合わせの応答より先に通知が届いたときは、古い応答で上書きしない", async () => {
+    let release: (opened: WorkspaceOpenedEvent | null) => void = () => {};
+    let requested = false;
+    mockBackend({
+      scan: () => ROOT,
+      currentWorkspace: () =>
+        new Promise((resolve) => {
+          requested = true;
+          release = resolve;
+        }),
+    });
+    render(<App />);
+    await waitFor(() => expect(requested).toBe(true));
+
+    await openWorkspace(OTHER);
+    await act(async () => release(RESTORED));
+
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+    expect(sidebarLabel()).toBe("work\\notes");
+  });
+
+  test("問い合わせの応答より先に閉じる通知が届いたときも、古い応答で開き直さない", async () => {
+    let release: (opened: WorkspaceOpenedEvent | null) => void = () => {};
+    let requested = false;
+    mockBackend({
+      scan: () => ROOT,
+      currentWorkspace: () =>
+        new Promise((resolve) => {
+          requested = true;
+          release = resolve;
+        }),
+    });
+    render(<App />);
+    await waitFor(() => expect(requested).toBe(true));
+
+    await act(async () => {
+      await emit("workspace-closed");
+    });
+    await act(async () => release(RESTORED));
+
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    expect(screen.queryByRole("tree")).toBeNull();
+  });
+
+  test("同じワークスペースが応答と通知の両方で届いても、走査は1回だけ行う", async () => {
+    const scanned: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return ROOT;
+      },
+      currentWorkspace: () => RESTORED,
+    });
+    render(<App />);
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    await openWorkspace(RESTORED);
+
+    expect(scanned).toEqual([""]);
+  });
+
+  test.each([
+    ["ja", "最近使ったフォルダー"],
+    ["en", "Recent folders"],
+  ] as const)(
+    "ワークスペースを開いていないとき、最近使ったフォルダーを並べる（%s）",
+    async (language, heading) => {
+      mockBackend({
+        scan: () => ROOT,
+        ui: { effectiveLanguage: language, recentFolders: RECENTS },
+      });
+      render(<App />);
+
+      const section = await screen.findByRole("region", { name: heading });
+
+      expect(recentLabels(section)).toEqual(["dev\\docs", "work\\notes"]);
+    },
+  );
+
+  test("一覧が空のときは、見出しも出さない", async () => {
+    mockBackend({ scan: () => ROOT, ui: { recentFolders: [] } });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+
+    expect(screen.queryByText("最近使ったフォルダー")).toBeNull();
+  });
+
+  test("一覧の変化の通知で、一覧を丸ごと置き換える", async () => {
+    mockBackend({ scan: () => ROOT, ui: { recentFolders: RECENTS } });
+    render(<App />);
+    await screen.findByRole("region", { name: "最近使ったフォルダー" });
+
+    await act(async () => {
+      await emit("recent-folders-changed", {
+        folders: [{ id: "recent-2-0", label: "a\\b" }],
+      });
+    });
+
+    const section = screen.getByRole("region", {
+      name: "最近使ったフォルダー",
+    });
+    expect(recentLabels(section)).toEqual(["a\\b"]);
+  });
+
+  test("設定の応答より先に一覧の変化が届いても、新しい一覧を使う", async () => {
+    // 設定の応答は、変化より前の一覧を持っている。
+    mockBackend({
+      scan: () => ROOT,
+      ui: { recentFolders: RECENTS },
+      onLoadUi: () =>
+        emit("recent-folders-changed", {
+          folders: [{ id: "recent-2-0", label: "a\\b" }],
+        }),
+    });
+    render(<App />);
+
+    const section = await screen.findByRole("region", {
+      name: "最近使ったフォルダー",
+    });
+
+    expect(recentLabels(section)).toEqual(["a\\b"]);
+  });
+
+  test("項目を選ぶと、IDでRustへ開くよう求め、開いたワークスペースを表示する", async () => {
+    const requested: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      ui: { recentFolders: RECENTS },
+      // 成功はフォルダー選択と同じく、`workspace-opened` で届く。
+      openRecent: async (id) => {
+        requested.push(id);
+        await emit("workspace-opened", OTHER);
+      },
+    });
+    render(<App />);
+    const section = await screen.findByRole("region", {
+      name: "最近使ったフォルダー",
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        within(section).getByRole("button", { name: "work\\notes" }),
+      );
+    });
+
+    expect(requested).toEqual(["recent-1-1"]);
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+    expect(sidebarLabel()).toBe("work\\notes");
+    // ワークスペースを開いている間は、一覧を出さない。
+    expect(screen.queryByText("最近使ったフォルダー")).toBeNull();
+  });
+
+  test("開けなかったときは、案内の下に理由を示し、welcome状態のままにする", async () => {
+    const notFound: IpcError = {
+      code: "workspaceNotFound",
+      message: "このフォルダーは見つかりません。",
+      detail: null,
+    };
+    mockBackend({
+      scan: () => ROOT,
+      ui: { recentFolders: RECENTS },
+      openRecent: () => Promise.reject(notFound),
+    });
+    render(<App />);
+    const section = await screen.findByRole("region", {
+      name: "最近使ったフォルダー",
+    });
+
+    await act(async () => {
+      fireEvent.click(
+        within(section).getByRole("button", { name: "dev\\docs" }),
+      );
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "このフォルダーは見つかりません。",
+    );
+    expect(screen.queryByRole("tree")).toBeNull();
   });
 });

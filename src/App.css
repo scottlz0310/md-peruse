@@ -624,3 +624,36 @@ body {
   display: flex;
   justify-content: flex-end;
 }
+
+/*
+ * ワークスペースを開いていないときの案内に並べる、最近使ったフォルダーの一覧（design-decisions.md
+ * 9.2、11.1）。
+ */
+.recent-folders {
+  margin-top: 1rem;
+}
+
+.recent-folders h2 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+
+.recent-folders ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recent-folders button {
+  padding: 0.125rem 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.recent-folders button:hover {
+  text-decoration: underline;
+}

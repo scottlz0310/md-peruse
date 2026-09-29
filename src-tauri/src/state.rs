@@ -7,12 +7,14 @@
 //! ワークスペースの切り替えと終了は、Watcher・探索キャッシュ・通常タブ・loose tabの破棄を
 //! 伴う（6.1）。ここが持つのはルートとWatcherであり、探索キャッシュとタブはFrontendが持つ。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
 use crate::image::resource::ImageResources;
+use crate::ipc::types::WorkspaceOpenedEvent;
 use crate::path_guard::WorkspaceRoot;
+use crate::settings::recent_folder_label;
 use crate::watch_runtime::{ChangeSink, WorkspaceWatcher};
 
 /// 開いているワークスペース。
@@ -97,6 +99,29 @@ impl AppState {
         self.lock_watcher()
             .as_ref()
             .map(|watcher| watcher.scope_id().to_owned())
+    }
+
+    /// 開いているワークスペースのルート。正規化済みの絶対パスである（`WorkspaceRoot::path`）。
+    ///
+    /// 最近使ったフォルダーと最後のワークスペースへ保存するのはこの値で、Frontendへは渡さない
+    /// （7.1）。閉じていれば `None` を返す。
+    pub fn workspace_path(&self) -> Option<PathBuf> {
+        self.lock_workspace()
+            .as_ref()
+            .map(|open| open.root.path().to_owned())
+    }
+
+    /// 開いているワークスペースの、Frontendへ渡す表現。閉じていれば `None` を返す。
+    ///
+    /// スコープIDと表示名を別々のロックから読むため、開閉と並行して呼ぶと別のワークスペースの
+    /// ものが混ざりうる。開閉を直列にするロック（`crate::open_folder`）の内側で呼ぶこと。
+    pub fn current_workspace(&self) -> Option<WorkspaceOpenedEvent> {
+        let scope_id = self.scope_id()?;
+        let path = self.workspace_path()?;
+        Some(WorkspaceOpenedEvent {
+            scope_id,
+            label: recent_folder_label(&path.to_string_lossy()),
+        })
     }
 
     /// ワークスペースのハンドルを得る。

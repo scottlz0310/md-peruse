@@ -20,7 +20,8 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use crate::ipc::error::ErrorCode;
 use crate::ipc::message::message;
 use crate::ipc::types::WorkspaceOpenedEvent;
-use crate::settings::recent_folder_label;
+use crate::recent;
+use crate::settings_store::SettingsStore;
 use crate::state::AppState;
 use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 
@@ -65,17 +66,68 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
         let Ok(path) = picked.into_path() else {
             return;
         };
-        let state = app.state::<AppState>();
-        let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
-        let _lifecycle = lock_lifecycle();
-        match open_selected_folder(&state, &path, sink) {
-            // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
-            Ok(opened) => {
-                let _ = app.emit(WORKSPACE_OPENED_EVENT, opened);
-            }
-            Err(code) => show_error(&app, &[code]),
+        if let Err(code) = open_path(&app, &path) {
+            show_error(&app, &[code]);
         }
     });
+}
+
+/// フォルダーをワークスペースとして開き、記録してからFrontendへ知らせる。
+///
+/// フォルダーの選択、最近使ったフォルダー、起動時の復元が、ここへ集まる。開けなかった
+/// ときは現在のワークスペースを保ち、理由を返す。示し方（ダイアログ、応答、黙って外す）は
+/// 呼び出し側が決める。
+pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
+    open_locked(app, path, false)
+}
+
+/// 起動時に、最後のワークスペースを開き直す（9.2）。
+///
+/// 開けなかったときは、welcome状態のまま起動し、その項目を最近使ったフォルダーからも
+/// 取り除く。起動のたびに開けないフォルダーの失敗を示しても、利用者が取れる行動がない
+/// ためである。
+///
+/// 応答の遅いストレージでも起動を待たせないよう、呼び出し側は別のスレッドで呼ぶ。その間に
+/// 利用者が別のフォルダーを開いていた場合は、それを上書きしない。
+pub fn restore_last_workspace<R: Runtime>(app: &AppHandle<R>) {
+    let Some(path) = app.state::<SettingsStore>().settings().last_workspace else {
+        return;
+    };
+    if open_locked(app, Path::new(&path), true).is_err() {
+        recent::forget(app, &path);
+    }
+}
+
+/// 開いているワークスペース。Frontendが起動時に問い合わせる（`get_workspace_command`）。
+///
+/// 起動時の復元はWebViewが購読する前に終わることがあり、そのときの `workspace-opened` は
+/// 誰にも届かない。Frontendは購読してから問い合わせ、購読後の変化はeventで受ける。
+/// 開閉と同じロックの内側で読み、スコープIDと表示名を同じワークスペースのものにする。
+pub fn current_workspace<R: Runtime>(app: &AppHandle<R>) -> Option<WorkspaceOpenedEvent> {
+    let _lifecycle = lock_lifecycle();
+    app.state::<AppState>().current_workspace()
+}
+
+/// `open_path` の本体。`only_if_closed` は、既にワークスペースが開いていれば何もしない
+/// ことを表す（起動時の復元が、その間に利用者が開いたものを上書きしないため）。
+fn open_locked<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &Path,
+    only_if_closed: bool,
+) -> Result<(), ErrorCode> {
+    let state = app.state::<AppState>();
+    let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
+    let _lifecycle = lock_lifecycle();
+    if only_if_closed && state.scope_id().is_some() {
+        return Ok(());
+    }
+    let opened = open_selected_folder(&state, path, sink)?;
+    if let Some(root) = state.workspace_path() {
+        recent::record_opened(app, &root);
+    }
+    // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
+    let _ = app.emit(WORKSPACE_OPENED_EVENT, opened);
+    Ok(())
 }
 
 /// ワークスペースを閉じ、Frontendをwelcome状態へ戻す（6.1）。
@@ -91,6 +143,8 @@ pub fn close<R: Runtime>(app: &AppHandle<R>) -> JoinHandle<()> {
     thread::spawn(move || {
         let _lifecycle = lock_lifecycle();
         app.state::<AppState>().close_workspace();
+        // 閉じる操作をしたワークスペースは、次の起動で開き直さない（9.2）。
+        app.state::<SettingsStore>().clear_last_workspace();
         // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
         let _ = app.emit(WORKSPACE_CLOSED_EVENT, ());
     })
@@ -107,13 +161,9 @@ pub fn open_selected_folder(
     state
         .open_workspace(path, sink)
         .map_err(|error| open_error_code(&error))?;
-    let scope_id = state
-        .scope_id()
-        .expect("開いた直後のワークスペースはスコープを持つ");
-    Ok(WorkspaceOpenedEvent {
-        scope_id,
-        label: recent_folder_label(&path.to_string_lossy()),
-    })
+    Ok(state
+        .current_workspace()
+        .expect("開いた直後のワークスペースはスコープとルートを持つ"))
 }
 
 /// ワークスペースを開けなかった理由を `ErrorCode` へ写す。
@@ -157,9 +207,43 @@ mod tests {
     use super::*;
     use crate::i18n::LanguagePreference;
     use crate::ipc::types::FileChangeEvent;
+    use crate::recent::{RECENT_FOLDERS_CHANGED_EVENT, RecentFolders};
+    use crate::settings::Settings;
     use std::fs;
     use std::path::PathBuf;
     use tauri::Listener;
+
+    /// 状態、設定、最近使ったフォルダーの対応表を登録した `mock_app`。
+    fn app_with(settings: Settings) -> tauri::App<tauri::test::MockRuntime> {
+        let app = tauri::test::mock_app();
+        app.manage(AppState::new(LanguagePreference::System));
+        let recents = RecentFolders::new();
+        recents.sync(&settings.recent_folders);
+        app.manage(recents);
+        app.manage(SettingsStore::without_saving(settings));
+        app
+    }
+
+    /// eventのpayloadを、届いた順に集める。
+    fn collect(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        event: &'static str,
+    ) -> Arc<Mutex<Vec<String>>> {
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&received);
+        app.listen(event, move |event| {
+            sink.lock().unwrap().push(event.payload().to_owned());
+        });
+        received
+    }
+
+    /// 正規化した絶対パス（保存する形）。
+    fn canonical(path: &Path) -> String {
+        fs::canonicalize(path)
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+    }
 
     struct DiscardingSink;
 
@@ -221,8 +305,7 @@ mod tests {
     #[test]
     fn closing_waits_for_io_off_the_caller_and_then_notifies() {
         let temp = TempDir::new("close");
-        let app = tauri::test::mock_app();
-        app.manage(AppState::new(LanguagePreference::System));
+        let app = app_with(Settings::default());
         let state = app.state::<AppState>();
         open_selected_folder(&state, temp.path(), Arc::new(DiscardingSink)).expect("開けない");
         let scopes_at_notice = Arc::new(Mutex::new(Vec::new()));
@@ -252,6 +335,170 @@ mod tests {
 
         // 通知の時点で、既に閉じている。
         assert_eq!(*scopes_at_notice.lock().unwrap(), [None]);
+    }
+
+    /// 開いたワークスペースは、最近使ったフォルダーの先頭と最後のワークスペースとして記録され、
+    /// メニューとFrontendへ知らされる。記録するのは正規化した絶対パスである。
+    #[test]
+    fn an_opened_folder_is_recorded_and_announced() {
+        let temp = TempDir::new("record");
+        let folder = temp.path().join("docs");
+        fs::create_dir(&folder).unwrap();
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+        let changed = collect(&app, RECENT_FOLDERS_CHANGED_EVENT);
+
+        open_path(app.handle(), &folder).expect("開けない");
+
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, Some(canonical(&folder)));
+        assert_eq!(settings.recent_folders, [canonical(&folder)]);
+        assert_eq!(opened.lock().unwrap().len(), 1);
+        // 一覧の変化は、IDと表示名だけを運ぶ。絶対パスは運ばない。
+        let changed = changed.lock().unwrap();
+        assert_eq!(changed.len(), 1);
+        assert!(changed[0].contains("\"label\""), "{}", changed[0]);
+        // JSONでは絶対パスの `C:\` が `C:\\` になる。
+        assert!(
+            !changed[0].contains(":\\\\"),
+            "絶対パスを含む: {}",
+            changed[0]
+        );
+        // メニューの項目にもなる。
+        let menu = app.menu().expect("メニューが組み直されていない");
+        let recent = crate::menu::find(
+            menu.items().unwrap(),
+            &crate::menu::MenuCommand::OpenRecentFolder.id(),
+        )
+        .and_then(|item| item.as_submenu().cloned())
+        .expect("最近使ったフォルダーのサブメニューが無い");
+        assert_eq!(recent.items().unwrap().len(), 1);
+    }
+
+    /// 開けなかったフォルダーは記録せず、何も知らせない。
+    #[test]
+    fn a_folder_that_cannot_be_opened_is_not_recorded() {
+        let temp = TempDir::new("not-recorded");
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+        let changed = collect(&app, RECENT_FOLDERS_CHANGED_EVENT);
+
+        let error = open_path(app.handle(), &temp.path().join("missing")).unwrap_err();
+
+        assert_eq!(error, ErrorCode::WorkspaceNotFound);
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, None);
+        assert!(settings.recent_folders.is_empty());
+        assert!(opened.lock().unwrap().is_empty());
+        assert!(changed.lock().unwrap().is_empty());
+    }
+
+    /// 起動時は、最後のワークスペースを開き直す（9.2）。
+    #[test]
+    fn the_last_workspace_is_reopened_at_startup() {
+        let temp = TempDir::new("restore");
+        let app = app_with(Settings {
+            last_workspace: Some(canonical(temp.path())),
+            recent_folders: vec![canonical(temp.path())],
+            ..Settings::default()
+        });
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        restore_last_workspace(app.handle());
+
+        assert!(app.state::<AppState>().scope_id().is_some());
+        assert_eq!(opened.lock().unwrap().len(), 1);
+    }
+
+    /// 開き直せないフォルダーは、welcome状態のまま起動し、最近使ったフォルダーからも外す。
+    /// 起動のたびに失敗を示しても、利用者が取れる行動がない（9.2）。
+    #[test]
+    fn a_last_workspace_that_cannot_be_opened_is_dropped_silently() {
+        let temp = TempDir::new("restore-missing");
+        let missing = canonical(temp.path()) + "\\gone";
+        let kept = canonical(temp.path());
+        let app = app_with(Settings {
+            last_workspace: Some(missing.clone()),
+            recent_folders: vec![missing, kept.clone()],
+            ..Settings::default()
+        });
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+        let changed = collect(&app, RECENT_FOLDERS_CHANGED_EVENT);
+
+        restore_last_workspace(app.handle());
+
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert!(opened.lock().unwrap().is_empty());
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, None);
+        assert_eq!(settings.recent_folders, [kept]);
+        assert_eq!(changed.lock().unwrap().len(), 1);
+    }
+
+    /// 最後のワークスペースが無ければ、何も開かない。
+    #[test]
+    fn nothing_is_restored_without_a_last_workspace() {
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        restore_last_workspace(app.handle());
+
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert!(opened.lock().unwrap().is_empty());
+    }
+
+    /// 復元が終わる前に利用者が別のフォルダーを開いていたときは、それを上書きしない。
+    #[test]
+    fn restoring_does_not_replace_a_workspace_opened_meanwhile() {
+        let temp = TempDir::new("restore-race");
+        let mine = temp.path().join("mine");
+        let last = temp.path().join("last");
+        fs::create_dir(&mine).unwrap();
+        fs::create_dir(&last).unwrap();
+        let app = app_with(Settings::default());
+        open_path(app.handle(), &mine).expect("開けない");
+        let before = app.state::<AppState>().scope_id();
+        app.state::<SettingsStore>()
+            .record_opened_workspace(&canonical(&last));
+
+        restore_last_workspace(app.handle());
+
+        assert_eq!(app.state::<AppState>().scope_id(), before);
+    }
+
+    /// 開いているワークスペースを問い合わせられる。開いていなければ `None` を返す。
+    #[test]
+    fn the_current_workspace_can_be_queried() {
+        let temp = TempDir::new("query");
+        let app = app_with(Settings::default());
+        assert_eq!(current_workspace(app.handle()), None);
+
+        open_path(app.handle(), temp.path()).expect("開けない");
+
+        let current = current_workspace(app.handle()).expect("開いているはず");
+        assert_eq!(
+            Some(current.scope_id.clone()),
+            app.state::<AppState>().scope_id()
+        );
+        assert!(
+            !current.label.contains(':'),
+            "絶対パスを含む: {}",
+            current.label
+        );
+    }
+
+    /// 閉じたワークスペースは、次の起動で開き直さない。最近使ったフォルダーには残す。
+    #[test]
+    fn closing_clears_the_last_workspace_but_keeps_it_recent() {
+        let temp = TempDir::new("close-clears");
+        let app = app_with(Settings::default());
+        open_path(app.handle(), temp.path()).expect("開けない");
+
+        close(app.handle()).join().expect("閉じる処理が失敗した");
+
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, None);
+        assert_eq!(settings.recent_folders, [canonical(temp.path())]);
     }
 
     /// 開けなかった場合は理由を返し、現在のワークスペースを保つ。

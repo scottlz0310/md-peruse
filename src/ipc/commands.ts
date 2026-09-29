@@ -4,6 +4,7 @@ import type { ImageResource } from "../types/generated/ImageResource";
 import type { ScanResult } from "../types/generated/ScanResult";
 import type { UiSettings } from "../types/generated/UiSettings";
 import type { UiSettingsUpdate } from "../types/generated/UiSettingsUpdate";
+import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
 
 /**
  * Rust側のTauri commandの呼び出し（design-decisions.md 5.3）。
@@ -50,4 +51,25 @@ export function issueImageResources(
   return invoke<ImageResource[]>("issue_image_resources_command", {
     request: { documentPath, references },
   });
+}
+
+/**
+ * いま開いているワークスペースを問い合わせる。開いていなければ `null` を返す
+ * （design-decisions.md 9.2、11.1）。
+ *
+ * 起動時にRustが最後のワークスペースを開き直すと、その `workspace-opened` はWebViewの購読より
+ * 先に送られうる。`workspace-opened` を購読してから呼び、購読後の変化はeventで受ける。
+ */
+export function getWorkspace(): Promise<WorkspaceOpenedEvent | null> {
+  return invoke<WorkspaceOpenedEvent | null>("get_workspace_command");
+}
+
+/**
+ * 最近使ったフォルダーの項目をワークスペースとして開く。
+ *
+ * 成功は `workspace-opened` で届く（フォルダー選択と同じ経路）。`id` は `recent-folders-changed`
+ * と設定で受け取ったもの。一覧が変わると振り直されるため、古い `id` は拒否される。
+ */
+export function openRecentFolder(id: string): Promise<void> {
+  return invoke<void>("open_recent_folder_command", { id });
 }

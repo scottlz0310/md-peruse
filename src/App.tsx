@@ -6,7 +6,9 @@ import { LanguageProvider } from "./i18n/LanguageContext";
 import { DEFAULT_LANGUAGE, MESSAGES } from "./i18n/messages";
 import {
   getUiSettings,
+  getWorkspace,
   issueImageResources,
+  openRecentFolder,
   readFile,
   scanDirectory,
   updateUiSettings,
@@ -14,6 +16,7 @@ import {
 import {
   onLanguageChanged,
   onMenuCommand,
+  onRecentFoldersChanged,
   onWorkspaceClosed,
   onWorkspaceOpened,
 } from "./ipc/events";
@@ -71,9 +74,11 @@ import type { FileContent } from "./types/generated/FileContent";
 import type { IpcError } from "./types/generated/IpcError";
 import type { LanguageChangedEvent } from "./types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "./types/generated/MenuCommand";
+import type { RecentFolderView } from "./types/generated/RecentFolderView";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
+import { RecentFolders } from "./welcome/RecentFolders";
 
 /** アクティブタブに表示している本文。本文DOMはアクティブタブだけが持つ（9.1）。 */
 type Shown = {
@@ -139,6 +144,12 @@ export default function App() {
   const language =
     changedLanguage?.language ?? ui?.effectiveLanguage ?? DEFAULT_LANGUAGE;
   const messages = MESSAGES[language];
+  // 最近使ったフォルダー。言語と同じく、一覧の変化のeventが届いていれば設定より優先する
+  // （11.1）。IDは一覧が変わるたびに振り直されるため、届いた一覧で丸ごと置き換える。
+  const [changedRecents, setChangedRecents] = useState<
+    readonly RecentFolderView[] | null
+  >(null);
+  const recentFolders = changedRecents ?? ui?.recentFolders ?? [];
   const [startupError, setStartupError] = useState<string | null>(null);
   // 「md-peruse について」のダイアログ。ワークスペースを開いていなくても開ける。
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -165,14 +176,21 @@ export default function App() {
   // 本文のスクロール位置はプレビュー領域が持つ。ウィンドウ全体はスクロールしない。
   const previewRef = useRef<HTMLElement>(null);
 
-  // 言語の切り替えを購読してから設定を読む（10.5）。読む前の切り替えは設定に含まれ、読んだ後の
-  // 切り替えはeventで届くため、どの順序でも取りこぼさない。購読より先に読むと、その間の切り替えを
-  // 逃す。購読の完了前に片付けが走ったときは、設定を読まずに解除する。
+  // 言語の切り替えと最近使ったフォルダーの変化を購読してから設定を読む（10.5、11.1）。読む前の
+  // 変化は設定に含まれ、読んだ後の変化はeventで届くため、どの順序でも取りこぼさない。購読より先に
+  // 読むと、その間の変化を逃す。購読の完了前に片付けが走ったときは、設定を読まずに解除する。
   useEffect(() => {
     let disposed = false;
     let unlisten: UnlistenFn | undefined;
-    onLanguageChanged(setChangedLanguage)
-      .then((stop) => {
+    Promise.all([
+      onLanguageChanged(setChangedLanguage),
+      onRecentFoldersChanged((changed) => setChangedRecents(changed.folders)),
+    ])
+      .then(([stopLanguage, stopRecents]) => {
+        const stop = () => {
+          stopLanguage();
+          stopRecents();
+        };
         if (disposed) {
           stop();
           return undefined;
@@ -190,15 +208,54 @@ export default function App() {
     };
   }, []);
 
-  useTauriEvent(() =>
-    onWorkspaceOpened((opened) => {
+  // ワークスペースの開閉を購読してから、いま開いているワークスペースを問い合わせる
+  // （9.2、11.1）。起動時にRustが最後のワークスペースを開き直すと、その通知はWebViewの
+  // 購読より先に送られうる。購読より先に問い合わせると、その間に開いたものを逃す。
+  //
+  // 購読後に通知が届いたときは、問い合わせの応答を使わない。応答はそれより前の状態であり、
+  // 適用すると新しいワークスペースを古いもので上書きする。同じワークスペースが通知と応答の
+  // 両方で届いたときは、スコープIDで見分けて二重に開かない。閉じると、切り替えと同じ破棄を行って
+  // welcome状態へ戻す（6.1）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 購読は1度でよい。
+  useEffect(() => {
+    let disposed = false;
+    let notified = false;
+    let unlisten: UnlistenFn | undefined;
+    const open = (opened: WorkspaceOpenedEvent) => {
+      if (scopeRef.current === opened.scopeId) return;
       resetWorkspace(opened);
       scan(ROOT_PATH);
-    }),
-  );
-
-  // 閉じると、切り替えと同じ破棄を行ってwelcome状態へ戻す（6.1）。
-  useTauriEvent(() => onWorkspaceClosed(() => resetWorkspace(null)));
+    };
+    Promise.all([
+      onWorkspaceOpened((opened) => {
+        notified = true;
+        open(opened);
+      }),
+      onWorkspaceClosed(() => {
+        notified = true;
+        resetWorkspace(null);
+      }),
+    ])
+      .then(([stopOpened, stopClosed]) => {
+        const stop = () => {
+          stopOpened();
+          stopClosed();
+        };
+        if (disposed) {
+          stop();
+          return undefined;
+        }
+        unlisten = stop;
+        return getWorkspace().then((current) => {
+          if (current !== null && !notified) open(current);
+        });
+      })
+      .catch((reason: unknown) => setStartupError(String(reason)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
   useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
@@ -258,6 +315,16 @@ export default function App() {
     updateUiSettings(update).catch((reason: unknown) =>
       setError(String(reason)),
     );
+  }
+
+  /**
+   * 最近使ったフォルダーの項目を開く。成功は `workspace-opened` で届く。失敗の理由は案内の下に
+   * 示す。フォルダーが見つからなかったときは、Rust側がその項目を一覧から取り除き、新しい一覧が
+   * eventで届く。
+   */
+  function openRecent(id: string) {
+    setError(null);
+    openRecentFolder(id).catch((reason: IpcError) => setError(reason.message));
   }
 
   function saveFontScale(percent: number) {
@@ -675,6 +742,7 @@ export default function App() {
           <h1>md-peruse</h1>
           <p>{messages.welcome}</p>
           {error && <p role="alert">{error}</p>}
+          <RecentFolders folders={recentFolders} onOpen={openRecent} />
         </main>
         {aboutDialog}
       </LanguageProvider>

@@ -5,7 +5,7 @@
 //! Frontendに設定ファイルを直接触らせないことで、`fs` 系のcapabilityを増やさずに
 //! 済む（5.5）。ここに置くのは型と既定値、および値の組み立て規則だけであり、
 //! ファイルの読み書きは `crate::settings_store` が担う。最近使ったフォルダーのIDの採番は
-//! まだ実装していない。
+//! `crate::recent` が担う。
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -77,13 +77,18 @@ pub enum ThemePreference {
 /// ウィンドウの位置とサイズ。
 ///
 /// Frontendへは渡さない。復元はRust側でウィンドウへ適用する。接続されていない
-/// ディスプレイの座標や画面外への復元を弾く検証はPhase 4で実装する。
+/// ディスプレイの座標や画面外への復元は `crate::window_placement` が弾く（9.2）。
+///
+/// 単位はすべて物理ピクセルである。DPIの異なるディスプレイをまたぐと論理ピクセルは
+/// 値の意味が変わるため、保存には向かない。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WindowPlacement {
-    /// 仮想デスクトップ座標。マルチディスプレイでは負値を取りうる。
+    /// ウィンドウの左上（枠を含む）の仮想デスクトップ座標。マルチディスプレイでは負値を取りうる。
     pub x: i32,
     pub y: i32,
+    /// 内側（クライアント領域）の大きさ。枠とタイトルバーの厚みはOSとDPIで変わるため、
+    /// 外形ではなく内側を保存し、復元でも内側の大きさとして適用する。
     pub width: u32,
     pub height: u32,
     /// 最大化状態。最大化中も、復元したときの位置とサイズを `x`〜`height` に保つ。
@@ -197,7 +202,15 @@ pub struct UiSettingsUpdate {
 /// 区切りは表示上 `\` へ揃える。
 pub fn recent_folder_label(absolute_path: &str) -> String {
     let normalized = absolute_path.replace('/', "\\");
-    let trimmed = normalized.trim_end_matches('\\');
+    // `fs::canonicalize` はWindowsで拡張長パス（`\\?\`）の形を返す。保存するパスはその形で
+    // 比較するが、表示には要らない。
+    let display = match normalized.strip_prefix("\\\\?\\UNC\\") {
+        Some(rest) => format!("\\\\{rest}"),
+        None => normalized
+            .strip_prefix("\\\\?\\")
+            .map_or(normalized.clone(), str::to_owned),
+    };
+    let trimmed = display.trim_end_matches('\\');
     // ドライブ直下（`C:\`）は末尾の区切りを落とすと `C:` だけが残る。区切りを補って
     // ドライブそのものであることを示す。
     if trimmed.is_empty() || trimmed.ends_with(':') {
@@ -221,6 +234,28 @@ pub fn push_recent_folder(history: &[String], path: &str) -> Vec<String> {
     next.extend(history.iter().filter(|p| p.as_str() != path).cloned());
     next.truncate(MAX_RECENT_FOLDERS);
     next
+}
+
+/// 最近使ったフォルダーから1件を取り除いた一覧を返す。含まれていなければそのまま返す。
+///
+/// 開けなかったフォルダーを一覧に残しても、利用者が取れる行動がない（9.2）。
+pub fn remove_recent_folder(history: &[String], path: &str) -> Vec<String> {
+    history
+        .iter()
+        .filter(|candidate| candidate.as_str() != path)
+        .cloned()
+        .collect()
+}
+
+/// 最近使ったフォルダーの一覧が変わったことを運ぶ通知（Tauri event `recent-folders-changed`）。
+///
+/// 一覧は新しいものが先頭。IDは一覧を作り直すたびに振り直すため、Frontendは受け取った一覧で
+/// 手元の一覧を丸ごと置き換える。以前の一覧のIDで開くことを求められても、Rust側は拒否する。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct RecentFoldersChangedEvent {
+    pub folders: Vec<RecentFolderView>,
 }
 
 #[cfg(test)]
@@ -276,6 +311,10 @@ mod tests {
             ("C:\\Users\\dev\\src\\md-peruse\\", "src\\md-peruse"),
             ("C:/Users/dev/docs", "dev\\docs"),
             ("\\\\server\\share\\docs", "share\\docs"),
+            // `fs::canonicalize` が返す拡張長パスの形。
+            ("\\\\?\\C:\\Users\\dev\\docs", "dev\\docs"),
+            ("\\\\?\\C:\\", "C:\\"),
+            ("\\\\?\\UNC\\server\\share\\docs", "share\\docs"),
         ];
         for (path, expected) in cases {
             assert_eq!(recent_folder_label(path), expected, "入力: {path}");
@@ -292,6 +331,23 @@ mod tests {
         ];
         for (path, expected) in cases {
             assert_eq!(push_recent_folder(&history, path), expected, "入力: {path}");
+        }
+    }
+
+    #[test]
+    fn remove_recent_folder_drops_only_the_matching_entry() {
+        let history = vec!["C:\\a".to_owned(), "C:\\b".to_owned(), "C:\\c".to_owned()];
+        let cases = [
+            ("C:\\b", vec!["C:\\a", "C:\\c"]),
+            ("C:\\a", vec!["C:\\b", "C:\\c"]),
+            ("C:\\missing", vec!["C:\\a", "C:\\b", "C:\\c"]),
+        ];
+        for (path, expected) in cases {
+            assert_eq!(
+                remove_recent_folder(&history, path),
+                expected,
+                "入力: {path}"
+            );
         }
     }
 

@@ -41,11 +41,8 @@ fn select_with<R: Runtime>(app: &AppHandle<R>, command: MenuCommand, os_language
     let language = resolve_language(preference, os_language_tag);
     app.state::<AppState>().set_language(language);
     // チェック付きの項目は、選ばれるとmudaがチェックを反転してからイベントを送る。組み直せば、
-    // チェックも新しい選択に揃う。失敗するのはメニューが破棄された後（終了処理中）であり、
-    // 知らせる相手がいない。
-    if let Ok(menu) = menu::build(app, language, store.settings().theme, preference) {
-        let _ = app.set_menu(menu);
-    }
+    // チェックも新しい選択に揃う。
+    menu::refresh(app);
     let _ = app.emit(
         LANGUAGE_CHANGED_EVENT,
         LanguageChangedEvent {
@@ -59,6 +56,7 @@ fn select_with<R: Runtime>(app: &AppHandle<R>, command: MenuCommand, os_language
 mod tests {
     use super::*;
     use crate::i18n::Language;
+    use crate::recent::RecentFolders;
     use crate::settings::{Settings, ThemePreference};
     use std::sync::{Arc, Mutex};
     use tauri::Listener;
@@ -99,6 +97,7 @@ mod tests {
                 ..Settings::default()
             }));
             app.manage(AppState::new(initial));
+            app.manage(RecentFolders::new());
             let events = Arc::new(Mutex::new(Vec::new()));
             let sink = Arc::clone(&events);
             app.listen(LANGUAGE_CHANGED_EVENT, move |event| {
@@ -144,6 +143,7 @@ mod tests {
         let app = tauri::test::mock_app();
         app.manage(SettingsStore::without_saving(Settings::default()));
         app.manage(AppState::new(LanguagePreference::Ja));
+        app.manage(RecentFolders::new());
 
         select_with(app.handle(), MenuCommand::UseEnglish, "ja-JP");
 
@@ -169,6 +169,7 @@ mod tests {
             let app = tauri::test::mock_app();
             app.manage(SettingsStore::without_saving(Settings::default()));
             app.manage(AppState::new(LanguagePreference::En));
+            app.manage(RecentFolders::new());
 
             select_with(app.handle(), MenuCommand::UseSystemLanguage, tag);
 

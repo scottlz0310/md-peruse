@@ -8,12 +8,15 @@ use serde::{Deserialize, Serialize};
 use tauri::menu::{
     CheckMenuItem, IsMenuItem, Menu, MenuItem, MenuItemKind, PredefinedMenuItem, Submenu,
 };
-use tauri::{Manager, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use ts_rs::TS;
 
 use crate::i18n::{Language, LanguagePreference};
 use crate::language;
-use crate::settings::ThemePreference;
+use crate::recent::{MENU_ITEM_PREFIX, RecentFolders};
+use crate::settings::{RecentFolderView, ThemePreference};
+use crate::settings_store::SettingsStore;
+use crate::state::AppState;
 use crate::theme;
 
 /// メニュー項目が表すコマンド。
@@ -123,8 +126,9 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 16] = [
+pub const IMPLEMENTED: [MenuCommand; 17] = [
     MenuCommand::OpenFolder,
+    MenuCommand::OpenRecentFolder,
     MenuCommand::CloseWorkspace,
     MenuCommand::CloseTab,
     MenuCommand::Exit,
@@ -144,12 +148,14 @@ pub const IMPLEMENTED: [MenuCommand; 16] = [
 
 /// コマンドの表示名。
 ///
-/// `IMPLEMENTED` に載せるコマンドだけが対象である。載せていないコマンドの表示名は、
-/// 実装するときに10.1の表から足す。
+/// すべてのコマンドについて、両言語の表示名を持つ。コマンドを足したときの不足は、
+/// この `match` の網羅性検査が検出する。
 fn label(command: MenuCommand, language: Language) -> &'static str {
     match (command, language) {
         (MenuCommand::OpenFolder, Language::Ja) => "フォルダーを開く(&O)...",
         (MenuCommand::OpenFolder, Language::En) => "&Open Folder...",
+        (MenuCommand::OpenRecentFolder, Language::Ja) => "最近使ったフォルダー(&R)",
+        (MenuCommand::OpenRecentFolder, Language::En) => "&Recent Folders",
         (MenuCommand::CloseWorkspace, Language::Ja) => "ワークスペースを閉じる(&K)",
         (MenuCommand::CloseWorkspace, Language::En) => "Close Wor&kspace",
         (MenuCommand::CloseTab, Language::Ja) => "タブを閉じる(&W)",
@@ -180,7 +186,6 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::ResetFontSize, Language::En) => "R&eset Font Size",
         (MenuCommand::About, Language::Ja) => "md-peruse について(&A)",
         (MenuCommand::About, Language::En) => "&About md-peruse",
-        _ => unreachable!("メニューへ載せていないコマンドの表示名: {command:?}"),
     }
 }
 
@@ -219,17 +224,28 @@ fn language_menu_label(language: Language) -> &'static str {
     }
 }
 
+/// メニューの項目名として、文字をそのまま表示する形へ直す。
+///
+/// メニューの項目名では `&` がアクセスキーの印になる。フォルダー名に含まれる `&` を、
+/// 印ではなく文字として表示するため、重ねて書く。
+fn literal(text: &str) -> String {
+    text.replace('&', "&&")
+}
+
 /// メニューを組み立てる。`theme` と `language_preference` は保存済みの選択で、その項目に
-/// チェックを付ける。`language` は表示に使う実際の言語である。
+/// チェックを付ける。`language` は表示に使う実際の言語である。`recent_folders` は
+/// 「最近使ったフォルダー」の項目になる（空ならサブメニューごと無効にする）。
 ///
 /// 終了は `PredefinedMenuItem::quit` を使わず、自前の項目にする。コマンドの識別子を
 /// 1つの経路（`MenuCommand::from_id`）で扱い、メニューの選択をすべて同じ場所で処理する
-/// ためである。
+/// ためである。最近使ったフォルダーの項目だけは、項目ごとにIDが要るため
+/// `MENU_ITEM_PREFIX` を前置きした別のIDにする（`crate::menu_command`）。
 pub fn build<R: Runtime, M: Manager<R>>(
     manager: &M,
     language: Language,
     theme: ThemePreference,
     language_preference: LanguagePreference,
+    recent_folders: &[RecentFolderView],
 ) -> tauri::Result<Menu<R>> {
     let item = |command: MenuCommand| {
         MenuItem::with_id(
@@ -240,12 +256,36 @@ pub fn build<R: Runtime, M: Manager<R>>(
             accelerator_of(command),
         )
     };
+    let recent_choices = recent_folders
+        .iter()
+        .map(|view| {
+            MenuItem::with_id(
+                manager,
+                format!("{MENU_ITEM_PREFIX}{}", view.id),
+                literal(&view.label),
+                true,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let recent_items: Vec<&dyn IsMenuItem<R>> = recent_choices
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<R>)
+        .collect();
+    let recent = Submenu::with_id_and_items(
+        manager,
+        MenuCommand::OpenRecentFolder.id(),
+        label(MenuCommand::OpenRecentFolder, language),
+        !recent_folders.is_empty(),
+        &recent_items,
+    )?;
     let file = Submenu::with_items(
         manager,
         file_menu_label(language),
         true,
         &[
             &item(MenuCommand::OpenFolder)?,
+            &recent,
             &item(MenuCommand::CloseWorkspace)?,
             &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::CloseTab)?,
@@ -317,6 +357,27 @@ pub fn build<R: Runtime, M: Manager<R>>(
     Menu::with_items(manager, &[&file, &view, &help])
 }
 
+/// 設定と状態から、いまのメニューを組み直して差し替える。
+///
+/// UI言語の切り替えと、最近使ったフォルダーの変化で使う。選択を反映する項目（テーマ、言語の
+/// チェック）と最近使ったフォルダーの項目は、項目名だけを差し替えるより作り直すほうが、
+/// 値の食い違いが起きない。組み直すのは、メニューが破棄された後（終了処理中）には失敗する
+/// が、そのときは知らせる相手がいない。メインスレッドから呼ぶこと。
+pub fn refresh<R: Runtime>(app: &AppHandle<R>) {
+    let language = app.state::<AppState>().language();
+    let settings = app.state::<SettingsStore>().settings();
+    let recent_folders = app.state::<RecentFolders>().views();
+    if let Ok(menu) = build(
+        app,
+        language,
+        settings.theme,
+        settings.language,
+        &recent_folders,
+    ) {
+        let _ = app.set_menu(menu);
+    }
+}
+
 /// テーマの項目のチェックを、選択中の1つだけに付け直す。
 ///
 /// チェック付きの項目は、選ばれるとmudaがチェックを反転してからイベントを送る。
@@ -339,7 +400,7 @@ pub fn check_item<R: Runtime>(menu: &Menu<R>, command: MenuCommand) -> Option<Ch
 }
 
 /// サブメニューの中まで項目を探す。`Menu::get` と `Submenu::get` は直下しか探さない。
-fn find<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
+pub(crate) fn find<R: Runtime>(items: Vec<MenuItemKind<R>>, id: &str) -> Option<MenuItemKind<R>> {
     items.into_iter().find_map(|item| {
         if item.id().as_ref() == id {
             return Some(item);
@@ -383,6 +444,7 @@ mod tests {
             Language::Ja,
             ThemePreference::System,
             LanguagePreference::System,
+            &[],
         )
         .expect("メニューを組み立てられない");
         let contains = |command: MenuCommand| {
@@ -396,7 +458,89 @@ mod tests {
         for command in IMPLEMENTED {
             assert!(contains(command), "{command:?} が無い");
         }
-        assert!(!contains(MenuCommand::OpenRecentFolder));
+    }
+
+    fn recent_view(id: &str, label: &str) -> RecentFolderView {
+        RecentFolderView {
+            id: id.to_owned(),
+            label: label.to_owned(),
+        }
+    }
+
+    fn recent_submenu(menu: &Menu<tauri::test::MockRuntime>) -> Submenu<tauri::test::MockRuntime> {
+        find(
+            menu.items().expect("メニューの項目を取れない"),
+            &MenuCommand::OpenRecentFolder.id(),
+        )
+        .and_then(|item| item.as_submenu().cloned())
+        .expect("最近使ったフォルダーのサブメニューが無い")
+    }
+
+    /// 最近使ったフォルダーは、一覧の並びのまま項目になる。項目のIDは、一覧のIDに
+    /// `MENU_ITEM_PREFIX` を前置きしたものである。
+    #[test]
+    fn recent_folders_become_items_in_order() {
+        let app = tauri::test::mock_app();
+        let views = [
+            recent_view("recent-1-0", "dev\\docs"),
+            recent_view("recent-1-1", "D:\\notes"),
+        ];
+        let menu = build(
+            app.handle(),
+            Language::Ja,
+            ThemePreference::System,
+            LanguagePreference::System,
+            &views,
+        )
+        .expect("メニューを組み立てられない");
+
+        let submenu = recent_submenu(&menu);
+
+        assert!(submenu.is_enabled().unwrap());
+        let items = submenu.items().unwrap();
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.id().as_ref().to_owned())
+                .collect::<Vec<_>>(),
+            [
+                format!("{MENU_ITEM_PREFIX}recent-1-0"),
+                format!("{MENU_ITEM_PREFIX}recent-1-1"),
+            ]
+        );
+        assert_eq!(
+            items
+                .iter()
+                .map(|item| item.as_menuitem().unwrap().text().unwrap())
+                .collect::<Vec<_>>(),
+            ["dev\\docs", "D:\\notes"]
+        );
+    }
+
+    /// 一覧が空のときは、項目を持たない無効なサブメニューにする。
+    #[test]
+    fn the_recent_folders_submenu_is_disabled_when_empty() {
+        let app = tauri::test::mock_app();
+        let menu = build(
+            app.handle(),
+            Language::Ja,
+            ThemePreference::System,
+            LanguagePreference::System,
+            &[],
+        )
+        .expect("メニューを組み立てられない");
+
+        let submenu = recent_submenu(&menu);
+
+        assert!(!submenu.is_enabled().unwrap());
+        assert!(submenu.items().unwrap().is_empty());
+    }
+
+    /// フォルダー名の `&` は、アクセスキーの印ではなく文字として表示する。
+    #[test]
+    fn an_ampersand_in_a_folder_name_is_displayed_literally() {
+        assert_eq!(literal("R&D\\notes"), "R&&D\\notes");
+        assert_eq!(literal("docs"), "docs");
     }
 
     /// 保存済みのテーマの項目だけにチェックが付いた状態で組み立てる。
@@ -409,6 +553,7 @@ mod tests {
                 Language::Ja,
                 saved,
                 LanguagePreference::System,
+                &[],
             )
             .expect("メニューを組み立てられない");
 
@@ -428,8 +573,14 @@ mod tests {
     fn the_saved_language_preference_is_checked() {
         for (_, saved) in language::CHOICES {
             let app = tauri::test::mock_app();
-            let menu = build(app.handle(), Language::Ja, ThemePreference::System, saved)
-                .expect("メニューを組み立てられない");
+            let menu = build(
+                app.handle(),
+                Language::Ja,
+                ThemePreference::System,
+                saved,
+                &[],
+            )
+            .expect("メニューを組み立てられない");
 
             for (command, preference) in language::CHOICES {
                 let item = check_item(&menu, command).expect("言語の項目が無い");
