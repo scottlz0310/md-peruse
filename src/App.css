@@ -189,10 +189,17 @@ body {
   color: var(--color-fg);
 }
 
+/*
+ * 配色が置き換わると、選択の背景とホバーの背景が消える。選択は輪郭で、ホバーは細い輪郭で示す。
+ */
 @media (forced-colors: active) {
   .tab[aria-selected="true"] {
     outline: 2px solid Highlight;
     outline-offset: -2px;
+  }
+
+  .tab-close:hover {
+    outline: 1px solid CanvasText;
   }
 }
 
@@ -242,6 +249,13 @@ body {
 .breadcrumb-separator {
   padding: 0 0.125rem;
   color: var(--color-fg-muted);
+}
+
+/* 配色が置き換わるとホバーの背景が消えるため、細い輪郭で示す。 */
+@media (forced-colors: active) {
+  .breadcrumb button:hover {
+    outline: 1px solid CanvasText;
+  }
 }
 
 .breadcrumb [aria-current="page"] {
@@ -305,11 +319,21 @@ body {
   color: var(--color-fg-muted);
 }
 
-/* 配色が置き換わると選択とフォーカスが見えなくなるため、システムカラーで示す。 */
+/*
+ * 配色が置き換わると選択、ホバー、フォーカスが見えなくなるため、システムカラーで示す。
+ * 選択の行は `forced-color-adjust: none` にする。既定のままだと、Chromiumが文字の下へ
+ * Canvas色の下敷きを敷き、`HighlightText` の文字が下敷きに沈んで読めなくなる（実測）。
+ */
 @media (forced-colors: active) {
   .tree [aria-selected="true"] > .tree-row {
+    forced-color-adjust: none;
     background-color: Highlight;
     color: HighlightText;
+  }
+
+  .tree-row:hover {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
   }
 
   .tree [role="treeitem"]:focus-visible > .tree-row {
@@ -427,6 +451,18 @@ body {
 .markdown-body .mermaid-diagram svg {
   max-width: 100%;
   height: auto;
+}
+
+/*
+ * `forced-colors` のMermaidの図は、明るい背景向けの `neutral` テーマ（8.4）で描く。黒い背景の
+ * ハイコントラストでは、線と、ノードの外に描く文字が背景に沈む（コントラスト比1.7〜3.7。実測）。
+ * そこで図を白い下地に載せ、システムカラーへの置き換えを止める。どのテーマでも黒字に白地で読める。
+ */
+@media (forced-colors: active) {
+  .markdown-body .mermaid-diagram {
+    forced-color-adjust: none;
+    background-color: #fff;
+  }
 }
 
 /*
