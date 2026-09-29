@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { cleanup, render, waitFor } from "@testing-library/react";
+import { MESSAGES } from "../i18n/messages";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { IpcError } from "../types/generated/IpcError";
 import { IMAGE_ERROR_CLASS, IMAGE_RESOURCE_ORIGIN } from "./images";
@@ -283,6 +284,26 @@ describe("renderMarkdown の数式（8.5）", () => {
     ).toContain("大きすぎる");
     expect(container.querySelectorAll(".katex")).toHaveLength(1);
   });
+
+  test.each([
+    ["構文エラー", "前 $\\frac{1}{$ 後\n", "Cannot parse the formula ("],
+    [
+      "1つの数式の上限",
+      `$${"x".repeat(KATEX_LIMITS.perFormulaBytes + 1)}$\n`,
+      "The formula is too large",
+    ],
+  ])(
+    "数式の理由は、渡した言語（英語）で示す（10.5）: %s",
+    async (_name, markdown, expected) => {
+      const { container } = render(
+        await renderMarkdown(markdown, noImages, MESSAGES.en),
+      );
+
+      expect(
+        container.querySelector(`.${MATH_ERROR_REASON_CLASS}`)?.textContent,
+      ).toContain(expected);
+    },
+  );
 
   test("文書の予算を使い切った後の数式は描画しない", async () => {
     const fits = KATEX_LIMITS.perDocumentBytes / KATEX_LIMITS.perFormulaBytes;

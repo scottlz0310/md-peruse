@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import {
   type FileTree,
   isExpandable,
@@ -51,6 +52,7 @@ export function TreeView({
   focusRequest,
   onFocusRequestSettled,
 }: Props) {
+  const messages = useMessages();
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLLIElement>());
   const root = useRef<HTMLUListElement>(null);
@@ -177,7 +179,7 @@ export function TreeView({
     if (state.status === "loading") {
       return (
         <li role="none" className="tree-status">
-          読み込み中…
+          {messages.treeLoading}
         </li>
       );
     }
@@ -239,7 +241,7 @@ export function TreeView({
       ref={root}
       // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: 項目の並びを `ul` と `li` で持ち、`tree` / `treeitem` の役割を与える（WAI-ARIAのtreeパターン）。
       role="tree"
-      aria-label="ファイル"
+      aria-label={messages.treeLabel}
       className="tree"
       onKeyDown={onKeyDown}
     >

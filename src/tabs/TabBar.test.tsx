@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FakeResizeObserver } from "../../test/fake-resize-observer";
+import { LanguageProvider } from "../i18n/LanguageContext";
 import {
   activateTab,
   EMPTY_TAB_SET,
@@ -182,5 +183,26 @@ describe("TabBar: アクティブなタブを見える位置へ動かす（9.1�
     FakeResizeObserver.notify();
 
     expect(revealed).toEqual([]);
+  });
+});
+
+describe("TabBar: UI言語（10.5）", () => {
+  test.each([
+    ["ja", "開いている文書", "b.md を閉じる"],
+    ["en", "Open documents", "Close b.md"],
+  ] as const)("%s: タブの一覧と閉じるボタンの名前", (language, list, close) => {
+    render(
+      <LanguageProvider language={language}>
+        <TabBar
+          set={sampleSet()}
+          onActivate={() => {}}
+          onClose={() => {}}
+          onPin={() => {}}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("tablist", { name: list })).toBeTruthy();
+    expect(screen.getByRole("button", { name: close })).toBeTruthy();
   });
 });

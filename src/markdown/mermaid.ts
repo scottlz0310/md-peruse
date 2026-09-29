@@ -150,8 +150,25 @@ export function createMermaidSanitizer(
     });
 }
 
-/** 描画を打ち切った理由。 */
-export class MermaidRenderError extends Error {}
+/**
+ * 描画を打ち切った理由。
+ *
+ * 表示する文言は持たない。文言は表示のときに、現在のUI言語で組み立てる（10.5）。
+ */
+export type MermaidFailure =
+  | { readonly kind: "tooLarge" }
+  | { readonly kind: "timeout" }
+  | { readonly kind: "loadFailed"; readonly detail: string }
+  | { readonly kind: "renderFailed"; readonly detail: string };
+
+/** 描画を打ち切ったことを表す例外。`message` は開発者向けで、画面には出さない。 */
+export class MermaidRenderError extends Error {
+  constructor(readonly failure: MermaidFailure) {
+    super(
+      "detail" in failure ? `${failure.kind}: ${failure.detail}` : failure.kind,
+    );
+  }
+}
 
 type MermaidApi = Pick<Mermaid, "initialize" | "render">;
 
@@ -198,14 +215,15 @@ export function createMermaidRenderer(options: RendererOptions) {
     if (
       new TextEncoder().encode(source).length > MERMAID_LIMITS.perDiagramBytes
     ) {
-      throw new MermaidRenderError("図が大きすぎるため描画していません。");
+      throw new MermaidRenderError({ kind: "tooLarge" });
     }
     loading ??= options.load();
     const mermaid = await loading.catch((error: unknown) => {
       loading = null;
-      throw new MermaidRenderError(
-        `図の描画機能を読み込めませんでした（${messageOf(error)}）。`,
-      );
+      throw new MermaidRenderError({
+        kind: "loadFailed",
+        detail: messageOf(error),
+      });
     });
 
     await acquire();
@@ -218,30 +236,27 @@ export function createMermaidRenderer(options: RendererOptions) {
       rendering = mermaid.render(id, source);
     } catch (error) {
       release();
-      throw new MermaidRenderError(
-        `図を描画できません（${messageOf(error)}）。`,
-      );
+      throw new MermaidRenderError({
+        kind: "renderFailed",
+        detail: messageOf(error),
+      });
     }
     rendering.then(release, release);
 
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<never>((_, reject) => {
       timer = setTimeout(
-        () =>
-          reject(
-            new MermaidRenderError(
-              "図の描画に時間がかかりすぎたため中断しました。",
-            ),
-          ),
+        () => reject(new MermaidRenderError({ kind: "timeout" })),
         options.timeoutMs,
       );
     });
     try {
       const { svg } = await Promise.race([
         rendering.catch((error: unknown) => {
-          throw new MermaidRenderError(
-            `図を描画できません（${messageOf(error)}）。`,
-          );
+          throw new MermaidRenderError({
+            kind: "renderFailed",
+            detail: messageOf(error),
+          });
         }),
         timeout,
       ]);

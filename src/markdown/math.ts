@@ -3,6 +3,7 @@ import { fromHtmlIsomorphic } from "hast-util-from-html-isomorphic";
 import { toText } from "hast-util-to-text";
 import type Katex from "katex";
 import { SKIP, visitParents } from "unist-util-visit-parents";
+import { DEFAULT_LANGUAGE, MESSAGES, type Messages } from "../i18n/messages";
 import { KATEX_LIMITS, mathRenderCost, shouldRenderMath } from "./limits";
 
 /** 数式を描画できなかった位置に置く要素のクラス。 */
@@ -14,9 +15,16 @@ export const MATH_ERROR_REASON_CLASS = "math-error-reason";
 /** KaTeXを読み込む関数。テストで読込の失敗を注入するために受け取る。 */
 export type KatexLoader = () => Promise<typeof Katex>;
 
+type MathMessages = Messages["math"];
+
 type Options = {
   /** 製品ではKaTeXの動的import。 */
   loadKatex?: KatexLoader;
+  /**
+   * 描画できなかった理由の文言。hastへ文言を書き込むため、言語を切り替えたときは、
+   * 文書を組み立て直す必要がある（10.5）。
+   */
+  messages?: MathMessages;
 };
 
 const loadKatexModule: KatexLoader = async () =>
@@ -43,6 +51,7 @@ type MathTarget = {
  */
 export function rehypeMath(options: Options = {}) {
   const loadKatex = options.loadKatex ?? loadKatexModule;
+  const messages = options.messages ?? MESSAGES[DEFAULT_LANGUAGE].math;
 
   return async (tree: Root) => {
     const targets = collectMathTargets(tree);
@@ -63,20 +72,15 @@ export function rehypeMath(options: Options = {}) {
       let replacement: ElementContent[];
       if (katex === null) {
         replacement = [
-          mathError(
-            source,
-            `数式の描画機能を読み込めませんでした（${messageOf(loadError)}）。`,
-          ),
+          mathError(source, messages.loadFailed(messageOf(loadError))),
         ];
       } else {
         const bytes = encoder.encode(source).length;
         if (shouldRenderMath(bytes, spent)) {
           spent += mathRenderCost(bytes);
-          replacement = render(katex, source, displayMode);
+          replacement = render(katex, source, displayMode, messages);
         } else {
-          replacement = [
-            mathError(source, "数式が大きすぎるため描画していません。"),
-          ];
+          replacement = [mathError(source, messages.tooLarge)];
         }
       }
       parent.children.splice(parent.children.indexOf(scope), 1, ...replacement);
@@ -118,6 +122,7 @@ function render(
   katex: typeof Katex,
   source: string,
   displayMode: boolean,
+  messages: MathMessages,
 ): ElementContent[] {
   let html: string;
   try {
@@ -131,7 +136,7 @@ function render(
       maxSize: KATEX_LIMITS.maxSize,
     });
   } catch (error) {
-    return [mathError(source, `数式を解釈できません（${messageOf(error)}）。`)];
+    return [mathError(source, messages.invalid(messageOf(error)))];
   }
   return fromHtmlIsomorphic(html, { fragment: true })
     .children as ElementContent[];

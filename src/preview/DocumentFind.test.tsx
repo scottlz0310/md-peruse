@@ -8,6 +8,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { useRef } from "react";
+import { LanguageProvider } from "../i18n/LanguageContext";
 import {
   FIND_ACTIVE_HIGHLIGHT_NAME,
   FIND_HIGHLIGHT_NAME,
@@ -63,6 +64,40 @@ function search(query: string) {
 function count() {
   return screen.getByRole("status").textContent;
 }
+
+describe("DocumentFind: UI言語（10.5）", () => {
+  test.each([
+    ["ja", "文書内を検索", "前の一致", "次の一致", "検索を閉じる", "一致なし"],
+    [
+      "en",
+      "Find in document",
+      "Previous match",
+      "Next match",
+      "Close find",
+      "No matches",
+    ],
+  ] as const)(
+    "%s: 検索欄、ボタン、件数の文言",
+    (language, input, previous, next, close, noMatches) => {
+      const { highlights } = recordingHighlights();
+      render(
+        <LanguageProvider language={language}>
+          <Harness html="<p>abc</p>" highlights={highlights} />
+        </LanguageProvider>,
+      );
+
+      pressCtrlF();
+      fireEvent.change(screen.getByRole("textbox", { name: input }), {
+        target: { value: "zzz" },
+      });
+
+      expect(count()).toBe(noMatches);
+      for (const name of [previous, next, close]) {
+        expect(screen.getByRole("button", { name })).toBeTruthy();
+      }
+    },
+  );
+});
 
 describe("DocumentFind", () => {
   test("Ctrl+Fで検索欄を開き、WebView2標準の検索バーを開かせない", () => {

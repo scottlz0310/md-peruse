@@ -9,6 +9,7 @@ import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
 import { unified } from "unified";
+import { DEFAULT_LANGUAGE, MESSAGES, type Messages } from "../i18n/messages";
 import { HighlightedCodeBlock } from "../preview/HighlightedCodeBlock";
 import { MermaidDiagram } from "../preview/MermaidDiagram";
 import type { ImageResource } from "../types/generated/ImageResource";
@@ -33,23 +34,49 @@ export type ImageIssuer = (references: string[]) => Promise<ImageResource[]>;
  *
  * 見出しIDは数式の描画より前に付ける。後ろだとMathMLのテキストと `annotation` の
  * LaTeXを二重に拾う（8.2）。
+ *
+ * 数式の描画できなかった理由は、hastへ文言として書き込む。そのため、UI言語ごとに
+ * プロセッサを組み立てる（10.5）。
  */
-const toHast = unified()
-  .use(remarkParse)
-  .use(remarkGfm)
-  .use(remarkMath)
-  // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される（8.1）。
-  .use(remarkFrontmatter, ["yaml"])
-  .use(remarkRehype, { handlers: rawHtmlHandlers })
-  .use(rehypeHeadingIds)
-  .use(rehypeMath);
+function createToHast(math: Messages["math"]) {
+  return (
+    unified()
+      .use(remarkParse)
+      .use(remarkGfm)
+      .use(remarkMath)
+      // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される（8.1）。
+      .use(remarkFrontmatter, ["yaml"])
+      .use(remarkRehype, { handlers: rawHtmlHandlers })
+      .use(rehypeHeadingIds)
+      .use(rehypeMath, { messages: math })
+  );
+}
+
+/** 言語ごとのプロセッサ。unifiedのプロセッサは最初の実行で凍結されるため、使い回す。 */
+const toHastByMessages = new Map<
+  Messages["math"],
+  ReturnType<typeof createToHast>
+>();
+
+function toHastFor(messages: Messages) {
+  let processor = toHastByMessages.get(messages.math);
+  if (processor === undefined) {
+    processor = createToHast(messages.math);
+    toHastByMessages.set(messages.math, processor);
+  }
+  return processor;
+}
 
 /**
  * Markdownをsanitize前のhastにする。画像の発行はまだ行わない。
  *
  * 描画とパイプラインのテストが同じ組み立てを使うために公開する。
  */
-export async function markdownToHast(markdown: string): Promise<Root> {
+export async function markdownToHast(
+  markdown: string,
+  messages: Messages = MESSAGES[DEFAULT_LANGUAGE],
+): Promise<Root> {
+  const toHast = toHastFor(messages);
   return toHast.run(toHast.parse(markdown));
 }
 
@@ -68,8 +95,9 @@ const sanitize = unified().use(rehypeSanitize, sanitizeSchema);
 export async function renderMarkdown(
   markdown: string,
   issueImages: ImageIssuer,
+  messages: Messages = MESSAGES[DEFAULT_LANGUAGE],
 ): Promise<ReactElement> {
-  const hast = await markdownToHast(markdown);
+  const hast = await markdownToHast(markdown, messages);
   const references = collectImageReferences(hast);
   if (references.length > 0) {
     const resources = await issueImages(references).catch(

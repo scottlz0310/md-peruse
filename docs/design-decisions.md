@@ -1427,6 +1427,13 @@ OSの表示言語は `GetUserDefaultLocaleName` で取得する（`ja-JP` を返
 
 言語ごとの文言表は `Record<Language, …>` の形で持ち、言語を増やしたときの不足を `tsc --noEmit` が検出できるようにする。`src/types/error.ts` の `RETRYABLE` を `Record<ErrorCode, boolean>` として定義したのと同じ理由による（5.3）。Rust側は列挙に対する `match` の網羅性検査で同じ保証を得る。
 
+Frontendの文言の正本は `src/i18n/messages.ts`（`Messages` 型と `MESSAGES: Record<Language, Messages>`）とする。`LanguageProvider`（`src/i18n/LanguageContext.tsx`）が現在の言語の文言を子孫へ渡し、Appが設定の `effectiveLanguage` から言語を決めて `<html lang>` を合わせる。設定を読むまで描画しないため、既定の言語が画面に出ることはない。英語の書き方は、Rust側の英語（`ipc/message.rs`、`menu.rs`）へ揃える。開発者向けの例外（不変条件の違反など）の文言は、利用者へ見せないため辞書へ置かない。
+
+文言を作る場所によって、言語を切り替えたときの扱いが分かれる。
+
+- **表示のときに文言へ変えるもの**。ラベル、検索バー、リンクの拒否理由、コードのハイライトの失敗は、コンポーネントが `useMessages()` で読む。Mermaidの失敗は、`MermaidRenderError` が文言ではなく失敗の種類（`tooLarge`、`timeout`、`loadFailed`、`renderFailed`）と詳細を持ち、`MermaidDiagram` が表示のときに文言へ変える。言語を切り替えても、描画し直さずに変わる。
+- **hastへ書き込むもの**。数式の描画できなかった理由は、`rehypeMath` がhastへテキストとして書く。そのため、言語ごとにプロセッサを組み立てて使い回し（`render.ts`）、言語が変わったときは文書を組み立て直す（`MarkdownDocument` のeffectが文言を依存に持つ）。理由の種類だけをhastへ載せ、表示のときに文言へ変える案は、sanitize schemaへ属性を足すことになり、全列挙の方針（8.2）に反するため採らない。
+
 UI文字列を外部のi18nライブラリへ載せない。対象は2言語であり、複数形や語順の入れ替えを要する文言も持たない。読み込み時に辞書を選ぶだけで足り、ライブラリの導入は依存とCSPの検討を増やすほうが大きい。
 
 MSIXマニフェストの `<Resource Language>` は `ja-JP` と `en-US` の両方を宣言したまま保つ（13.1）。宣言と実体が揃う。

@@ -1,6 +1,7 @@
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
 import { type ReactNode, useEffect, useState } from "react";
 import { Fragment, jsx, jsxs } from "react/jsx-runtime";
+import { useMessages } from "../i18n/LanguageContext";
 import { highlightCode } from "../markdown/highlight";
 
 /** ハイライトの失敗をブロックの直後に示す要素のクラス。 */
@@ -35,6 +36,7 @@ export function HighlightedCodeBlock({
   className,
   highlight = highlightCode,
 }: Props) {
+  const messages = useMessages();
   const [state, setState] = useState<State>({ status: "pending" });
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export function HighlightedCodeBlock({
       </pre>
       {state.status === "failed" && (
         <p className={HIGHLIGHT_ERROR_CLASS}>
-          {`${language} のハイライトを読み込めませんでした。プレーンなテキストで表示しています。`}
+          {messages.highlightLoadFailed(language)}
         </p>
       )}
     </>

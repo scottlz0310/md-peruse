@@ -5,6 +5,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import {
   FIND_ACTIVE_HIGHLIGHT_NAME,
   FIND_HIGHLIGHT_NAME,
@@ -56,6 +57,7 @@ type Props = {
  * ため、検索中は本文を監視して同じ検索語で探し直す。
  */
 export function DocumentFind({ root, highlights = cssHighlights }: Props) {
+  const messages = useMessages().find;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [matches, setMatches] = useState<Range[]>([]);
@@ -183,7 +185,7 @@ export function DocumentFind({ root, highlights = cssHighlights }: Props) {
       <input
         ref={inputRef}
         type="text"
-        aria-label="文書内を検索"
+        aria-label={messages.inputLabel}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onKeyDown={(event) => {
@@ -193,28 +195,37 @@ export function DocumentFind({ root, highlights = cssHighlights }: Props) {
         }}
       />
       <output className="find-count" aria-live="polite">
-        {countLabel(query, matches.length, active)}
+        {countLabel(query, matches.length, active, messages.noMatches)}
       </output>
       <button
         type="button"
-        aria-label="前の一致"
+        aria-label={messages.previous}
         onClick={() => step("previous")}
       >
         ↑
       </button>
-      <button type="button" aria-label="次の一致" onClick={() => step("next")}>
+      <button
+        type="button"
+        aria-label={messages.next}
+        onClick={() => step("next")}
+      >
         ↓
       </button>
-      <button type="button" aria-label="検索を閉じる" onClick={closeFind}>
+      <button type="button" aria-label={messages.close} onClick={closeFind}>
         ×
       </button>
     </search>
   );
 }
 
-function countLabel(query: string, count: number, active: number): string {
+function countLabel(
+  query: string,
+  count: number,
+  active: number,
+  noMatches: string,
+): string {
   if (query.length === 0) return "";
-  if (count === 0) return "一致なし";
+  if (count === 0) return noMatches;
   // 上限で探索を打ち切ったときは、それ以降にも一致がありうることを示す。
   const total = count >= MAX_FIND_MATCHES ? `${count}+` : `${count}`;
   return `${active + 1} / ${total}`;

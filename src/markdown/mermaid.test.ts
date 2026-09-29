@@ -140,6 +140,13 @@ describe("sanitizeMermaidSvg", () => {
 
 type Render = (id: string, source: string) => Promise<{ svg: string }>;
 
+/** 描画の失敗を待ち、`MermaidRenderError` が持つ失敗の種類を返す。 */
+async function failureOf(rendering: Promise<unknown>) {
+  const error = await rendering.catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(MermaidRenderError);
+  return (error as MermaidRenderError).failure;
+}
+
 function rendererWith(render: Render, overrides: { timeoutMs?: number } = {}) {
   const api = { initialize: mock(() => {}), render: mock(render) };
   const renderMermaid = createMermaidRenderer({
@@ -196,9 +203,9 @@ describe("createMermaidRenderer", () => {
       timeoutMs: 10,
     });
 
-    await expect(renderMermaid("pie", "default")).rejects.toThrow(
-      "時間がかかりすぎた",
-    );
+    expect(await failureOf(renderMermaid("pie", "default"))).toEqual({
+      kind: "timeout",
+    });
   });
 
   test("構文エラーは理由を示す", async () => {
@@ -206,11 +213,9 @@ describe("createMermaidRenderer", () => {
       throw new Error("Parse error on line 2");
     });
 
-    const error = await renderMermaid("flowchart LR\n A -->", "default").catch(
-      (e: unknown) => e,
-    );
-    expect(error).toBeInstanceOf(MermaidRenderError);
-    expect((error as Error).message).toContain("Parse error on line 2");
+    expect(
+      await failureOf(renderMermaid("flowchart LR\n A -->", "default")),
+    ).toEqual({ kind: "renderFailed", detail: "Parse error on line 2" });
   });
 
   test("入力サイズの上限を超えた図は読み込みも描画もしない", async () => {
@@ -224,9 +229,14 @@ describe("createMermaidRenderer", () => {
       sanitize: (svg) => svg,
     });
 
-    await expect(
-      renderMermaid("x".repeat(MERMAID_LIMITS.perDiagramBytes + 1), "default"),
-    ).rejects.toThrow("大きすぎる");
+    expect(
+      await failureOf(
+        renderMermaid(
+          "x".repeat(MERMAID_LIMITS.perDiagramBytes + 1),
+          "default",
+        ),
+      ),
+    ).toEqual({ kind: "tooLarge" });
     expect(load).not.toHaveBeenCalled();
   });
 
@@ -242,12 +252,12 @@ describe("createMermaidRenderer", () => {
       sanitize: (svg) => svg,
     });
 
-    await expect(renderMermaid("pie", "default")).rejects.toThrow(
-      "chunk load failed",
-    );
-    await expect(renderMermaid("pie", "default")).rejects.toThrow(
-      "読み込めませんでした",
-    );
+    const failure = {
+      kind: "loadFailed",
+      detail: "chunk load failed",
+    } as const;
+    expect(await failureOf(renderMermaid("pie", "default"))).toEqual(failure);
+    expect(await failureOf(renderMermaid("pie", "default"))).toEqual(failure);
     expect(attempts).toBe(2);
   });
 });
