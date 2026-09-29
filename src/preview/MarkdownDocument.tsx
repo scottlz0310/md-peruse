@@ -36,6 +36,11 @@ type Props = {
     documentPath: string,
     references: string[],
   ) => Promise<ImageResource[]>;
+  /**
+   * 発行済みの画像が書き換わるたびに進める値。進むと、本文が同じでも描き直して画像を発行し
+   * 直す。書き換わった画像のIDは旧いままでは拒否される（5.4）。
+   */
+  imageRevision: number;
   /** 本文をスクロールさせる要素。戻る／進むで離れたときの位置へ戻す（9.3）。 */
   scroller: RefObject<HTMLElement | null>;
   /** 本文の要素。文書内検索（8.6）の対象として渡す。 */
@@ -54,6 +59,7 @@ export function MarkdownDocument({
   view,
   onNavigate,
   issueImages,
+  imageRevision,
   scroller,
   ref,
 }: Props) {
@@ -63,6 +69,7 @@ export function MarkdownDocument({
 
   // 数式の描画できなかった理由はhastへ文言として書き込まれるため、UI言語が変わったときも
   // 組み立て直す（10.5）。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `imageRevision` は本文の外で決まる描き直しの契機であり、effectの中では読まない。
   useEffect(() => {
     let current = true;
     renderMarkdown(
@@ -77,7 +84,7 @@ export function MarkdownDocument({
     return () => {
       current = false;
     };
-  }, [text, path, issueImages, messages]);
+  }, [text, path, issueImages, imageRevision, messages]);
 
   // 描画が現在の本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の
   // 見出しへ移動しうる。

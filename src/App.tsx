@@ -14,9 +14,12 @@ import {
   updateUiSettings,
 } from "./ipc/commands";
 import {
+  onFileChange,
+  onImagesChanged,
   onLanguageChanged,
   onMenuCommand,
   onRecentFoldersChanged,
+  onWatcherError,
   onWorkspaceClosed,
   onWorkspaceOpened,
 } from "./ipc/events";
@@ -45,7 +48,10 @@ import {
   needsScan,
   pathChain,
   ROOT_PATH,
+  refreshAllDirectories,
+  refreshDirectory,
   setExpanded,
+  type TreeRefresh,
 } from "./state/file-tree";
 import {
   DEFAULT_FONT_SCALE,
@@ -53,6 +59,7 @@ import {
   increaseFontScale,
   normalizeFontScale,
 } from "./state/font-scale";
+import { applyChangeToTabs } from "./state/tab-changes";
 import {
   activateTab,
   activeTab,
@@ -70,15 +77,27 @@ import {
 import { windowTitle } from "./state/window-title";
 import { TabBar, tabElementId } from "./tabs/TabBar";
 import { type FocusRequest, TreeView } from "./tree/TreeView";
+import type { FileChangeEvent } from "./types/generated/FileChangeEvent";
 import type { FileContent } from "./types/generated/FileContent";
+import type { ImagesChangedEvent } from "./types/generated/ImagesChangedEvent";
 import type { IpcError } from "./types/generated/IpcError";
 import type { LanguageChangedEvent } from "./types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "./types/generated/MenuCommand";
 import type { RecentFolderView } from "./types/generated/RecentFolderView";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
+import type { WatcherErrorEvent } from "./types/generated/WatcherErrorEvent";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 import { RecentFolders } from "./welcome/RecentFolders";
+
+/**
+ * 文書の読込の結果を、表示中の通知（`error`）へどう反映するか。
+ *
+ * - `replace`: 成功で消し、失敗の理由に置き換える。
+ * - `keepOnSuccess`: 成功では消さない。失敗の理由には置き換える。
+ * - `keep`: 成功でも失敗でも、いまの通知を書き換えない。
+ */
+type NoticePolicy = "replace" | "keepOnSuccess" | "keep";
 
 /** アクティブタブに表示している本文。本文DOMはアクティブタブだけが持つ（9.1）。 */
 type Shown = {
@@ -160,6 +179,8 @@ export default function App() {
   const [treeFocus, setTreeFocus] = useState<FocusRequest | null>(null);
   const [tabs, setTabs] = useState<TabSet>(EMPTY_TAB_SET);
   const [shown, setShown] = useState<Shown | null>(null);
+  // 発行済みの画像が書き換わるたびに進める。本文が同じでも、画像を発行し直して描き直す（5.4）。
+  const [imageRevision, setImageRevision] = useState(0);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
   // Frontendの文言をそのまま表示する。
   const [error, setError] = useState<string | null>(null);
@@ -259,6 +280,12 @@ export default function App() {
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
   useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
+
+  // ファイル監視の通知（6.4、6.5、5.4）。ワークスペースを開く前に届くものは、スコープIDが
+  // 一致しないため捨てられる。
+  useTauriEvent(() => onFileChange((event) => handleFileChange(event)));
+  useTauriEvent(() => onWatcherError((event) => handleWatcherError(event)));
+  useTauriEvent(() => onImagesChanged((event) => handleImagesChanged(event)));
 
   const title = windowTitle(
     workspace?.label ?? null,
@@ -382,6 +409,12 @@ export default function App() {
     );
   }
 
+  /** ツリーの更新の結果を反映し、取り直すフォルダーを走査する。 */
+  function applyTreeRefresh(refresh: TreeRefresh) {
+    updateTree(refresh.tree);
+    for (const path of refresh.rescan) scan(path);
+  }
+
   function toggleDirectory(path: string, expanded: boolean) {
     updateTree(setExpanded(treeRef.current, path, expanded));
     if (expanded && needsScan(treeRef.current, path)) scan(path);
@@ -433,9 +466,10 @@ export default function App() {
     tabId: string,
     path: string,
     intent: LoadIntent,
-    // 表示中のエラーを成功時に消さない。閉じたタブの失敗理由を、代わりに表示する
-    // タブの読込で消さないために使う。
-    keepError = false,
+    // 表示中の通知を、読込の結果でどう扱うか。`keepOnSuccess` は、閉じたタブの失敗理由を、
+    // 代わりに表示するタブの読込で消さないために使う。`keep` は、監視が追従できなくなった
+    // 通知（6.4）を、その回復のための読み直しの結果で書き換えないために使う。
+    notice: NoticePolicy = "replace",
   ) {
     const scopeId = scopeRef.current;
     const tab = findTab(tabId);
@@ -469,7 +503,7 @@ export default function App() {
         );
         if (isActive(tabId)) {
           updateShown({ tabId, content, view: done.view });
-          if (!keepError) setError(null);
+          if (notice === "replace") setError(null);
         }
       },
       (reason: IpcError) => {
@@ -493,7 +527,7 @@ export default function App() {
           // 読込中に切り替えてきたタブは、まだ本文を表示していない。元の文書を表示する。
           if (wasActive && shownRef.current?.tabId !== tabId) showActive(true);
         }
-        if (wasActive) setError(reason.message);
+        if (wasActive && notice !== "keep") setError(reason.message);
       },
     );
   }
@@ -503,20 +537,35 @@ export default function App() {
    * たびに読み直し、離れたときのスクロール位置へ戻す（9.1、9.3）。
    */
   function showActive(keepError = false) {
+    const notice: NoticePolicy = keepError ? "keepOnSuccess" : "replace";
     const active = activeTab(tabsRef.current);
     if (!active) {
       updateShown(null);
       return;
     }
+    // 削除されたタブは読み直さない。離れていた間に削除されたタブには、最後に読めた内容も
+    // 残っていない（9.1）。本文は空のまま、削除された旨を示す。
+    if (active.status === "deleted") return;
     // 読込中のタブは、その完了で表示される。読み直すと進行中の遷移先を世代で捨ててしまう。
     if (pendingPath(active) !== null) return;
     const entry = currentEntry(active.history);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      // 履歴が空なのは、最初の読込が完了していないタブである。離れている間に変更やrenameで
+      // その読込が無効になると、応答は捨てられ、履歴に読み込む項目がない。タブのパスから
+      // 読み込み直す。renameを受けていれば、パスは新しいものへ追従している（6.5）。
+      load(
+        active.tabId,
+        active.path,
+        { kind: "push", path: active.path, anchor: null },
+        notice,
+      );
+      return;
+    }
     load(
       active.tabId,
       entry.path,
       { kind: "history", index: active.history.index },
-      keepError,
+      notice,
     );
   }
 
@@ -525,8 +574,15 @@ export default function App() {
     return `tab-${tabSeqRef.current}`;
   }
 
-  /** ツリーから文書を開く。シングルクリックはプレビュー、`Enter` とダブルクリックは固定。 */
-  function openFromTree(path: string, preview: boolean) {
+  /**
+   * ツリーから文書を開く。シングルクリックはプレビュー、`Enter` とダブルクリックは固定。
+   * `anchor` は、削除されたタブの本文のリンクから開くとき（`openLink`）の見出し。
+   */
+  function openFromTree(
+    path: string,
+    preview: boolean,
+    anchor?: string | null,
+  ) {
     const scopeId = scopeRef.current;
     if (scopeId === null) return;
     const before = tabsRef.current.activeTabId;
@@ -540,7 +596,11 @@ export default function App() {
     updateTabs(result.set);
     setError(null);
     if (result.opened) {
-      load(result.opened.tabId, path, { kind: "push", path, anchor: null });
+      load(result.opened.tabId, path, {
+        kind: "push",
+        path,
+        anchor: anchor ?? null,
+      });
     } else if (result.set.activeTabId !== before) {
       showActive();
     }
@@ -574,9 +634,79 @@ export default function App() {
    * 最新の内容が表示されるため読み直さない。
    */
   function reloadActive() {
+    reloadActiveTab("replace");
+  }
+
+  /**
+   * アクティブタブを読み直す。削除されたタブは、以後の再読込を止めているため読み直さない（6.5）。
+   * `notice` は、表示中の通知を読み直しの結果でどう扱うか（`load`）。
+   */
+  function reloadActiveTab(notice: NoticePolicy) {
     const active = activeTab(tabsRef.current);
-    if (!active || pendingPath(active) !== null) return;
-    load(active.tabId, active.path, { kind: "reload" });
+    if (
+      !active ||
+      active.status === "deleted" ||
+      pendingPath(active) !== null
+    ) {
+      return;
+    }
+    load(active.tabId, active.path, { kind: "reload" }, notice);
+  }
+
+  /**
+   * ファイル変更の通知を、タブとツリーへ適用する（6.4、6.5）。
+   *
+   * 停止する前のWatcherが送った通知は、別のワークスペースの同じ相対パスへ当たりうる。
+   * スコープIDが一致しないものは捨てる。
+   */
+  function handleFileChange(event: FileChangeEvent) {
+    if (event.scopeId !== scopeRef.current) return;
+    if (event.change.kind === "directoryChanged") {
+      applyTreeRefresh(refreshDirectory(treeRef.current, event.change.path));
+      return;
+    }
+    const before = activeTab(tabsRef.current);
+    const changed = applyChangeToTabs(tabsRef.current, event);
+    if (changed.set === tabsRef.current) return;
+    updateTabs(changed.set);
+    const after = activeTab(changed.set);
+    // renameで本文の基点が変わる。相対リンクと画像は新しいパスを基に解決し直す。
+    const current = shownRef.current;
+    if (
+      before &&
+      after &&
+      before.tabId === after.tabId &&
+      before.path !== after.path &&
+      current?.tabId === after.tabId
+    ) {
+      updateShown({
+        ...current,
+        content: { ...current.content, path: after.path },
+      });
+    }
+    const reloading =
+      changed.reloadTabId === null ? undefined : findTab(changed.reloadTabId);
+    if (reloading) load(reloading.tabId, reloading.path, { kind: "reload" });
+  }
+
+  /**
+   * 監視が追従できなくなったとき（変更が多すぎる、監視が止まった）は、取得済みのフォルダーと
+   * アクティブ文書を取り直し、原因を示す（6.4）。あふれでは画像のIDも作り直されている。
+   */
+  function handleWatcherError(event: WatcherErrorEvent) {
+    if (event.scopeId !== scopeRef.current) return;
+    applyTreeRefresh(refreshAllDirectories(treeRef.current));
+    setImageRevision((revision) => revision + 1);
+    // 読み直しの失敗（ルートが消えたときの「見つかりません」）で、監視の断念の通知を
+    // 書き換えない。フォルダーを開き直す案内が、利用者の取れる行動だからである。
+    reloadActiveTab("keep");
+    setError(event.error.message);
+  }
+
+  /** 発行済みの画像が書き換わったときは、表示中の文書の画像を発行し直す（5.4）。 */
+  function handleImagesChanged(event: ImagesChangedEvent) {
+    if (event.scopeId !== scopeRef.current) return;
+    setImageRevision((revision) => revision + 1);
   }
 
   /** タブの中で表示を変える操作は、プレビュータブを固定する。 */
@@ -592,6 +722,11 @@ export default function App() {
     const shownNow = shownRef.current;
     if (shownNow?.tabId === active.tabId && shownNow.content.path === path) {
       moveWithin(anchor);
+      return;
+    }
+    // 削除されたタブは終端であり、別の文書へ移れない（6.5）。読み直さず、新しいタブで開く。
+    if (active.status === "deleted") {
+      openFromTree(path, false, anchor);
       return;
     }
     const other = findTabByPath(tabsRef.current, path);
@@ -638,7 +773,9 @@ export default function App() {
   function step(direction: "back" | "forward") {
     const active = activeTab(tabsRef.current);
     const shown = shownRef.current;
-    if (!active || shown?.tabId !== active.tabId) return;
+    // 削除されたタブは終端であり、履歴をたどって別の文書を読み込めない（6.5）。
+    if (!active || active.status === "deleted") return;
+    if (shown?.tabId !== active.tabId) return;
     const result = stepHistory(active, direction, scrollTop());
     if (result === undefined) return;
     if (result.kind === "load") {
@@ -754,6 +891,13 @@ export default function App() {
   const fontScale = normalizeFontScale(ui.fontScalePercent);
   const visible =
     shown !== null && shown.tabId === active?.tabId ? shown : null;
+  // 削除の通知は、タブの状態から導く。本文を保っているかで文言を分ける（6.5）。
+  const deletedNotice =
+    active?.status === "deleted"
+      ? visible
+        ? messages.fileDeleted.keepingContent
+        : messages.fileDeleted.withoutContent
+      : null;
 
   return (
     <LanguageProvider language={language}>
@@ -800,6 +944,7 @@ export default function App() {
       >
         <style>{`.markdown-body { --font-scale: ${fontScale / 100}; }`}</style>
         {error && <p role="alert">{error}</p>}
+        {deletedNotice && <p role="status">{deletedNotice}</p>}
         {visible && (
           <>
             <DocumentFind root={documentRef} />
@@ -810,6 +955,7 @@ export default function App() {
               view={visible.view}
               onNavigate={navigate}
               issueImages={issueImageResources}
+              imageRevision={imageRevision}
               scroller={previewRef}
             />
           </>

@@ -100,6 +100,9 @@ export function TabBar({ set, onActivate, onClose, onPin }: Props) {
             onKeyDown={(event) => onKeyDown(event, index)}
           >
             <span className="tab-title">{tabTitle(tab)}</span>
+            {tab.status === "deleted" && (
+              <span className="tab-deleted">{messages.tabDeleted}</span>
+            )}
             <button
               type="button"
               className="tab-close"

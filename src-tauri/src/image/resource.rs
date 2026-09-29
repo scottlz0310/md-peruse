@@ -97,7 +97,10 @@ impl ImageResources {
     /// 旧IDのキャッシュが別の内容として表示される。
     ///
     /// 旧IDは対応表から外し、新しい世代のIDへ差し替える。
-    pub fn advance(&self, changed: &str) {
+    ///
+    /// 発行済みのIDを1つでも進めたかを返す。Frontendは表示中の画像のIDが旧いままになるため、
+    /// 進めたときだけ発行し直させる（5.4）。
+    pub fn advance(&self, changed: &str) -> bool {
         let mut inner = self.lock();
         let changed = changed.to_lowercase();
         let Inner {
@@ -105,6 +108,7 @@ impl ImageResources {
             paths,
             issued,
         } = &mut *inner;
+        let mut advanced = false;
         for (key, state) in paths.iter_mut() {
             if !is_same_or_under(key, &changed) {
                 continue;
@@ -113,7 +117,9 @@ impl ImageResources {
             state.generation += 1;
             state.resource_id = resource_id(salt, key, state.generation);
             issued.insert(state.resource_id.clone(), state.path.clone());
+            advanced = true;
         }
+        advanced
     }
 
     /// ソルトを作り直し、対応表を破棄する。監視のバッファがあふれたときに呼ぶ（5.4）。
@@ -234,10 +240,11 @@ mod tests {
             let resources = ImageResources::new();
             let before = resources.issue(issued);
 
-            resources.advance(changed);
+            let advanced = resources.advance(changed);
             let after = resources.issue(issued);
 
             assert_eq!(after != before, expected, "{issued} を {changed} の変更で");
+            assert_eq!(advanced, expected, "{issued} の変更（{changed}）の戻り値");
             assert_eq!(
                 resources.lookup(&before).is_some(),
                 !expected,
@@ -265,7 +272,7 @@ mod tests {
     fn changes_to_unissued_paths_are_not_tracked() {
         let resources = ImageResources::new();
         for index in 0..100 {
-            resources.advance(&format!("f{index}.md"));
+            assert!(!resources.advance(&format!("f{index}.md")));
         }
         assert!(resources.lock().paths.is_empty());
         assert!(resources.lock().issued.is_empty());

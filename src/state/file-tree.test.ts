@@ -9,6 +9,8 @@ import {
   needsScan,
   pathChain,
   ROOT_PATH,
+  refreshAllDirectories,
+  refreshDirectory,
   revealFocus,
   setExpanded,
   visibleNodes,
@@ -119,6 +121,109 @@ describe("取得状態", () => {
         ? base
         : { ...base, directories: new Map([["a", state]]) };
     expect(needsScan(tree, "a")).toBe(expected);
+  });
+});
+
+/** 読み込み済みのフォルダーを足す。`open` なら展開もする。 */
+function withDirectory(
+  tree: FileTree,
+  path: string,
+  entries: FileNode[],
+  open: boolean,
+): FileTree {
+  const started = beginScan(tree, path);
+  const done = applyScanResult(started.tree, started.token, { entries });
+  if (done === undefined) throw new Error("フォルダーの反映に失敗した");
+  return setExpanded(done, path, open);
+}
+
+describe("子要素の増減の通知（6.4）", () => {
+  test("展開しているフォルダーは、その階層だけを取り直す", () => {
+    const tree = withDirectory(
+      loadedRoot([dir("a"), dir("b")]),
+      "a",
+      [file("a/x.md")],
+      true,
+    );
+
+    expect(refreshDirectory(tree, "a")).toEqual({ tree, rescan: ["a"] });
+    // ルートは常に見えている。
+    expect(refreshDirectory(tree, ROOT_PATH)).toEqual({
+      tree,
+      rescan: [ROOT_PATH],
+    });
+  });
+
+  test("畳んでいる取得済みのフォルダーは、取得結果を捨てて次の展開で取り直させる", () => {
+    const tree = withDirectory(
+      loadedRoot([dir("a")]),
+      "a",
+      [file("a/x.md")],
+      false,
+    );
+
+    const { tree: after, rescan } = refreshDirectory(tree, "a");
+
+    expect(rescan).toEqual([]);
+    expect(after.directories.has("a")).toBe(false);
+    expect(needsScan(after, "a")).toBe(true);
+    // 捨てる前に始めた走査の応答は反映しない。
+    const late = beginScan(tree, "a");
+    expect(
+      applyScanResult(refreshDirectory(late.tree, "a").tree, late.token, {
+        entries: [file("a/old.md")],
+      }),
+    ).toBeUndefined();
+  });
+
+  test("走査中の展開しているフォルダーは、取り直して先の応答を無効にする", () => {
+    const opened = setExpanded(loadedRoot([dir("a")]), "a", true);
+    const first = beginScan(opened, "a");
+
+    const { tree, rescan } = refreshDirectory(first.tree, "a");
+    expect(rescan).toEqual(["a"]);
+    const second = beginScan(tree, "a");
+
+    expect(
+      applyScanResult(second.tree, first.token, { entries: [] }),
+    ).toBeUndefined();
+  });
+
+  test.each([
+    ["取得していない", "b"],
+    ["失敗した", "locked"],
+  ])("%sフォルダーの通知では何もしない", (_, path) => {
+    const base = loadedRoot([dir("locked"), dir("b")]);
+    const started = beginScan(base, "locked");
+    const tree = applyScanResult(started.tree, started.token, {
+      message: "アクセスできません",
+    }) as FileTree;
+
+    expect(refreshDirectory(tree, path)).toEqual({ tree, rescan: [] });
+  });
+
+  test("子を持たないと表示していたフォルダーに子ができたら、親を取り直す", () => {
+    const empty: FileNode = { ...dir("empty"), hasChildren: false };
+    const tree = loadedRoot([empty, dir("other")]);
+
+    expect(refreshDirectory(tree, "empty")).toEqual({
+      tree,
+      rescan: [ROOT_PATH],
+    });
+    // 子を持つと表示しているフォルダーは、展開するまで取り直す理由がない。
+    expect(refreshDirectory(tree, "other")).toEqual({ tree, rescan: [] });
+  });
+
+  test("すべてを取り直すときは、展開しているものを取り直し、畳んでいるものは捨てる", () => {
+    let tree = loadedRoot([dir("a"), dir("b")]);
+    tree = withDirectory(tree, "a", [file("a/x.md")], true);
+    tree = withDirectory(tree, "b", [file("b/y.md")], false);
+
+    const { tree: after, rescan } = refreshAllDirectories(tree);
+
+    expect([...rescan].sort()).toEqual([ROOT_PATH, "a"].sort());
+    expect(after.directories.has("b")).toBe(false);
+    expect(after.directories.has("a")).toBe(true);
   });
 });
 

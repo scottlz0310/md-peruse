@@ -131,6 +131,83 @@ export function needsScan(tree: FileTree, path: string): boolean {
   return state === undefined || state.status === "failed";
 }
 
+/** 親フォルダーのパス。ルート直下は `ROOT_PATH`。 */
+function parentPath(path: string): string {
+  const slash = path.lastIndexOf("/");
+  return slash < 0 ? ROOT_PATH : path.slice(0, slash);
+}
+
+/** 親フォルダーの取得結果に載っている項目。 */
+function listedNode(tree: FileTree, path: string): FileNode | undefined {
+  const parent = tree.directories.get(parentPath(path));
+  return parent?.status === "loaded"
+    ? parent.entries.find((node) => node.path === path)
+    : undefined;
+}
+
+/** フォルダーの取得結果を捨てる。次に展開したときに取り直させる。走査中の応答も無効にする。 */
+function discard(tree: FileTree, path: string): FileTree {
+  const directories = new Map(tree.directories);
+  directories.delete(path);
+  const pathGenerations = new Map(tree.pathGenerations).set(
+    path,
+    (tree.pathGenerations.get(path) ?? 0) + 1,
+  );
+  return { ...tree, directories, pathGenerations };
+}
+
+/** 展開して見えているフォルダーか。ルートは常に見えている。 */
+function isOpen(tree: FileTree, path: string): boolean {
+  return path === ROOT_PATH || tree.expanded.has(path);
+}
+
+/** ツリーの更新の結果。`rescan` のフォルダーを取り直す。 */
+export type TreeRefresh = {
+  readonly tree: FileTree;
+  readonly rescan: readonly string[];
+};
+
+/**
+ * フォルダーの子要素が増減した通知を受けたときの更新（design-decisions.md 6.4）。
+ *
+ * 展開しているフォルダーは、その階層だけを取り直す。ルート全体は取り直さない。取得済みで
+ * 畳んでいるフォルダーは取得結果を捨て、次に展開したときに取り直させる。畳んだまま取り直すと、
+ * 開かれないかもしれないフォルダーのために走査が走る。取得していないフォルダーは何もしない。
+ * 失敗したフォルダーも、展開のたびに取り直すため何もしない。
+ *
+ * 取得していない、`hasChildren: false` のフォルダーに子ができたときだけ、親を取り直す。
+ * 展開矢印は親の走査で決まるため（6.2）、取り直さないと、初めてファイルができたフォルダーが
+ * 展開できないまま残る。
+ */
+export function refreshDirectory(tree: FileTree, path: string): TreeRefresh {
+  const state = tree.directories.get(path);
+  if (state === undefined) {
+    const listed = listedNode(tree, path);
+    return listed?.kind === "directory" && listed.hasChildren === false
+      ? refreshDirectory(tree, parentPath(path))
+      : { tree, rescan: [] };
+  }
+  if (state.status === "failed") return { tree, rescan: [] };
+  return isOpen(tree, path)
+    ? { tree, rescan: [path] }
+    : { tree: discard(tree, path), rescan: [] };
+}
+
+/**
+ * 変更を個別に追えないとき（`watcherOverflow`、`watcherStopped`）の更新。取得済みのすべての
+ * フォルダーへ、`refreshDirectory` と同じ規則を当てる（6.4）。
+ */
+export function refreshAllDirectories(tree: FileTree): TreeRefresh {
+  let next = tree;
+  const rescan: string[] = [];
+  for (const path of tree.directories.keys()) {
+    const refreshed = refreshDirectory(next, path);
+    next = refreshed.tree;
+    rescan.push(...refreshed.rescan);
+  }
+  return { tree: next, rescan };
+}
+
 /**
  * 展開できる項目か。子を持たないと判定されたフォルダー（`hasChildren: false`）は
  * 展開矢印を出さず、ファイルと同じく展開の操作を受けない（6.2「展開矢印の有無」）。

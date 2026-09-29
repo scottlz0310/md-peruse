@@ -284,3 +284,37 @@ describe("stepHistory", () => {
     ]);
   });
 });
+
+describe("最初の読込が変更で無効になった読み直し（6.5）", () => {
+  // 最初の読込を始めたあと、その応答を待たずに読み直す。履歴はまだ空である。
+  const firstLoadReloaded = () => {
+    const first = startLoad(null, FRESH, "a.md");
+    return startLoad(first.tab, FRESH, "a.md");
+  };
+
+  test("成功したら、1件目の履歴を積む", () => {
+    const { tab, token } = firstLoadReloaded();
+
+    const done = completeLoad(tab, token, { kind: "reload" }, 0);
+
+    expect(done?.tab.history).toEqual({
+      entries: [entry("a.md", null, 0)],
+      index: 0,
+    });
+    expect(done?.tab.status).toBe("loaded");
+  });
+
+  test("失敗したら、最初の読込の失敗と同じくタブを残さない", () => {
+    const { tab, token } = firstLoadReloaded();
+
+    expect(failLoad(tab, token, { kind: "reload" })).toEqual({ tab: null });
+  });
+
+  test("履歴のあるタブの読み直しは、履歴を増やさない", () => {
+    const current = tabAt([entry("a.md", null, 40)], 0);
+
+    const { tab } = load(current, "a.md", { kind: "reload" }, 40);
+
+    expect(tab.history.entries).toEqual([entry("a.md", null, 40)]);
+  });
+});
