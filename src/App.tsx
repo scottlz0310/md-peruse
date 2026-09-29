@@ -549,7 +549,18 @@ export default function App() {
     // 読込中のタブは、その完了で表示される。読み直すと進行中の遷移先を世代で捨ててしまう。
     if (pendingPath(active) !== null) return;
     const entry = currentEntry(active.history);
-    if (entry === undefined) return;
+    if (entry === undefined) {
+      // 履歴が空なのは、最初の読込が完了していないタブである。離れている間に変更やrenameで
+      // その読込が無効になると、応答は捨てられ、履歴に読み込む項目がない。タブのパスから
+      // 読み込み直す。renameを受けていれば、パスは新しいものへ追従している（6.5）。
+      load(
+        active.tabId,
+        active.path,
+        { kind: "push", path: active.path, anchor: null },
+        notice,
+      );
+      return;
+    }
     load(
       active.tabId,
       entry.path,

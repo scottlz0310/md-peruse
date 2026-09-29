@@ -2266,6 +2266,56 @@ describe("App: ファイル変更への追従（6.4、6.5、5.4）", () => {
     ]);
   });
 
+  test.each([
+    [
+      "rename",
+      { kind: "fileRenamed", oldPath: "README.md", path: "docs/GUIDE.md" },
+      "docs/GUIDE.md",
+      /GUIDE\.md/,
+    ],
+    [
+      "変更",
+      { kind: "fileModified", path: "README.md" },
+      "README.md",
+      /README/,
+    ],
+  ] as const)(
+    "最初の読込の途中で別のタブへ移り、そのあとで%sを受けたタブは、アクティブにしたときに読み込み直す（6.5）",
+    async (_, change, readPath, tabName) => {
+      const answers: ((content: FileContent) => void)[] = [];
+      const reads: string[] = [];
+      mockBackend({
+        scan: () => TWO_DOCS,
+        read: (path) => {
+          reads.push(path);
+          // 最初の読込だけ、応答を遅らせる。
+          if (reads.length === 1) {
+            return new Promise<FileContent>((resolve) => answers.push(resolve));
+          }
+          return fileContent(path, `## ${path}\n`);
+        },
+      });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => treeItem("README.md"));
+      await openPinned("README.md");
+      await waitFor(() => expect(reads).toEqual(["README.md"]));
+      await openPinned("NOTES.md");
+      await waitFor(() => expect(heading()).toBe("NOTES.md"));
+
+      // 離れている間に、最初の読込が無効になる。遅れて届く旧い応答は捨てられる。
+      await fileChange({ ...change });
+      await act(async () => answers[0]?.(fileContent("README.md", "## 旧\n")));
+      expect(heading()).toBe("NOTES.md");
+      await act(async () => {
+        fireEvent.click(screen.getByRole("tab", { name: tabName }));
+      });
+
+      await waitFor(() => expect(heading()).toBe(readPath));
+      expect(reads).toEqual(["README.md", "NOTES.md", readPath]);
+    },
+  );
+
   test("別のスコープの通知では、ツリーの取り直しも監視の断念の処理も行わない", async () => {
     const scanned: string[] = [];
     const reads: string[] = [];
