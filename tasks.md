@@ -192,7 +192,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] UI/UX: テーマ（System / Light / Dark）。表示メニューのサブメニュー「テーマ」にチェック付きの3項目を置き、Rust側（`src-tauri/src/theme.rs`）で設定へ保存してウィンドウとメニューバーへ適用する。起動時は保存したテーマでウィンドウを作る。Frontendは変えず、WebViewの `prefers-color-scheme` で本文、コードハイライト、Mermaidの図が追従する（実測）。使われなくなった `Theme` / `ThemeChangedEvent` を削除し、`UiSettings` / `UiSettingsUpdate` からテーマを外した（[design-decisions.md](./docs/design-decisions.md) 10.1、11.1）
 - [x] UI/UX: ウィンドウタイトル。「文書名 - ワークスペース名 - md-peruse」（タブが無ければ「ワークスペース名 - md-peruse」、ワークスペースが無ければ「md-peruse」）とし、Frontendが `core:window:allow-set-title` でアクティブタブの変化に合わせて設定する。組み立ては `src/state/window-title.ts`（[design-decisions.md](./docs/design-decisions.md) 5.5、10.1.2）
 - [x] UI/UX: Reduced Motion。自前のUIにアニメーションは無く、Mermaidのエッジのアニメーション（`animate: true`）だけが `prefers-reduced-motion` を無視して動き続けるため、`reduce` のときは `App.css` の規則で止める。WebView2で、通常は図の破線が動き、`reduce` では止まることを画素の差で確認した（[design-decisions.md](./docs/design-decisions.md) 8.4、10章）
-- [ ] UI/UX: 狭いウィンドウでのタブバーとパンくず。横スクロールバーの見た目と、アクティブなタブを見える位置へ動かす処理（`Ctrl+Tab`、ツリーからの新規タブ、`Ctrl+W` 後の切り替えでは動かしていない）を扱う。「検討待ち」の同項目を解消する
+- [x] UI/UX: 狭いウィンドウでのタブバーとパンくず。アクティブなタブが変わったとき（ツリーから開く、`Ctrl+Tab`、タブを閉じた後の切り替え）と幅が変わったときに、アクティブなタブを見える位置へスクロールし、パンくずはパスと幅が変わったときに末尾（表示中の文書名）へスクロールする。両方の横スクロールバーは `scrollbar-width: thin` で細くする。幅の観測は `src/layout/use-resize-observer.ts`（[design-decisions.md](./docs/design-decisions.md) 9.1、10.1.1）
 - [ ] UI/UX: `forced-colors` の点検。Windowsのハイコントラスト設定下のWebView2で、UIの各部（タブ、パンくず、ツリー、境界、検索バー）と本文（コード、数式、Mermaid、検索ハイライト）を確認して直す
 - [ ] UI/UX: 文字列の分離とUI言語の切り替え（[design-decisions.md](./docs/design-decisions.md) 10.5）
 - [ ] UI/UX: ライセンス表記の表示（[design-decisions.md](./docs/design-decisions.md) 11.3）
@@ -260,9 +260,9 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [x] WebView2のブラウザーアクセラレータキーが有効なままである件。まとめて無効化した（4-2以降のアクセラレータの項目で対応。[design-decisions.md](./docs/design-decisions.md) 10.1）
 - [ ] Markdown本文のリンクがNFDで書かれ、実ファイルがNFCのとき解決に失敗する。NTFSは名前を正規化せず、`パ`（U+30D1）と `ハ` + 結合濁点（U+30CF U+309A）は別のファイルとして共存する（Phase 4-1aの境界判定の実測中に確認）。境界判定では正規化を行わないと決めた（[design-decisions.md](./docs/design-decisions.md) 7.1）が、リンク解決の側でNFCとNFDの両方を試すかは別の判断である。macOS由来のリポジトリをWindowsで開いたときに起こりうる。両方を試す場合は `unicode-normalization` の依存追加と、NFCとNFDの同名ファイルが共存するときにどちらを開くかの規則が要る。Phase 4-2（リンク解決）で判断する
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
-- [ ] 幅の狭いウィンドウでは、タブバーとパンくずに太いクラシックな横スクロールバーが出て、パンくずは末尾（表示中の文書名）が見切れる（`overflow-x: auto` のまま）。表示中の文書名はアクティブタブにも出ており、パンくずの目的は上位フォルダーへ移ることなので操作上の支障はない。細いスクロールバー（`scrollbar-width: thin`）にするか、パスが変わったときに末尾が見える位置へスクロールするかを、狭いウィンドウでのタブバーとパンくずの単位で決める（UI/UXのBreadcrumbの実機確認で発見）
 - [ ] UTF-32 LEのBOM（`FF FE 00 00`）がUTF-16 LEのBOM（`FF FE`）を前置しているため、UTF-32 LEのファイルをUTF-16 LEとしてデコードし、NUL文字が並んだ本文を「読めた」として表示する。[design-decisions.md](./docs/design-decisions.md) 6.3は未対応の文字コードについて「原因を表示する」と定めており、この経路だけがそれに反する。`FF FE 00 00` を先に判定して `DecodeFailed` とするかを決める（Phase 4-1cのファイル読込実装時に発見。UTF-32をエディタの既定にする経路がなく、優先度は低い）
 - [ ] ARM64を対応外とした（[design-decisions.md](./docs/design-decisions.md) 3章）ことに伴う、Store側の扱いを決める。x64だけのパッケージがARM64端末のStoreに表示・提供されるか、Partner Centerで対象を絞れるか、Store掲載情報のシステム要件へ「x64のみ対応」を書くかを、Store掲載情報を準備するとき（Phase 5）に確認する。ARM64のWindowsでx64版が動くかは検証しておらず、保証しない方針である
+- [ ] ツリーの行をダブルクリックすると、ラベルの語が選択されて青く反転する（実機で発見。例: `document-06-with-a-…` の `with`）。ダブルクリックは固定タブで開く操作であり、テキストの選択は意図しない。行へ `user-select: none` を付けるかを、ツリーの見た目と併せて決める（UI/UXの狭いウィンドウの実機確認で発見）
 
 ## 未決事項の一覧
 

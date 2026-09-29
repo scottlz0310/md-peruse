@@ -1,12 +1,13 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { FakeResizeObserver } from "../../test/fake-resize-observer";
 import {
   activateTab,
   EMPTY_TAB_SET,
   openTab,
   type TabSet,
 } from "../state/tab-set";
-import { TabBar } from "./TabBar";
+import { TabBar, tabElementId } from "./TabBar";
 
 /** a.md（固定）、b.md（固定）、c.md（プレビュー）。b.md がアクティブ。 */
 function sampleSet(): TabSet {
@@ -98,5 +99,88 @@ describe("TabBar", () => {
     expect(calls.pinned).toEqual(["t2"]);
     // 閉じるボタンのクリックはタブのアクティブ化へ伝わらない。
     expect(calls.closed).toEqual(["t1", "t2"]);
+  });
+});
+
+describe("TabBar: アクティブなタブを見える位置へ動かす（9.1）", () => {
+  type Reveal = { id: string; options: unknown };
+  let revealed: Reveal[];
+  const original = Element.prototype.scrollIntoView;
+
+  beforeEach(() => {
+    revealed = [];
+    FakeResizeObserver.install();
+    Element.prototype.scrollIntoView = function (
+      this: Element,
+      options?: boolean | ScrollIntoViewOptions,
+    ) {
+      revealed.push({ id: this.id, options });
+    };
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollIntoView = original;
+    FakeResizeObserver.uninstall();
+  });
+
+  const props = {
+    onActivate: () => {},
+    onClose: () => {},
+    onPin: () => {},
+  };
+
+  test("表示したとき、アクティブなタブを動かす。アニメーションはしない", () => {
+    render(<TabBar set={sampleSet()} {...props} />);
+
+    // `behavior` を指定しない（既定の即時）。Reduced Motionでも動きを伴わない。
+    expect(revealed).toEqual([
+      {
+        id: tabElementId("t1"),
+        options: { block: "nearest", inline: "nearest" },
+      },
+    ]);
+  });
+
+  test.each([["t0"], ["t2"]])(
+    "%s がアクティブになったとき、そのタブを動かす",
+    (tabId) => {
+      const set = sampleSet();
+      const { rerender } = render(<TabBar set={set} {...props} />);
+
+      rerender(<TabBar set={activateTab(set, tabId, 20)} {...props} />);
+
+      expect(revealed.map((entry) => entry.id)).toEqual([
+        tabElementId("t1"),
+        tabElementId(tabId),
+      ]);
+    },
+  );
+
+  test("アクティブなタブが変わらない再描画では動かさない", () => {
+    const set = sampleSet();
+    const { rerender } = render(<TabBar set={set} {...props} />);
+
+    rerender(<TabBar set={{ ...set }} {...props} />);
+
+    expect(revealed).toHaveLength(1);
+  });
+
+  test("幅が変わったとき、アクティブなタブを動かす", () => {
+    render(<TabBar set={sampleSet()} {...props} />);
+
+    FakeResizeObserver.notify();
+
+    expect(revealed.map((entry) => entry.id)).toEqual([
+      tabElementId("t1"),
+      tabElementId("t1"),
+    ]);
+  });
+
+  test("タブが無いときは何もしない", () => {
+    render(<TabBar set={EMPTY_TAB_SET} {...props} />);
+
+    FakeResizeObserver.notify();
+
+    expect(revealed).toEqual([]);
   });
 });
