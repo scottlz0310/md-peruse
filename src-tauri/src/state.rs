@@ -44,6 +44,8 @@ struct LooseScope {
     file: String,
     /// 監視を付け替えるときに、同じ送出先を使う。
     sink: Arc<dyn ChangeSink>,
+    /// 監視先の確定を受けた、最新のタブIDと読込世代（`retarget_loose`）。
+    confirmed: Option<(String, u32)>,
 }
 
 /// 開いているスコープの全体。1つのロックの内側に置く。
@@ -190,6 +192,7 @@ impl AppState {
             },
             file: name.clone(),
             sink,
+            confirmed: None,
         });
         Ok(LooseOpened {
             scope_id: id,
@@ -369,52 +372,64 @@ impl WorkspaceHandle {
         self.lock().loose.retain(|loose| loose.scope.id != scope_id);
     }
 
-    /// loose tabの監視を、いま読んだ文書へ付け替える。
+    /// loose tabの監視を、タブが表示している文書へ付け替える。
     ///
     /// loose tabの監視は、開いているファイル1件に限る（6.4）。相対リンクで同じ暗黙のルートの
-    /// 別の文書へ移ると、タブの文書が替わるため、読んだ文書に合わせる。同じ文書の読み直しでは
-    /// 何もしない。ワークスペースのスコープと、開いていないスコープでも何もしない。
+    /// 別の文書へ移ると、タブの文書が替わるため、表示している文書に合わせる。同じ文書では何も
+    /// しない。ワークスペースのスコープと、開いていないスコープでも何もしない。
     ///
-    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。読込の
-    /// 応答自体は成功しており、失敗を応答へ載せると開けた文書を開けなかったことにするためである。
-    pub fn retarget_loose(&self, scope_id: &str, file: &str) {
+    /// 呼ぶのは、Frontendが読込の応答を採用したときだけである。読んだだけで付け替えると、
+    /// 素早くリンクを辿って応答が逆順に完了したとき、Frontendが世代の判定で捨てた古い応答の文書へ
+    /// 監視が移り、表示中の文書の更新を検知できなくなる。`tab_id` と `generation` は、その
+    /// 読込のタブと世代である。同じタブで、すでに確定した世代以下の要求は、`invoke` の到着順や
+    /// 実行順が入れ替わったものとして捨てる。別のタブ（スコープを開き直した場合）は世代が
+    /// 0から数え直しになるため、世代を比べずに受ける。
+    ///
+    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。
+    pub fn retarget_loose(&self, scope_id: &str, file: &str, tab_id: &str, generation: u32) {
         let (root, sink) = {
-            let scopes = self.lock();
-            match scopes.loose.iter().find(|loose| loose.scope.id == scope_id) {
-                Some(loose) if loose.file != file => {
-                    (loose.scope.root.path().to_owned(), Arc::clone(&loose.sink))
+            let mut scopes = self.lock();
+            let Some(loose) = scopes
+                .loose
+                .iter_mut()
+                .find(|loose| loose.scope.id == scope_id)
+            else {
+                return;
+            };
+            if let Some((confirmed_tab, confirmed)) = &loose.confirmed {
+                if confirmed_tab == tab_id && generation <= *confirmed {
+                    return;
                 }
-                _ => return,
             }
+            loose.confirmed = Some((tab_id.to_owned(), generation));
+            if loose.file == file {
+                return;
+            }
+            // 確定した文書は、Watcherを付け替える前に記録する。付け替えの間に届く、より新しい
+            // 要求が、この記録との差で「付け替えが要るか」を判断できる。
+            loose.file = file.to_owned();
+            (loose.scope.root.path().to_owned(), Arc::clone(&loose.sink))
         };
         let mut watchers = self
             .loose_watchers
             .lock()
             .expect("loose tabのWatcherのロックに失敗");
-        // 旧Watcherを止める。停止は監視スレッドの終了まで待つ。
-        watchers.retain(|watcher| watcher.scope_id() != scope_id);
-        // 止めている間にスコープが閉じられていたら、新しいWatcherを残さない。
-        if !self
+        // Watcherのロックを待つ間に、スコープが閉じられた、またはより新しい要求が別の文書を
+        // 確定した場合は、この文書の付け替えをやめる。新しい要求は自分で付け替える。止める前に
+        // 確かめるのは、新しい要求が付け替えを済ませた後にここで止めると、Watcherが無くなるためである。
+        let current = self
             .lock()
             .loose
             .iter()
-            .any(|loose| loose.scope.id == scope_id)
-        {
+            .find(|loose| loose.scope.id == scope_id)
+            .map(|loose| loose.file.clone());
+        if current.as_deref() != Some(file) {
             return;
         }
+        // 旧Watcherを止める。停止は監視スレッドの終了まで待つ。
+        watchers.retain(|watcher| watcher.scope_id() != scope_id);
         match LooseWatcher::start(&root, file, scope_id.to_owned(), Arc::clone(&sink)) {
-            Ok(watcher) => {
-                watchers.push(watcher);
-                drop(watchers);
-                if let Some(loose) = self
-                    .lock()
-                    .loose
-                    .iter_mut()
-                    .find(|loose| loose.scope.id == scope_id)
-                {
-                    loose.file = file.to_owned();
-                }
-            }
+            Ok(watcher) => watchers.push(watcher),
             Err(_) => {
                 drop(watchers);
                 sink.watcher_error(scope_id, ErrorCode::WatcherStopped);
@@ -785,10 +800,10 @@ mod tests {
         write_document(&outside.parent().unwrap().join("sub"), "b.md");
 
         // 同じ文書、別の文書、ワークスペース、開いていないスコープ。
-        handle.retarget_loose(&opened.scope_id, "note.md");
-        handle.retarget_loose(&opened.scope_id, "sub/b.md");
-        handle.retarget_loose(&workspace_scope, "sub/b.md");
-        handle.retarget_loose("unknown", "sub/b.md");
+        handle.retarget_loose(&opened.scope_id, "note.md", "tab-1", 1);
+        handle.retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2);
+        handle.retarget_loose(&workspace_scope, "sub/b.md", "tab-1", 3);
+        handle.retarget_loose("unknown", "sub/b.md", "tab-1", 4);
 
         assert_eq!(state.lock_loose_watchers().len(), 1);
         assert_eq!(
@@ -832,7 +847,7 @@ mod tests {
 
         state
             .workspace()
-            .retarget_loose(&opened.scope_id, "sub/b.md");
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 1);
         fs::write(&outside, b"# rewritten original\n").unwrap();
         fs::write(&sub, b"# rewritten target\n").unwrap();
 
@@ -852,6 +867,81 @@ mod tests {
             "{:?}",
             recording.0.lock().unwrap()
         );
+    }
+
+    /// 監視先を確定する要求は、同じタブでは確定済みの世代より新しいものだけを受ける。素早く
+    /// リンクを辿って、古い読込の確認があとから届いても、表示中の文書の監視は動かない。別のタブ
+    /// （スコープを開き直した場合）は、世代が数え直しになるため受ける。
+    #[test]
+    fn an_older_confirmation_does_not_move_the_watch() {
+        struct RecordingSink(Mutex<Vec<String>>);
+        impl ChangeSink for RecordingSink {
+            fn file_change(&self, event: FileChangeEvent) {
+                if let crate::ipc::types::FileChange::FileModified { path } = event.change {
+                    self.0.lock().unwrap().push(path);
+                }
+            }
+            fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+            fn images_changed(&self, _scope_id: &str) {}
+        }
+        let (_temp, state, outside) = with_workspace_and_outside("stale-confirmation");
+        let folder = outside.parent().unwrap().to_owned();
+        let sub = write_document(&folder.join("sub"), "b.md");
+        let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+        let opened = state
+            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .unwrap();
+        let handle = state.workspace();
+        let wait_for = |path: &str| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if recording.0.lock().unwrap().iter().any(|seen| seen == path) {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            false
+        };
+
+        // 世代2の確認が先に届き、世代1（古い読込）の確認があとから届く。
+        handle.retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2);
+        handle.retarget_loose(&opened.scope_id, "note.md", "tab-1", 1);
+        fs::write(
+            &outside,
+            b"# rewritten original
+",
+        )
+        .unwrap();
+        fs::write(
+            &sub,
+            b"# rewritten target
+",
+        )
+        .unwrap();
+
+        assert!(wait_for("sub/b.md"), "表示中の文書の変更が届かない");
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(
+            recording
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|path| path == "sub/b.md"),
+            "{:?}",
+            recording.0.lock().unwrap()
+        );
+
+        // 別のタブは、世代が1に戻っていても受ける。
+        recording.0.lock().unwrap().clear();
+        handle.retarget_loose(&opened.scope_id, "note.md", "tab-2", 1);
+        fs::write(
+            &outside,
+            b"# rewritten again
+",
+        )
+        .unwrap();
+        assert!(wait_for("note.md"), "別のタブの確認が受け入れられない");
     }
 
     /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。
@@ -875,7 +965,7 @@ mod tests {
         // 下位のフォルダーが無いと、そのフォルダーを監視できない。
         state
             .workspace()
-            .retarget_loose(&opened.scope_id, "missing/b.md");
+            .retarget_loose(&opened.scope_id, "missing/b.md", "tab-1", 1);
 
         assert_eq!(
             *recording.0.lock().unwrap(),

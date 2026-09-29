@@ -22,8 +22,8 @@ use crate::image::issue::issue;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{
-    FileContent, ImageResource, ImageResourceRequest, ReadRequest, ScanRequest, ScanResult,
-    WorkspaceOpenedEvent,
+    FileContent, ImageResource, ImageResourceRequest, LooseWatchRequest, ReadRequest, ScanRequest,
+    ScanResult, WorkspaceOpenedEvent,
 };
 use crate::open_folder;
 use crate::path_guard::{PathRejection, ResolveError};
@@ -117,13 +117,7 @@ pub async fn read_file_command(
     let workspace = state.workspace();
     let requested_path = request.path.clone();
     let result = spawn_blocking(move || {
-        let read = workspace.with_scope(&request.scope_id, |root| read_file(root, &request.path));
-        // 読めたときは、loose tabの監視を読んだ文書へ付け替える（6.4）。相対リンクで同じ暗黙の
-        // ルートの別の文書へ移ると、タブの文書が替わるためである。
-        if matches!(read, Some(Ok(_))) {
-            workspace.retarget_loose(&request.scope_id, &request.path);
-        }
-        read
+        workspace.with_scope(&request.scope_id, |root| read_file(root, &request.path))
     })
     .await
     .expect("読込タスクの実行に失敗");
@@ -215,6 +209,38 @@ pub async fn issue_image_resources_command(
     .await
     .expect("画像resource IDの発行タスクの実行に失敗");
     result.ok_or_else(|| ipc_error(ErrorCode::WorkspaceNotFound, language, None))
+}
+
+/// loose tabの監視先を、タブが表示している文書へ付け替える（design-decisions.md 6.4）。
+///
+/// 相対リンクで同じ暗黙のルートの別の文書へ移ると、タブの文書が替わる。監視は開いているファイル
+/// 1件に限るため、Frontendが読込の応答を採用したときに、この文書へ付け替えさせる。読込
+/// （`read_file_command`）は付け替えない。読んだ応答をFrontendが世代の判定で捨てることがあり、その
+/// 文書へ監視が移ると、表示中の文書の更新を検知できなくなるためである。
+///
+/// 付け替えに失敗したときは、そのスコープへ `watcherStopped` を通知する（event）。ワークスペースと、
+/// 開いていないスコープには何もしない。監視の停止は監視スレッドの終了まで待つため、
+/// ブロッキングスレッドで実行する。
+///
+/// 失敗しない操作だが、借用（`State`）を受ける `async` のcommandは `Result` を返す決まりであり、
+/// Tauriのマクロが要求する。
+#[tauri::command]
+pub async fn watch_loose_document_command(
+    state: State<'_, AppState>,
+    request: LooseWatchRequest,
+) -> Result<(), IpcError> {
+    let workspace = state.workspace();
+    spawn_blocking(move || {
+        workspace.retarget_loose(
+            &request.scope_id,
+            &request.path,
+            &request.tab_id,
+            request.generation,
+        );
+    })
+    .await
+    .expect("loose tabの監視の付け替えタスクの実行に失敗");
+    Ok(())
 }
 
 /// loose tabのスコープを閉じ、そのファイルの監視を止める（design-decisions.md 6.4、9.1）。
@@ -744,10 +770,11 @@ mod tests {
             );
         }
 
-        /// loose tabの文書を読むと、監視が読んだ文書へ付け替わる（6.4）。相対リンクで同じ暗黙の
-        /// ルートの別の文書へ移ると、以後はその文書の変更が届く。
+        /// 読込は、loose tabの監視を付け替えない。付け替えは、Frontendが読込の応答を採用したときに
+        /// 求める `watch_loose_document_command` で行う（6.4）。読んだ応答をFrontendが捨てることが
+        /// あり、その文書へ監視が移ると、表示中の文書の更新を検知できなくなる。
         #[test]
-        fn reading_a_loose_document_retargets_its_watch() {
+        fn a_read_does_not_move_the_watch_but_the_confirmation_does() {
             use std::sync::Mutex;
 
             struct RecordingSink(Mutex<Vec<String>>);
@@ -764,8 +791,18 @@ mod tests {
 
             let temp = TempDir::new("loose-retarget");
             std::fs::create_dir_all(temp.path().join("sub")).expect("フォルダーの作成に失敗");
-            std::fs::write(temp.path().join("note.md"), b"# note\n").expect("書込みに失敗");
-            std::fs::write(temp.path().join("sub/b.md"), b"# b\n").expect("書込みに失敗");
+            std::fs::write(
+                temp.path().join("note.md"),
+                b"# note
+",
+            )
+            .expect("書込みに失敗");
+            std::fs::write(
+                temp.path().join("sub/b.md"),
+                b"# b
+",
+            )
+            .expect("書込みに失敗");
             let app = mock_app_with_state(LanguagePreference::Ja);
             let state = app.state::<AppState>();
             let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
@@ -775,22 +812,52 @@ mod tests {
                     Arc::clone(&recording) as Arc<dyn ChangeSink>,
                 )
                 .expect("loose tabを開けない");
+            let wait_for = |path: &str| {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while std::time::Instant::now() < deadline {
+                    if recording.0.lock().unwrap().iter().any(|seen| seen == path) {
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                false
+            };
 
+            // 別の文書を読んでも、監視は元の文書のままである。
             block_on(read_file_command(
                 app.state::<AppState>(),
                 ReadRequest {
-                    scope_id: opened.scope_id,
+                    scope_id: opened.scope_id.clone(),
                     path: "sub/b.md".to_owned(),
                 },
             ))
             .expect("読込が失敗した");
-            std::fs::write(temp.path().join("sub/b.md"), b"# b2\n").expect("書込みに失敗");
+            std::fs::write(
+                temp.path().join("note.md"),
+                b"# note2
+",
+            )
+            .expect("書込みに失敗");
+            assert!(wait_for("note.md"), "読んだだけで、監視が動いている");
 
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-            while recording.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
-                std::thread::sleep(std::time::Duration::from_millis(20));
-            }
-            assert_eq!(*recording.0.lock().unwrap(), vec!["sub/b.md".to_owned()]);
+            // Frontendが読込を採用したと知らせると、その文書へ付け替わる。
+            block_on(watch_loose_document_command(
+                app.state::<AppState>(),
+                LooseWatchRequest {
+                    scope_id: opened.scope_id,
+                    path: "sub/b.md".to_owned(),
+                    tab_id: "tab-1".to_owned(),
+                    generation: 1,
+                },
+            ))
+            .expect("付け替えられない");
+            std::fs::write(
+                temp.path().join("sub/b.md"),
+                b"# b2
+",
+            )
+            .expect("書込みに失敗");
+            assert!(wait_for("sub/b.md"), "確認のあとも、付け替わっていない");
         }
 
         /// スコープIDは、ワークスペースの切り替え前のものでは引けない。切り替える前に発行した

@@ -62,6 +62,26 @@ pub struct ReadRequest {
     pub path: String,
 }
 
+/// loose tabの監視先を、タブが表示している文書へ付け替える要求（design-decisions.md 6.4）。
+///
+/// Frontendが読込の応答を採用したとき（世代の判定を通ったとき）だけ送る。読んだだけで付け替えると、
+/// 素早くリンクを辿って応答が逆順に完了したとき、捨てた古い応答の文書へ監視が移る。
+/// `tab_id` と `generation` は、その読込のタブと世代であり、Rust側は同じタブの、確定済みの世代以下の
+/// 要求を、到着順や実行順が入れ替わったものとして捨てる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct LooseWatchRequest {
+    /// 対象のloose tabのスコープ。
+    pub scope_id: String,
+    /// タブが表示している文書の、スコープ相対パス。
+    pub path: String,
+    /// 読込を採用したタブのインスタンスID。
+    pub tab_id: String,
+    /// 採用した読込の世代（design-decisions.md 6.5）。
+    pub generation: u32,
+}
+
 /// 読み込んだファイルの文字コード。
 ///
 /// BOMで判定できるものだけを扱い、CP932などの推測変換は行わない

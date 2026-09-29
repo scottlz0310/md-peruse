@@ -53,7 +53,8 @@ pub fn run() {
             ipc::commands::open_recent_folder_command,
             ipc::commands::read_file_command,
             ipc::commands::scan_directory_command,
-            ipc::commands::update_ui_settings_command
+            ipc::commands::update_ui_settings_command,
+            ipc::commands::watch_loose_document_command
         ])
         .build(tauri::generate_context!())
         .expect("Tauriアプリケーションの起動に失敗しました");

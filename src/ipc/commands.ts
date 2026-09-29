@@ -31,6 +31,24 @@ export function readFile(scopeId: string, path: string): Promise<FileContent> {
 }
 
 /**
+ * loose tabの監視先を、タブが表示している文書へ付け替える（design-decisions.md 6.4）。
+ *
+ * 読込の応答を採用したとき（世代の判定を通ったとき）だけ呼ぶ。読んだだけで付け替えると、
+ * 素早くリンクを辿って応答が逆順に完了したとき、捨てた古い応答の文書へ監視が移る。
+ * `tabId` と `generation` は、その読込のタブと世代で、Rust側は古い要求を捨てる。
+ */
+export function watchLooseDocument(
+  scopeId: string,
+  path: string,
+  tabId: string,
+  generation: number,
+): Promise<void> {
+  return invoke<void>("watch_loose_document_command", {
+    request: { scopeId, path, tabId, generation },
+  });
+}
+
+/**
  * loose tabのスコープを閉じ、そのファイルの監視を止める（design-decisions.md 6.4、9.1）。
  *
  * タブを閉じたときと、上限で退避されたときに呼ぶ。開いていないスコープには何も起きない。

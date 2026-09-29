@@ -26,6 +26,13 @@ type Handlers = {
   read?: (path: string, scopeId: string) => FileContent | Promise<FileContent>;
   /** loose tabのスコープを閉じる要求（`close_loose_scope_command`）。 */
   closeLoose?: (scopeId: string) => void | Promise<void>;
+  /** loose tabの監視先を付け替える要求（`watch_loose_document_command`）。 */
+  watchLoose?: (request: {
+    scopeId: string;
+    path: string;
+    tabId: string;
+    generation: number;
+  }) => void | Promise<void>;
   openUrl?: (url: string) => void;
   issue?: (request: ImageResourceRequest) => ImageResource[];
   updateSettings?: (update: UiSettingsUpdate) => void;
@@ -82,6 +89,15 @@ function mockBackend(handlers: Handlers) {
       if (command === "issue_image_resources_command" && handlers.issue) {
         return handlers.issue(
           (payload as { request: ImageResourceRequest }).request,
+        );
+      }
+      if (command === "watch_loose_document_command") {
+        return handlers.watchLoose?.(
+          (
+            payload as {
+              request: Parameters<NonNullable<Handlers["watchLoose"]>>[0];
+            }
+          ).request,
         );
       }
       if (command === "close_loose_scope_command") {
@@ -2718,6 +2734,122 @@ describe("App: ワークスペース外のファイルとドラッグ＆ドロ�
     });
 
     await waitFor(() => expect(heading()).toBe("2版"));
+  });
+
+  test("loose tabの文書が替わったときだけ、採用した読込の文書へ監視の付け替えを求める（6.4）", async () => {
+    const watched: { scopeId: string; path: string; generation: number }[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) =>
+        fileContent(
+          path,
+          path === "note.md" ? "[次](sub/b.md)\n" : "## 次の文書\n",
+        ),
+      watchLoose: (request) => {
+        watched.push({
+          scopeId: request.scopeId,
+          path: request.path,
+          generation: request.generation,
+        });
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await screen.findByRole("link", { name: "次" });
+    // 最初の読込では求めない。Rust側が開いたときから監視している。
+    expect(watched).toEqual([]);
+
+    // 再読み込み（同じ文書）でも求めない。
+    await act(async () => {
+      await emit("menu-command", "reloadDocument");
+    });
+    expect(watched).toEqual([]);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "次" }));
+    });
+    await waitFor(() => expect(heading()).toBe("次の文書"));
+    expect(watched.map(({ scopeId, path }) => [scopeId, path])).toEqual([
+      [LOOSE, "sub/b.md"],
+    ]);
+
+    // 戻ると、戻った先の文書へ付け替えさせる。世代は前へ進む。
+    await act(async () => {
+      fireEvent.keyDown(window, { key: "ArrowLeft", altKey: true });
+    });
+    await screen.findByRole("link", { name: "次" });
+    expect(watched.map(({ path }) => path)).toEqual(["sub/b.md", "note.md"]);
+    expect(watched[1]?.generation).toBeGreaterThan(watched[0]?.generation ?? 0);
+  });
+
+  test("リンクを素早く辿って読込が逆順に完了しても、捨てた読込の文書へ監視の付け替えを求めない（6.4）", async () => {
+    const watched: string[] = [];
+    const answers: ((content: FileContent) => void)[] = [];
+    let reads = 0;
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => {
+        reads += 1;
+        if (reads === 1) return fileContent(path, "[B](b.md) [C](c.md)\n");
+        // 2回目（B）と3回目（C）は、応答を遅らせて完了の順序を制御する。
+        return new Promise<FileContent>((resolve) => answers.push(resolve));
+      },
+      watchLoose: (request) => {
+        watched.push(request.path);
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await screen.findByRole("link", { name: "B" });
+
+    // Bへ移る読込の途中で、Cへ移る。表示中なのは元の文書のままである。
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "B" }));
+    });
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "C" }));
+    });
+    await waitFor(() => expect(answers).toHaveLength(2));
+
+    // Cの読込が先に完了し、Bの読込があとから完了する。Bの応答は世代の判定で捨てられる。
+    await act(async () => answers[1]?.(fileContent("c.md", "## Cの文書\n")));
+    await waitFor(() => expect(heading()).toBe("Cの文書"));
+    await act(async () => answers[0]?.(fileContent("b.md", "## Bの文書\n")));
+
+    expect(heading()).toBe("Cの文書");
+    expect(watched).toEqual(["c.md"]);
+  });
+
+  test("ワークスペースの文書では、監視の付け替えを求めない", async () => {
+    const watched: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) =>
+        fileContent(
+          path,
+          path === "README.md" ? "[次](docs/a.md)\n" : "## 次\n",
+        ),
+      watchLoose: (request) => {
+        watched.push(request.path);
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await screen.findByRole("link", { name: "次" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "次" }));
+    });
+
+    await waitFor(() => expect(heading()).toBe("次"));
+    expect(watched).toEqual([]);
   });
 
   test("loose tabの監視が止まったときは、原因を示す", async () => {

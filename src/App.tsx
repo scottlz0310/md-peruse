@@ -13,6 +13,7 @@ import {
   readFile,
   scanDirectory,
   updateUiSettings,
+  watchLooseDocument,
 } from "./ipc/commands";
 import {
   onDragState,
@@ -559,6 +560,17 @@ export default function App() {
             pending: null,
           })),
         );
+        // loose tabは、文書が替わったときにだけ、監視先を表示している文書へ付け替えさせる（6.4）。
+        // 採用した応答だけを知らせる。世代の判定で捨てた応答の文書へ監視が移ると、表示中の
+        // 文書の更新を検知できない。読み直しは文書が替わらず、最初の読込はRust側が監視済み。
+        if (scopeId !== scopeRef.current && done.tab.path !== current.path) {
+          watchLooseDocument(
+            scopeId,
+            done.tab.path,
+            tabId,
+            done.tab.loadGeneration,
+          ).catch((reason: unknown) => setError(String(reason)));
+        }
         if (isActive(tabId)) {
           updateShown({ tabId, content, view: done.view });
           if (notice === "replace") setError(null);
