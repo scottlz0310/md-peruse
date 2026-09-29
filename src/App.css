@@ -128,11 +128,15 @@ body {
   font-size: calc(var(--font-scale, 1) * 1em);
 }
 
-/* タブバー（9.1）。 */
+/*
+ * タブバー（9.1）。あふれたら横にスクロールする。太いクラシックなスクロールバー
+ * （約15px）を細く（約9px）する。
+ */
 .tab-bar {
   display: flex;
   flex: none;
   overflow-x: auto;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--color-border);
   background-color: var(--color-sidebar-bg);
 }
@@ -196,6 +200,7 @@ body {
 .breadcrumb {
   flex: none;
   overflow-x: auto;
+  scrollbar-width: thin;
   border-bottom: 1px solid var(--color-border);
   font-size: 0.875rem;
   white-space: nowrap;

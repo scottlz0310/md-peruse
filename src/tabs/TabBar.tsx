@@ -1,4 +1,5 @@
-import { type KeyboardEvent, useRef } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
+import { useResizeObserver } from "../layout/use-resize-observer";
 import { type TabSet, tabTitle } from "../state/tab-set";
 
 type Props = {
@@ -19,10 +20,24 @@ export function tabElementId(tabId: string): string {
  *
  * WAI-ARIAのtabsパターンに従う。`←` / `→` でフォーカスを移しながらアクティブにし
  * （自動アクティブ化）、`Home` / `End` で端へ移る。プレビュータブは斜体で示す。
- * 中クリックと閉じるボタンでタブを閉じる。
+ * 中クリックと閉じるボタンでタブを閉じる。幅に収まらないタブは横にスクロールし、
+ * アクティブなタブは、変わったときと幅が変わったときに、見える位置へ動かす。
  */
 export function TabBar({ set, onActivate, onClose, onPin }: Props) {
+  const list = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<string, HTMLDivElement>());
+
+  // 矢印キーは `focus()` で動くが、ツリーからの新規オープン、`Ctrl+Tab`、タブを閉じた後の
+  // 切り替えは動かさないため、画面外のタブがアクティブになる。ウィンドウを狭めたときも、
+  // 右端にあったアクティブなタブが隠れる。アニメーションはしない。
+  const reveal = useCallback(() => {
+    if (set.activeTabId === null) return;
+    elements.current
+      .get(set.activeTabId)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [set.activeTabId]);
+  useEffect(reveal, [reveal]);
+  useResizeObserver(list, reveal);
 
   function move(tabId: string | undefined) {
     if (tabId === undefined) return;
@@ -52,7 +67,12 @@ export function TabBar({ set, onActivate, onClose, onPin }: Props) {
   }
 
   return (
-    <div role="tablist" aria-label="開いている文書" className="tab-bar">
+    <div
+      ref={list}
+      role="tablist"
+      aria-label="開いている文書"
+      className="tab-bar"
+    >
       {set.tabs.map((tab, index) => {
         const active = tab.tabId === set.activeTabId;
         return (

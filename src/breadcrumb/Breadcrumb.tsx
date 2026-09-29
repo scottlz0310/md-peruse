@@ -1,3 +1,5 @@
+import { useCallback, useLayoutEffect, useRef } from "react";
+import { useResizeObserver } from "../layout/use-resize-observer";
 import { pathChain, ROOT_PATH } from "../state/file-tree";
 
 type Props = {
@@ -14,8 +16,21 @@ type Props = {
  *
  * WAI-ARIAのbreadcrumbパターンに従う。フォルダーのセグメントはボタンとし、選ぶとツリーで
  * そのフォルダーを見せる。最後のセグメント（表示中の文書）は選択済みであり、操作を持たない。
+ * 幅に収まらないときは、表示中の文書名が見えるよう末尾へスクロールする。パスが変わった
+ * ときと幅が変わったときに動かし、それ以外は、手で動かした位置を保つ。
  */
 export function Breadcrumb({ rootLabel, path, onSelect }: Props) {
+  const nav = useRef<HTMLElement>(null);
+  const scrollToEnd = useCallback(() => {
+    const element = nav.current;
+    if (element) element.scrollLeft = element.scrollWidth;
+  }, []);
+
+  // 描画の前に動かし、先頭が一瞬見えるちらつきを避ける。
+  // biome-ignore lint/correctness/useExhaustiveDependencies: パスやワークスペース名が変わったときにだけ末尾へ動かす。
+  useLayoutEffect(scrollToEnd, [path, rootLabel]);
+  useResizeObserver(nav, scrollToEnd);
+
   const chain = pathChain(path);
   const folders = [
     { path: ROOT_PATH, name: rootLabel },
@@ -25,7 +40,7 @@ export function Breadcrumb({ rootLabel, path, onSelect }: Props) {
     })),
   ];
   return (
-    <nav className="breadcrumb" aria-label="パンくずリスト">
+    <nav ref={nav} className="breadcrumb" aria-label="パンくずリスト">
       <ol>
         {folders.map((folder) => (
           <li key={folder.path}>

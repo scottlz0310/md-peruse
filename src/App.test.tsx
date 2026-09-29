@@ -748,6 +748,8 @@ describe("App", () => {
       const scrolled: string[] = [];
       const original = Element.prototype.scrollIntoView;
       Element.prototype.scrollIntoView = function (this: Element) {
+        // タブバーが自分のタブを見える位置へ動かす呼び出し（9.1）は、見出しへの移動ではない。
+        if (this.getAttribute("role") === "tab") return;
         scrolled.push(this.id);
       };
       try {
