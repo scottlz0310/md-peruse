@@ -41,7 +41,6 @@ body:
       label: アーキテクチャ
       options:
         - x64
-        - ARM64
         - 不明
     validations:
       required: true

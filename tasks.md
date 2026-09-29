@@ -51,11 +51,11 @@
 ## Phase 1: MSIX技術スパイク
 
 - [x] Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する
-- [x] x64とARM64のReleaseビルドを生成する
+- [x] x64のReleaseビルドを生成する（ARM64のReleaseビルドも生成できたが、ARM64は対応外とした。[design-decisions.md](./docs/design-decisions.md) 3章）
 - [x] `Package.appxmanifest` とパッケージ用アセットを作成する
 - [x] アプリアイコンをTauriテンプレートの既定からmd-peruse独自のものへ差し替える
 - [x] packaged classic app、`mediumIL`、`runFullTrust` を設定する（`broadFileSystemAccess` は宣言しない）
-- [x] winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する
+- [x] winapp CLIを固定バージョンで導入し、MSIXを生成する
 - [x] 開発用自己署名証明書でローカル検証用パッケージを署名する
 - [x] Windows App Certification Kit（WACK）を実行し、結果を保存する（x64。OVERALL_RESULT は PASS。[design-decisions.md](./docs/design-decisions.md) 13.3）
 - [x] custom URI scheme protocolを1つ登録し、オリジンとURL形式を実測する（`http://mdperuse-img.localhost/<path>`。[design-decisions.md](./docs/design-decisions.md) 5.4）
@@ -67,7 +67,7 @@
 ### このフェーズで解決する未決事項
 
 - [x] 各ツールの初期バージョン（winapp CLI 0.6.1 を含め確定。[design-decisions.md](./docs/design-decisions.md) 4.10）
-- [x] ARM64のビルド方式（x64ホストからのクロスコンパイルに確定。[design-decisions.md](./docs/design-decisions.md) 13.2）
+- [x] ARM64の扱い（x64ホストからのクロスコンパイルでビルドできることを確認したうえで、実機で検証できないため対応外とした。[design-decisions.md](./docs/design-decisions.md) 3章、13.2）
 - [x] custom image protocolのURL形式（`http://mdperuse-img.localhost/<resource-id>`。resource IDの生成方式はPhase 3）
 - [x] CSPの初期値とcapabilityの検証（実測反映済み。確定はPhase 3）
 - [x] MSIXでのフォルダー選択、監視、関連付け起動（いずれも動作。[design-decisions.md](./docs/design-decisions.md) 13.4）
@@ -227,7 +227,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
 - [x] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
 - [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
-- [ ] GitHub Actionsでx64版とARM64版をビルドし、MSIXとWACK結果をartifactとして保存する
+- [ ] GitHub Actionsでx64版をビルドし、MSIXとWACK結果をartifactとして保存する
 - [ ] プライバシーポリシーとデータ収集申告を準備する
 - [ ] Store向けカスタムイベントのデータ収集申告とプライバシーポリシーを、送信するイベントの内容に合わせて更新する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [ ] 初回Store公開版でPartner Centerからカスタムイベントとパッケージバージョン別の集計を確認し、反映遅延とバージョン別フィルターの粒度を計測定義へ記録する。標準Sessions指標については、対応付けを行わない方針（[design-decisions.md](./docs/design-decisions.md) 11.4）のもとで観測した件数差を確認するにとどめ、照合方法の確定は行わない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
@@ -239,9 +239,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 ### 完了条件
 
-- [ ] x64版とARM64版のMSIXが同一バージョンで生成される
+- [ ] x64版のMSIXが生成される
 - [ ] 対象MSIXについてWACKが完了している
-- [ ] ARM64実機でのインストール、起動、WACKを確認している
 - [ ] Store提出物とCIで検証した成果物が一致している
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる
@@ -263,6 +262,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 脚注セクションの見出し `<h2 class="sr-only">Footnotes</h2>` から `class` が落ちる。`src/markdown/sanitize-schema.ts` の `attributes.h2` が `["id"]` のみのため、スクリーンリーダー向けの隠し見出しが画面上に現れる。schemaへ `className` を許可するか、脚注セクションの見出しをCSSで制御するかを決める（Phase 3-2の見出しアンカー実装時に発見。sanitize schemaは全列挙の方針であり、`className` を許可する場合は値のパターンまで固定する必要がある）
 - [ ] 幅の狭いウィンドウでは、タブバーとパンくずに太いクラシックな横スクロールバーが出て、パンくずは末尾（表示中の文書名）が見切れる（`overflow-x: auto` のまま）。表示中の文書名はアクティブタブにも出ており、パンくずの目的は上位フォルダーへ移ることなので操作上の支障はない。細いスクロールバー（`scrollbar-width: thin`）にするか、パスが変わったときに末尾が見える位置へスクロールするかを、狭いウィンドウでのタブバーとパンくずの単位で決める（UI/UXのBreadcrumbの実機確認で発見）
 - [ ] UTF-32 LEのBOM（`FF FE 00 00`）がUTF-16 LEのBOM（`FF FE`）を前置しているため、UTF-32 LEのファイルをUTF-16 LEとしてデコードし、NUL文字が並んだ本文を「読めた」として表示する。[design-decisions.md](./docs/design-decisions.md) 6.3は未対応の文字コードについて「原因を表示する」と定めており、この経路だけがそれに反する。`FF FE 00 00` を先に判定して `DecodeFailed` とするかを決める（Phase 4-1cのファイル読込実装時に発見。UTF-32をエディタの既定にする経路がなく、優先度は低い）
+- [ ] ARM64を対応外とした（[design-decisions.md](./docs/design-decisions.md) 3章）ことに伴う、Store側の扱いを決める。x64だけのパッケージがARM64端末のStoreに表示・提供されるか、Partner Centerで対象を絞れるか、Store掲載情報のシステム要件へ「x64のみ対応」を書くかを、Store掲載情報を準備するとき（Phase 5）に確認する。ARM64のWindowsでx64版が動くかは検証しておらず、保証しない方針である
 
 ## 未決事項の一覧
 

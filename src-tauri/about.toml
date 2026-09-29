@@ -15,8 +15,8 @@ accepted = [
   "Zlib",
 ]
 
-# MSIXはx64とARM64を配布するため、両ターゲットの依存を対象にする。
-targets = ["x86_64-pc-windows-msvc", "aarch64-pc-windows-msvc"]
+# MSIXはx64だけを配布するため、x64ターゲットの依存を対象にする。
+targets = ["x86_64-pc-windows-msvc"]
 
 # ビルド時にのみ使うcrateと開発用crateは配布物へ含まれない。
 ignore-build-dependencies = true

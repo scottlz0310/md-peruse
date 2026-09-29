@@ -50,18 +50,17 @@
 
 ### 目的
 
-Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、起動、検証できることを実装初期に確認する。
+Tauriアプリをx64でビルドし、MSIXとしてインストール、起動、検証できることを実装初期に確認する。
 
 このフェーズの目的は製品機能の実装ではなく、MSIX環境で必要な権限と挙動が得られることの確認である。フォルダー選択、読込、監視、関連付け起動は、正式設計を待たない最小の検証コードで確認する。
 
 ### 作業
 
 - Bun + Vite + React + TypeScript + Tauri v2の最小アプリを作成する。
-- Tauriでx64とARM64のReleaseビルドを生成する。
-- ARM64のビルド方式（ネイティブARM64ランナーかクロスコンパイルか）を確定する。
+- Tauriでx64のReleaseビルドを生成する。
 - `Package.appxmanifest` とパッケージ用アセットを作成する。
 - packaged classic app、`mediumIL`、`runFullTrust` を設定し、`broadFileSystemAccess` を宣言しない。
-- winapp CLIを固定バージョンで導入し、アーキテクチャ別MSIXを生成する。
+- winapp CLIを固定バージョンで導入し、MSIXを生成する。
 - BunとWinGet版winapp CLIだけでビルドできるか確認し、Node.jsが必要ならビルド時依存として明記する。
 - 開発用自己署名証明書でローカル検証用パッケージを署名する。
 - Windows App Certification Kit（WACK）を実行する。
@@ -73,7 +72,7 @@ Tauriアプリをx64とARM64でビルドし、MSIXとしてインストール、
 ### 完了条件
 
 - [x] x64版MSIXをインストールして起動できる。
-- [x] ARM64版MSIXがx64版と同一の手順で生成できる。WACKはパッケージをインストールして実行するためホストと同じアーキテクチャを要する。ARM64版のインストール、起動、WACKはPhase 5の提出前検証で行う（開発環境にARM64実機がないため）。
+- [x] （廃止）ARM64版MSIXはx64ホストからのクロスコンパイルで生成できることを確認した。ARM64実機を用意できず、インストール、起動、WACKを確認できないため、ARM64は対応外とし、バイナリも配布しない（2026-09-29。[design-decisions.md](./design-decisions.md) 3章）。
 - [x] WACKの結果を保存し、Store提出を妨げる失敗がない。
 - [x] Package Identity、Publisher、バージョンの管理方法が確定している。
 - [x] Bun、winapp CLI、Node.jsの依存境界が確定している。
@@ -282,10 +281,9 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 
 - MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる。
 - バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する。
-- GitHub Actionsでx64版とARM64版をビルドする。
+- GitHub Actionsでx64版をビルドする。
 - winapp CLIでMSIXを生成する。
 - WACK結果とMSIXをリリースartifactとして保存する。
-- ARM64実機でMSIXをインストールして起動し、WACKを実行することを提出前に確認する（Phase 1では開発環境にARM64実機がないため生成までを実施した）。
 - プライバシーポリシーとデータ収集申告を準備する。
 - Store掲載情報（説明、スクリーンショット、年齢区分、掲載言語）を準備する。
 - Microsoft Partner Centerで初回登録と審査申請を行う。
@@ -297,7 +295,7 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 
 ### 完了条件
 
-- [ ] x64版とARM64版のMSIXが同一バージョンで生成される。
+- [ ] x64版のMSIXが生成される。
 - [ ] 対象MSIXについてWACKが完了している。
 - [ ] Store提出物とCIで検証した成果物が一致している。
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している。
@@ -312,7 +310,7 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 | 未決事項 | 解決フェーズ |
 | --- | --- |
 | 各ツールの初期バージョン | Phase 1 |
-| ARM64のビルド方式 | Phase 1 |
+| ARM64への対応（Phase 1でビルド方式を確定したのち、2026-09-29に対応外とした） | Phase 1 |
 | `bun:test` でのDOMテスト成立可否とVitestへの退避条件 | Phase 2 |
 | custom image protocolのURL形式 | Phase 1 |
 | custom image protocolのresource ID生成、無効化、キャッシュ方針 | Phase 3-1（IPC） |
