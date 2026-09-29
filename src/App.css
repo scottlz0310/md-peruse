@@ -424,6 +424,18 @@ body {
   height: auto;
 }
 
+/*
+ * Mermaidはエッジのアニメーション（図の定義の `animate: true`）を、図の `style` 要素の
+ * `@keyframes` で無限に繰り返す。OSのアニメーション効果を切っているときは止める（8.4）。
+ * 破線の模様は残るので、動く線であることは静止した図でも分かる。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .markdown-body .mermaid-diagram svg * {
+    /* biome-ignore lint/complexity/noImportantStyles: Mermaidの規則は図のIDから始まり、classでは詳細度で勝てない */
+    animation: none !important;
+  }
+}
+
 /* 描画できなかった図の理由（8.4、12章）。 */
 .markdown-body .mermaid-error {
   color: var(--color-fg-muted);
