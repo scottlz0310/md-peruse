@@ -1038,6 +1038,7 @@ highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として�
 - 生成SVGのsanitizeはDOMPurifyのSVGプロファイル（`svg`、`svgFilters`）に、`foreignObject` の禁止と `href` / `xlink:href` の禁止を加える。テーマの `style` 要素は残す（5.5の `style-src-elem`）。生成された `style` 要素のセレクタはすべて図のIDで始まり、図の外へ効くものはなかった（実測）。
 - `style` 属性は、SVGの表示属性として正当なプロパティで、値が色・長さ・数値の列か色の関数表記（`rgb()`、`hsl()` など）のものだけを属性へ移す（5.5）。`url(` を含む値は移さない。svg要素の `max-width`（px）は `width` 属性へ移し、表示幅への収まりはCSSの `max-width: 100%` で行う。
 - テーマは `prefers-color-scheme` から `default` / `dark` を選び、`forced-colors` が有効なときは `neutral` にする。どちらのメディアクエリが変わっても描画し直す。
+- `prefers-reduced-motion: reduce` のときは、エッジのアニメーションを `App.css` の規則（`.markdown-body .mermaid-diagram svg *` の `animation: none !important`）で止める。図の定義の `animate: true` や `animation: fast` / `slow` は、Mermaidが図の `style` 要素へ `animation: dash ... infinite`（`@keyframes dash`）として出力する。この `style` 要素はsanitizeもCSP（5.5の `style-src-elem`）も通すため、何もしなければOSの設定によらず動き続ける（Chromiumで実測。WebView2でも同じ）。Mermaid 12.0.0のCSSが `animation` を使うのはこの `slow` と `fast` の2つだけで、SMILのアニメーション要素は出さない。止めても `stroke-dasharray` は残るので、動く線であることは破線の模様で分かる。メディアクエリは実行中に追従するため、`forced-colors` と違って再描画は要らない。
 - 描画のタイムアウトは打ち切って理由を示すが、Mermaidの描画そのものは止められない。打ち切った描画が終わるまで同時描画の枠は空けない。空けると、止まらない描画が積み重なる。
 - 描画を待つ間と、描画できなかった図、1文書の上限を超えた図は、定義をコードブロックとして残し、描画できなかった図と上限を超えた図はブロックの直後に理由を示す（12章）。
 - sanitizeのテストはjsdom上で行う。happy-domではDOMPurifyが要素名を取得できず、SVGプロファイルで `svg` 要素ごと除去される（実測）。本番のDOMPurifyはWebView2上で動く。
@@ -1227,7 +1228,7 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 - ツリーは矢印、`Enter`、`Home`、`End` で操作できるようにする。左右キーで展開と折りたたみを行う。
 - タブは `Ctrl+Tab`、`Ctrl+W`、左右移動に対応する。
 - `tree`、`treeitem`、`tablist`、`tab`、`tabpanel` などのARIAを設定する。
-- Windowsハイコントラスト、`forced-colors`、`prefers-reduced-motion` に対応する。
+- Windowsハイコントラスト、`forced-colors`、`prefers-reduced-motion` に対応する。自前のUIにはアニメーションを置いていない。動きを足すときは `prefers-reduced-motion: reduce` を尊重する。Mermaidの図のエッジのアニメーションだけは図の定義で有効になるため、止める（8.4）。
 - 本文の見出し、リスト、コードブロックの意味構造を保持する。
 - 製品UIからsave、print、view source、devtoolsを除外する。
 
