@@ -29,6 +29,8 @@ type Handlers = {
   setTitle?: (title: string) => void;
   /** 起動時に返す設定の上書き。 */
   ui?: Partial<UiSettings>;
+  /** 設定の取得を受けたときの処理。応答を遅らせたり、その間に何かを起こしたりするために使う。 */
+  onLoadUi?: () => void | Promise<void>;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -45,7 +47,10 @@ function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
       if (command === "get_ui_settings_command")
-        return { ...UI_SETTINGS, ...handlers.ui };
+        return Promise.resolve(handlers.onLoadUi?.()).then(() => ({
+          ...UI_SETTINGS,
+          ...handlers.ui,
+        }));
       if (command === "update_ui_settings_command") {
         handlers.updateSettings?.(
           (payload as { update: UiSettingsUpdate }).update,
@@ -1430,6 +1435,43 @@ describe("App: UI言語の切り替え（10.5）", () => {
 
     expect(screen.getByText(/フォルダーを開く/)).toBeTruthy();
     expect(document.documentElement.lang).toBe("ja");
+  });
+
+  test("設定の応答より先に切り替えのeventが届いても、その言語で表示する", async () => {
+    // 起動直後に言語を選ぶと、設定の応答（旧言語）より先にeventが届くことがある。
+    let release: () => void = () => {};
+    let requested = false;
+    mockBackend({
+      scan: () => ROOT,
+      onLoadUi: () =>
+        new Promise<void>((resolve) => {
+          requested = true;
+          release = resolve;
+        }),
+    });
+    render(<App />);
+    await waitFor(() => expect(requested).toBe(true));
+
+    await changeLanguage("en", "en");
+    await act(async () => release());
+
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+    expect(screen.queryByText(/フォルダーを開く/)).toBeNull();
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  test("設定を読み始める時点で、言語の切り替えの購読は済んでいる", async () => {
+    // 設定を読んだ直後の切り替えは、応答が届く前にeventになる。読み取りを購読より先に発行すると、
+    // その切り替えは誰にも届かず、旧言語の応答だけが残る。
+    mockBackend({
+      scan: () => ROOT,
+      onLoadUi: () =>
+        emit("language-changed", { preference: "en", language: "en" }),
+    });
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+    expect(document.documentElement.lang).toBe("en");
   });
 
   test("eventを受けなければ、文言は変わらない", async () => {

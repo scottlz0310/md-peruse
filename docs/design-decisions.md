@@ -1429,7 +1429,7 @@ OSの表示言語は `GetUserDefaultLocaleName` で取得する（`ja-JP` を返
 
 言語ごとの文言表は `Record<Language, …>` の形で持ち、言語を増やしたときの不足を `tsc --noEmit` が検出できるようにする。`src/types/error.ts` の `RETRYABLE` を `Record<ErrorCode, boolean>` として定義したのと同じ理由による（5.3）。Rust側は列挙に対する `match` の網羅性検査で同じ保証を得る。
 
-Frontendの文言の正本は `src/i18n/messages.ts`（`Messages` 型と `MESSAGES: Record<Language, Messages>`）とする。`LanguageProvider`（`src/i18n/LanguageContext.tsx`）が現在の言語の文言を子孫へ渡し、Appが設定の `effectiveLanguage` から言語を決めて `<html lang>` を合わせ、`language-changed` eventを受けたら `effectiveLanguage` を差し替える（`onLanguageChanged`）。設定を読むまで描画しないため、既定の言語が画面に出ることはない。英語の書き方は、Rust側の英語（`ipc/message.rs`、`menu.rs`）へ揃える。開発者向けの例外（不変条件の違反など）の文言は、利用者へ見せないため辞書へ置かない。
+Frontendの文言の正本は `src/i18n/messages.ts`（`Messages` 型と `MESSAGES: Record<Language, Messages>`）とする。`LanguageProvider`（`src/i18n/LanguageContext.tsx`）が現在の言語の文言を子孫へ渡し、Appが言語を決めて `<html lang>` を合わせる。言語は、`language-changed` eventで届いた切り替え（`onLanguageChanged`）があればそれ、なければ設定の `effectiveLanguage` とする。切り替えは設定とは別に持ち、設定の応答との前後を問わず優先する。起動時は、この購読を済ませてから設定を読む。読む前の切り替えは設定に含まれ、読んだ後の切り替えはeventで届くため、起動直後に言語を選んでも取りこぼさず、遅れて届いた旧言語の設定に上書きされない（購読より先に読むと、その間の切り替えはどこにも届かない）。設定を読むまで描画しないため、既定の言語が画面に出ることはない。英語の書き方は、Rust側の英語（`ipc/message.rs`、`menu.rs`）へ揃える。開発者向けの例外（不変条件の違反など）の文言は、利用者へ見せないため辞書へ置かない。
 
 文言を作る場所によって、言語を切り替えたときの扱いが分かれる。
 
