@@ -2827,6 +2827,37 @@ describe("App: ワークスペース外のファイルとドラッグ＆ドロ�
     expect(watched).toEqual(["c.md"]);
   });
 
+  test("監視の付け替えが拒否されたときは、原因を示す（7.1）", async () => {
+    const rejected: IpcError = {
+      code: "pathRejected",
+      message: "このパスは開けません。",
+      detail: null,
+    };
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) =>
+        fileContent(
+          path,
+          path === "note.md" ? "[次](sub/b.md)\n" : "## 次の文書\n",
+        ),
+      watchLoose: () => Promise.reject(rejected),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await screen.findByRole("link", { name: "次" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "次" }));
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      rejected.message,
+    );
+  });
+
   test("ワークスペースの文書では、監視の付け替えを求めない", async () => {
     const watched: string[] = [];
     mockBackend({

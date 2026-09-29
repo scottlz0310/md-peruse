@@ -218,29 +218,32 @@ pub async fn issue_image_resources_command(
 /// （`read_file_command`）は付け替えない。読んだ応答をFrontendが世代の判定で捨てることがあり、その
 /// 文書へ監視が移ると、表示中の文書の更新を検知できなくなるためである。
 ///
-/// 付け替えに失敗したときは、そのスコープへ `watcherStopped` を通知する（event）。ワークスペースと、
+/// `path` はFrontendから届くため、暗黙のルートに対して再検証する（7.1）。読込と同じ規則
+/// （相対パスの形式、境界、実在）に加えて、Markdownファイルであることを確かめ、逸脱した要求は
+/// 読込と同じ `ErrorCode` で拒否する。拒否した要求は、監視も確定した世代も変えない。
+///
+/// Watcherを開始できなかったときは、そのスコープへ `watcherStopped` を通知する（event）。ワークスペースと、
 /// 開いていないスコープには何もしない。監視の停止は監視スレッドの終了まで待つため、
 /// ブロッキングスレッドで実行する。
-///
-/// 失敗しない操作だが、借用（`State`）を受ける `async` のcommandは `Result` を返す決まりであり、
-/// Tauriのマクロが要求する。
 #[tauri::command]
 pub async fn watch_loose_document_command(
     state: State<'_, AppState>,
     request: LooseWatchRequest,
 ) -> Result<(), IpcError> {
+    let language = state.language();
     let workspace = state.workspace();
+    let requested_path = request.path.clone();
     spawn_blocking(move || {
         workspace.retarget_loose(
             &request.scope_id,
             &request.path,
             &request.tab_id,
             request.generation,
-        );
+        )
     })
     .await
-    .expect("loose tabの監視の付け替えタスクの実行に失敗");
-    Ok(())
+    .expect("loose tabの監視の付け替えタスクの実行に失敗")
+    .map_err(|error| read_error(&ReadError::Resolve(error), &requested_path, language))
 }
 
 /// loose tabのスコープを閉じ、そのファイルの監視を止める（design-decisions.md 6.4、9.1）。
@@ -858,6 +861,62 @@ mod tests {
             )
             .expect("書込みに失敗");
             assert!(wait_for("sub/b.md"), "確認のあとも、付け替わっていない");
+        }
+
+        /// 付け替えの要求のパスは、暗黙のルートに対して検証する。ルートの外へ出るパス、絶対パス、
+        /// Markdownではないファイル、実在しないファイルは、読込と同じ `ErrorCode` で拒否し、
+        /// 応答へ要求のパスを載せない（7.1）。開いていないスコープには何も起きない。
+        #[test]
+        fn a_watch_request_is_validated_against_the_implicit_root() {
+            let temp = TempDir::new("watch-validation");
+            std::fs::create_dir_all(temp.path().join("root")).expect("フォルダーの作成に失敗");
+            std::fs::write(temp.path().join("root/note.md"), b"# note\n").expect("書込みに失敗");
+            std::fs::write(temp.path().join("secret.md"), b"# secret\n").expect("書込みに失敗");
+            std::fs::write(temp.path().join("root/plain.txt"), b"text\n").expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            let opened = state
+                .open_loose(&temp.path().join("root/note.md"), Arc::new(DiscardingSink))
+                .expect("loose tabを開けない");
+            let watch = |scope_id: &str, path: &str| {
+                block_on(watch_loose_document_command(
+                    app.state::<AppState>(),
+                    LooseWatchRequest {
+                        scope_id: scope_id.to_owned(),
+                        path: path.to_owned(),
+                        tab_id: "tab-1".to_owned(),
+                        generation: 1,
+                    },
+                ))
+            };
+            let absolute = temp.path().join("secret.md").to_string_lossy().into_owned();
+
+            let cases = [
+                (
+                    "親フォルダーへ出る",
+                    "../secret.md",
+                    ErrorCode::PathRejected,
+                ),
+                ("絶対パス", absolute.as_str(), ErrorCode::PathRejected),
+                ("Markdownではない", "plain.txt", ErrorCode::PathRejected),
+                ("実在しない", "missing.md", ErrorCode::FileNotFound),
+            ];
+            for (name, path, code) in cases {
+                let error = watch(&opened.scope_id, path).expect_err(name);
+                assert_eq!(error.code, code, "{name}");
+                // 形式の検証に落ちた入力は、応答へ載せない。
+                if code == ErrorCode::PathRejected {
+                    assert_eq!(error.detail, None, "{name}");
+                }
+                assert!(
+                    !error.message.contains("secret"),
+                    "{name}: {}",
+                    error.message
+                );
+            }
+            // 正当な要求と、開いていないスコープは成功する。
+            watch(&opened.scope_id, "note.md").expect("正当な要求が拒否された");
+            watch("unknown", "../secret.md").expect("開いていないスコープに何かした");
         }
 
         /// スコープIDは、ワークスペースの切り替え前のものでは引けない。切り替える前に発行した

@@ -15,13 +15,18 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+use crate::file_kind::is_markdown_path;
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
 use crate::image::resource::ImageResources;
 use crate::ipc::error::ErrorCode;
 use crate::ipc::types::WorkspaceOpenedEvent;
-use crate::path_guard::{WorkspaceRoot, is_valid_name};
+use crate::path_guard::{PathRejection, ResolveError, WorkspaceRoot, is_valid_name};
 use crate::settings::recent_folder_label;
 use crate::watch_runtime::{ChangeSink, LooseWatcher, WorkspaceWatcher, new_scope_id};
+
+/// loose tabのWatcherを開始する関数。テストで開始の失敗を再現できるよう、差し替えられる形にする。
+type StartLooseWatcher =
+    dyn Fn(&Path, &str, String, Arc<dyn ChangeSink>) -> notify::Result<LooseWatcher>;
 
 /// 開いているスコープ。ワークスペースか、loose tabの暗黙のルートである。
 ///
@@ -378,6 +383,12 @@ impl WorkspaceHandle {
     /// 別の文書へ移ると、タブの文書が替わるため、表示している文書に合わせる。同じ文書では何も
     /// しない。ワークスペースのスコープと、開いていないスコープでも何もしない。
     ///
+    /// `file` はFrontendから届くパスであり、暗黙のルートに対して再検証する（7.1）。相対パスの
+    /// 形式（`..`、絶対パス、区切りの表記）、Markdownファイルであること、実在すること、
+    /// junctionなどを経由しても暗黙のルートの中にあることを、状態を変える前に確かめる。逸脱した
+    /// 要求は、確定した世代も監視も変えず、`ResolveError` を返す。検証しないと、ルート外の
+    /// フォルダーを監視でき、その成否が通知から観測できる。
+    ///
     /// 呼ぶのは、Frontendが読込の応答を採用したときだけである。読んだだけで付け替えると、
     /// 素早くリンクを辿って応答が逆順に完了したとき、Frontendが世代の判定で捨てた古い応答の文書へ
     /// 監視が移り、表示中の文書の更新を検知できなくなる。`tab_id` と `generation` は、その
@@ -385,8 +396,27 @@ impl WorkspaceHandle {
     /// 実行順が入れ替わったものとして捨てる。別のタブ（スコープを開き直した場合）は世代が
     /// 0から数え直しになるため、世代を比べずに受ける。
     ///
-    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。
-    pub fn retarget_loose(&self, scope_id: &str, file: &str, tab_id: &str, generation: u32) {
+    /// Watcherを開始できなかったときは、そのスコープの送出先へ監視が止まったことを知らせる。
+    pub fn retarget_loose(
+        &self,
+        scope_id: &str,
+        file: &str,
+        tab_id: &str,
+        generation: u32,
+    ) -> Result<(), ResolveError> {
+        self.retarget_loose_with(scope_id, file, tab_id, generation, &LooseWatcher::start)
+    }
+
+    /// `retarget_loose` の本体。Watcherの開始を引数で受けるのは、開始の失敗の扱いをテストで
+    /// 確かめるためである。開始に失敗させるには、検証を通った直後にフォルダーが消える競合が要る。
+    fn retarget_loose_with(
+        &self,
+        scope_id: &str,
+        file: &str,
+        tab_id: &str,
+        generation: u32,
+        start: &StartLooseWatcher,
+    ) -> Result<(), ResolveError> {
         let (root, sink) = {
             let mut scopes = self.lock();
             let Some(loose) = scopes
@@ -394,16 +424,20 @@ impl WorkspaceHandle {
                 .iter_mut()
                 .find(|loose| loose.scope.id == scope_id)
             else {
-                return;
+                return Ok(());
             };
+            if !is_markdown_path(file) {
+                return Err(PathRejection::Malformed.into());
+            }
+            loose.scope.root.resolve(file)?;
             if let Some((confirmed_tab, confirmed)) = &loose.confirmed {
                 if confirmed_tab == tab_id && generation <= *confirmed {
-                    return;
+                    return Ok(());
                 }
             }
             loose.confirmed = Some((tab_id.to_owned(), generation));
             if loose.file == file {
-                return;
+                return Ok(());
             }
             // 確定した文書は、Watcherを付け替える前に記録する。付け替えの間に届く、より新しい
             // 要求が、この記録との差で「付け替えが要るか」を判断できる。
@@ -424,17 +458,18 @@ impl WorkspaceHandle {
             .find(|loose| loose.scope.id == scope_id)
             .map(|loose| loose.file.clone());
         if current.as_deref() != Some(file) {
-            return;
+            return Ok(());
         }
         // 旧Watcherを止める。停止は監視スレッドの終了まで待つ。
         watchers.retain(|watcher| watcher.scope_id() != scope_id);
-        match LooseWatcher::start(&root, file, scope_id.to_owned(), Arc::clone(&sink)) {
+        match start(&root, file, scope_id.to_owned(), Arc::clone(&sink)) {
             Ok(watcher) => watchers.push(watcher),
             Err(_) => {
                 drop(watchers);
                 sink.watcher_error(scope_id, ErrorCode::WatcherStopped);
             }
         }
+        Ok(())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Scopes> {
@@ -800,10 +835,18 @@ mod tests {
         write_document(&outside.parent().unwrap().join("sub"), "b.md");
 
         // 同じ文書、別の文書、ワークスペース、開いていないスコープ。
-        handle.retarget_loose(&opened.scope_id, "note.md", "tab-1", 1);
-        handle.retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2);
-        handle.retarget_loose(&workspace_scope, "sub/b.md", "tab-1", 3);
-        handle.retarget_loose("unknown", "sub/b.md", "tab-1", 4);
+        handle
+            .retarget_loose(&opened.scope_id, "note.md", "tab-1", 1)
+            .unwrap();
+        handle
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2)
+            .unwrap();
+        handle
+            .retarget_loose(&workspace_scope, "sub/b.md", "tab-1", 3)
+            .unwrap();
+        handle
+            .retarget_loose("unknown", "sub/b.md", "tab-1", 4)
+            .unwrap();
 
         assert_eq!(state.lock_loose_watchers().len(), 1);
         assert_eq!(
@@ -847,7 +890,8 @@ mod tests {
 
         state
             .workspace()
-            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 1);
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 1)
+            .unwrap();
         fs::write(&outside, b"# rewritten original\n").unwrap();
         fs::write(&sub, b"# rewritten target\n").unwrap();
 
@@ -904,8 +948,12 @@ mod tests {
         };
 
         // 世代2の確認が先に届き、世代1（古い読込）の確認があとから届く。
-        handle.retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2);
-        handle.retarget_loose(&opened.scope_id, "note.md", "tab-1", 1);
+        handle
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2)
+            .unwrap();
+        handle
+            .retarget_loose(&opened.scope_id, "note.md", "tab-1", 1)
+            .unwrap();
         fs::write(
             &outside,
             b"# rewritten original
@@ -934,7 +982,9 @@ mod tests {
 
         // 別のタブは、世代が1に戻っていても受ける。
         recording.0.lock().unwrap().clear();
-        handle.retarget_loose(&opened.scope_id, "note.md", "tab-2", 1);
+        handle
+            .retarget_loose(&opened.scope_id, "note.md", "tab-2", 1)
+            .unwrap();
         fs::write(
             &outside,
             b"# rewritten again
@@ -944,8 +994,8 @@ mod tests {
         assert!(wait_for("note.md"), "別のタブの確認が受け入れられない");
     }
 
-    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。
-    /// 読込の応答は成功しているため、失敗を応答へ載せない。
+    /// Watcherを開始できなかったときは、そのスコープの送出先へ監視が止まったことを知らせる。
+    /// 読込の応答は成功しているため、失敗を応答へ載せない。開始の失敗は、注入した開始関数で再現する。
     #[test]
     fn a_failed_retarget_reports_that_watching_stopped() {
         struct RecordingSink(Mutex<Vec<(String, ErrorCode)>>);
@@ -957,19 +1007,94 @@ mod tests {
             fn images_changed(&self, _scope_id: &str) {}
         }
         let (_temp, state, outside) = with_workspace_and_outside("retarget-failure");
+        write_document(&outside.parent().unwrap().join("sub"), "b.md");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
             .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
             .unwrap();
 
-        // 下位のフォルダーが無いと、そのフォルダーを監視できない。
         state
             .workspace()
-            .retarget_loose(&opened.scope_id, "missing/b.md", "tab-1", 1);
+            .retarget_loose_with(&opened.scope_id, "sub/b.md", "tab-1", 1, &|_, _, _, _| {
+                Err(notify::Error::generic("開始できない"))
+            })
+            .unwrap();
 
         assert_eq!(
             *recording.0.lock().unwrap(),
             vec![(opened.scope_id, ErrorCode::WatcherStopped)]
         );
+    }
+
+    /// 付け替えの要求はFrontendから届くパスであり、暗黙のルートに対して再検証する（7.1）。
+    /// 逸脱した要求は、拒否して、監視も確定した世代も変えない。
+    #[test]
+    fn an_invalid_target_is_rejected_and_changes_nothing() {
+        struct RecordingSink(Mutex<Vec<String>>);
+        impl ChangeSink for RecordingSink {
+            fn file_change(&self, event: FileChangeEvent) {
+                if let crate::ipc::types::FileChange::FileModified { path } = event.change {
+                    self.0.lock().unwrap().push(path);
+                }
+            }
+            fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+            fn images_changed(&self, _scope_id: &str) {}
+        }
+        let (temp, state, outside) = with_workspace_and_outside("invalid-target");
+        // 暗黙のルートの外にあるフォルダーとファイル。
+        let elsewhere = write_document(&temp.path().join("elsewhere"), "x.md");
+        write_document(&outside.parent().unwrap().join("sub"), "notes.txt");
+        let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+        let opened = state
+            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .unwrap();
+        let handle = state.workspace();
+        let absolute = elsewhere.to_string_lossy().into_owned();
+        let cases = [
+            ("親フォルダーへ出る", "../elsewhere/x.md"),
+            ("途中で親へ出る", "sub/../../elsewhere/x.md"),
+            ("絶対パス", absolute.as_str()),
+            ("区切りがバックスラッシュ", r"sub\b.md"),
+            ("Markdownではない", "sub/notes.txt"),
+            ("実在しない", "sub/missing.md"),
+            ("空", ""),
+        ];
+
+        for (name, path) in cases {
+            // 世代は新しくしておく。検証を通らなければ、世代の比較へ進まない。
+            assert!(
+                handle
+                    .retarget_loose(&opened.scope_id, path, "tab-1", 9)
+                    .is_err(),
+                "{name}: 拒否されない"
+            );
+        }
+
+        // 監視は元の文書のままで、外のフォルダーは監視していない。
+        fs::write(&elsewhere, b"# rewritten elsewhere\n").unwrap();
+        fs::write(&outside, b"# rewritten original\n").unwrap();
+        let wait_for_any = || {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while recording.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+        };
+        wait_for_any();
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert_eq!(
+            *recording.0.lock().unwrap(),
+            vec!["note.md".to_owned()],
+            "外の文書の変更が届いている、または元の文書の変更が届かない"
+        );
+
+        // 拒否した要求は世代を進めない。同じ世代の、正当な要求は受け入れられる。
+        let sub = write_document(&outside.parent().unwrap().join("sub"), "b.md");
+        handle
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 9)
+            .unwrap();
+        recording.0.lock().unwrap().clear();
+        fs::write(&sub, b"# rewritten target\n").unwrap();
+        wait_for_any();
+        assert_eq!(*recording.0.lock().unwrap(), vec!["sub/b.md".to_owned()]);
     }
 }

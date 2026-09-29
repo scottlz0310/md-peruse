@@ -569,7 +569,7 @@ export default function App() {
             done.tab.path,
             tabId,
             done.tab.loadGeneration,
-          ).catch((reason: unknown) => setError(String(reason)));
+          ).catch((reason: IpcError) => setError(reason.message));
         }
         if (isActive(tabId)) {
           updateShown({ tabId, content, view: done.view });
