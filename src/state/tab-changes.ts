@@ -1,14 +1,15 @@
 import type { FileChangeEvent } from "../types/generated/FileChangeEvent";
 import { renameHistoryPath } from "./doc-history";
-import type { OpenTab, TabSet } from "./tab-set";
+import { type OpenTab, pendingPath, type TabSet } from "./tab-set";
 import { applyFileChange } from "./tab-status";
 
 /** ファイル変更を全タブへ適用した結果。 */
 export type TabChanges = {
   readonly set: TabSet;
   /**
-   * 再読込を始めるタブ。アクティブタブが変更を受けて `stale` になったときだけ入る。
-   * 非アクティブタブは本文を持たず、アクティブになったときに読み直す（9.1）。
+   * 再読込を始めるタブ。アクティブタブが、読込世代の進んだ `stale` になったとき、または
+   * 進行中の読込を無効にされたときに入る。非アクティブタブは本文を持たず、アクティブに
+   * なったときに読み直す（9.1）。
    */
   readonly reloadTabId: string | null;
 };
@@ -21,9 +22,12 @@ export type TabChanges = {
  * - renameを受けたタブの履歴を、新しいパスへ追従させる。タブのパスだけを移すと、戻ったときに
  *   旧パスの読込が失敗し、renameを追跡した意味がなくなる（9.3）。現在のパスが違うタブでも、
  *   履歴に旧パスの項目があれば差し替える。
- * - どのタブを再読込するかを返す。読込世代が進んだ `stale` のアクティブタブだけである。
- *   世代が進んでいなければ、変更はそのタブに関係しない。すでに `stale` だったタブが新しい
- *   変更を受けたときは世代が進むため、再読込をやり直す。
+ * - どのタブを再読込するかを返す。アクティブタブが次のいずれかになったときである（削除された
+ *   タブは除く）。
+ *   - 読込世代が進んだ `stale` になった。すでに `stale` だったタブが新しい変更を受けたときも
+ *     世代が進むため、再読込をやり直す。世代が進んでいなければ、変更はそのタブに関係しない。
+ *   - 進行中の読込を無効にされた。renameは状態を `loaded` のまま保つため、最初の読込中に
+ *     renameを受けると、旧パスの応答が捨てられて、何も読み込まれないタブが残る。
  */
 export function applyChangeToTabs(
   set: TabSet,
@@ -48,10 +52,13 @@ export function applyChangeToTabs(
     }
     if (next === tab) return tab;
     touched = true;
+    const staled =
+      next.status === "stale" && next.loadGeneration !== tab.loadGeneration;
+    const droppedLoad = pendingPath(tab) !== null && pendingPath(next) === null;
     if (
       tab.tabId === set.activeTabId &&
-      next.status === "stale" &&
-      next.loadGeneration !== tab.loadGeneration
+      next.status !== "deleted" &&
+      (staled || droppedLoad)
     ) {
       reloadTabId = tab.tabId;
     }

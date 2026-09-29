@@ -2179,6 +2179,93 @@ describe("App: ファイル変更への追従（6.4、6.5、5.4）", () => {
     expect(scanned).toEqual(["", ""]);
   });
 
+  test.each([
+    ["プレビューで開いていたタブ", 1, 1],
+    ["固定で開いていたタブ", 2, 2],
+  ])(
+    "削除されたファイルが同じパスに作り直されたら、ツリーから開き直せる: %s（6.5）",
+    async (_, clicks, tabCount) => {
+      const versions = ["## 削除前\n", "## 作り直し\n"];
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => fileContent(path, versions.shift() ?? "## 想定外\n"),
+      });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => treeItem("README.md"));
+      await act(async () => {
+        fireEvent.click(treeItem("README.md"), { detail: clicks });
+      });
+      await waitFor(() => expect(heading()).toBe("削除前"));
+      await fileChange({ kind: "fileRemoved", path: "README.md" });
+      expect(screen.getByRole("status")).toBeTruthy();
+
+      // ファイルが同じパスに作り直され、ツリーから開く。
+      await act(async () => {
+        fireEvent.click(treeItem("README.md"));
+      });
+
+      await waitFor(() => expect(heading()).toBe("作り直し"));
+      expect(screen.getAllByRole("tab")).toHaveLength(tabCount);
+      // 開き直したタブは削除済みではない。
+      expect(screen.queryByRole("status")).toBeNull();
+      const deletedMarks = screen.queryAllByText("削除済み");
+      expect(deletedMarks).toHaveLength(tabCount - 1);
+    },
+  );
+
+  test("最初の読込の途中でrenameされたら、新しいパスから読み込み、履歴も新しいパスを指す（6.5）", async () => {
+    const answers: ((content: FileContent) => void)[] = [];
+    const reads: string[] = [];
+    mockBackend({
+      scan: () => TWO_DOCS,
+      read: (path) => {
+        reads.push(path);
+        // 最初の2回（rename前の読込と、rename後の読み直し）は、応答の順序を制御する。
+        if (reads.length <= 2) {
+          return new Promise<FileContent>((resolve) => answers.push(resolve));
+        }
+        return fileContent(path, `## ${path}\n`);
+      },
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => treeItem("README.md"));
+    await act(async () => {
+      fireEvent.click(treeItem("README.md"), { detail: 2 });
+    });
+    await waitFor(() => expect(reads).toEqual(["README.md"]));
+
+    await fileChange({
+      kind: "fileRenamed",
+      oldPath: "README.md",
+      path: "docs/GUIDE.md",
+    });
+    await waitFor(() => expect(reads).toEqual(["README.md", "docs/GUIDE.md"]));
+    // 新しいパスの読込が先に完了し、旧パスの読込があとから届く。
+    await act(async () =>
+      answers[1]?.(fileContent("docs/GUIDE.md", "## ガイド\n")),
+    );
+    await waitFor(() => expect(heading()).toBe("ガイド"));
+    await act(async () => answers[0]?.(fileContent("README.md", "## 旧\n")));
+    expect(heading()).toBe("ガイド");
+
+    // 別のタブへ移って戻る。履歴が空だと、読み込む項目がなく本文の空のタブになる。
+    await openPinned("NOTES.md");
+    await waitFor(() => expect(heading()).toBe("NOTES.md"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: /GUIDE\.md/ }));
+    });
+
+    await waitFor(() => expect(heading()).toBe("docs/GUIDE.md"));
+    expect(reads).toEqual([
+      "README.md",
+      "docs/GUIDE.md",
+      "NOTES.md",
+      "docs/GUIDE.md",
+    ]);
+  });
+
   test("別のスコープの通知では、ツリーの取り直しも監視の断念の処理も行わない", async () => {
     const scanned: string[] = [];
     const reads: string[] = [];

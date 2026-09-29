@@ -4,11 +4,13 @@ import {
   adjacentTabId,
   closeTab,
   EMPTY_TAB_SET,
+  findTabByPath,
   type OpenRequest,
   openTab,
   pinTab,
   type TabSet,
   tabTitle,
+  updateTab,
 } from "./tab-set";
 import { MAX_OPEN_TABS } from "./tabs";
 
@@ -193,5 +195,48 @@ describe("タブの移動と固定", () => {
   test("タブの名前はパスの最後の要素", () => {
     const set = pinned("docs/sub/guide.md", "README.md");
     expect(set.tabs.map(tabTitle)).toEqual(["guide.md", "README.md"]);
+  });
+});
+
+describe("削除されたタブ（6.5）", () => {
+  const deleted = (set: TabSet, path: string): TabSet => {
+    const id = set.tabs.find((tab) => tab.path === path)?.tabId ?? "";
+    return updateTab(set, id, (tab) => ({ ...tab, status: "deleted" }));
+  };
+
+  test("同じ文書として探す対象にしない", () => {
+    const set = deleted(pinned("a.md", "b.md"), "a.md");
+
+    expect(findTabByPath(set, "a.md")).toBeUndefined();
+    expect(findTabByPath(set, "b.md")?.path).toBe("b.md");
+  });
+
+  test("固定で開いていたタブが削除されたあとに同じパスを開くと、新しいタブを加える", () => {
+    const set = deleted(pinned("a.md"), "a.md");
+    const stale = set.tabs[0];
+
+    const result = openTab(set, request("a.md", false, 5));
+
+    expect(result.opened).toBeDefined();
+    expect(result.opened?.tabId).not.toBe(stale?.tabId);
+    expect(result.set.tabs.map((tab) => [tab.path, tab.status])).toEqual([
+      ["a.md", "deleted"],
+      ["a.md", "loaded"],
+    ]);
+    expect(result.set.activeTabId).toBe(result.opened?.tabId ?? "");
+  });
+
+  test("プレビューで開いていたタブが削除されたあとに同じパスをプレビューで開くと、そのタブを差し替える", () => {
+    const set = deleted(
+      openTab(EMPTY_TAB_SET, request("a.md", true)).set,
+      "a.md",
+    );
+
+    const result = openTab(set, request("a.md", true, 5));
+
+    expect(result.set.tabs.map((tab) => [tab.path, tab.status])).toEqual([
+      ["a.md", "loaded"],
+    ]);
+    expect(result.opened).toBeDefined();
   });
 });

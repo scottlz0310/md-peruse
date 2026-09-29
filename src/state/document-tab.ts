@@ -82,9 +82,15 @@ export function completeLoad(
   const loaded = applyLoadResult(tab, token, "succeeded");
   const left = updateCurrentScroll(tab.history, scrollTop);
   if (intent.kind === "reload") {
-    // 読み直しても読んでいた位置に留まる。
+    // 読み直しても読んでいた位置に留まる。最初の読込が変更で無効になり、その読み直しが
+    // 先に完了したときは、履歴がまだ空である。ここで1件目を積む。積まないと、別のタブへ
+    // 切り替えて戻ったときに、読み込む項目がなく本文の空のタブになる。
+    const history =
+      left.entries.length === 0
+        ? pushHistoryEntry(left, { path: tab.path, anchor: null, scrollTop: 0 })
+        : left;
     return {
-      tab: { ...loaded, history: left },
+      tab: { ...loaded, history },
       view: { anchor: null, scrollTop },
     };
   }
@@ -121,7 +127,8 @@ export function completeLoad(
  * 読込の失敗をタブへ反映する。表示中の文書はそのまま保つ（7.2）。
  *
  * 戻る／進むで読めなかった項目は履歴から取り除く（9.3）。読み直しの失敗では履歴を保つ。
- * 最初の読込が失敗して履歴が空のままなら、タブを閉じて `tab: null` を返す。応答が古ければ `undefined` を返す。
+ * 最初の読込が失敗して履歴が空のままなら、タブを閉じて `tab: null` を返す。最初の読込が
+ * 変更で無効になった読み直し（履歴が空の `reload`）も同じ。応答が古ければ `undefined` を返す。
  */
 export function failLoad(
   tab: DocumentTab,
@@ -130,7 +137,9 @@ export function failLoad(
 ): { tab: DocumentTab | null } | undefined {
   if (!isCurrentLoad(tab, token)) return undefined;
   // 読み直せなかった文書は、最後に読めた内容のまま履歴にも残す。
-  if (intent.kind === "reload") return { tab };
+  if (intent.kind === "reload" && tab.history.entries.length > 0) {
+    return { tab };
+  }
   if (intent.kind === "history") {
     return {
       tab: { ...tab, history: removeHistoryEntryAt(tab.history, intent.index) },

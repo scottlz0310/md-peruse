@@ -50,9 +50,18 @@ export function activeTab(set: TabSet): OpenTab | undefined {
   return set.tabs.find((tab) => tab.tabId === set.activeTabId);
 }
 
-/** その文書を表示している、または読み込んでいるタブ。 */
+/**
+ * その文書を表示している、または読み込んでいるタブ。
+ *
+ * 削除されたタブは対象にしない。`deleted` は終端であり、同じパスにファイルが作り直されても
+ * 復帰させない。開き直したときは新しいタブになる（design-decisions.md 6.5）。
+ */
 export function findTabByPath(set: TabSet, path: string): OpenTab | undefined {
-  return set.tabs.find((tab) => tab.path === path || pendingPath(tab) === path);
+  return set.tabs.find(
+    (tab) =>
+      tab.status !== "deleted" &&
+      (tab.path === path || pendingPath(tab) === path),
+  );
 }
 
 export type OpenRequest = {

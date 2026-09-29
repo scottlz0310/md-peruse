@@ -196,6 +196,53 @@ describe("rename（6.5）", () => {
   });
 });
 
+describe("進行中の読込を無効にされたとき（6.5）", () => {
+  /** 最初の読込を始めたところ。まだ何も読み込まれていない。 */
+  const loading = (...paths: string[]) => {
+    const set = opened(...paths);
+    return updateTab(set, "tab-a.md", (current) => ({
+      ...current,
+      pending: { path: "a.md", generation: current.loadGeneration },
+    }));
+  };
+
+  test("最初の読込中にrenameされたアクティブタブは、新しいパスの読み直しを求める", () => {
+    const changed = applyChangeToTabs(
+      loading("a.md"),
+      event(renamed("a.md", "docs/c.md")),
+    );
+
+    expect(tab(changed.set, "a.md").path).toBe("docs/c.md");
+    expect(pendingPath(tab(changed.set, "a.md"))).toBeNull();
+    expect(changed.reloadTabId).toBe("tab-a.md");
+  });
+
+  test("非アクティブなタブの読込が無効になっても、再読込は求めない", () => {
+    const changed = applyChangeToTabs(
+      loading("a.md", "b.md"),
+      event(renamed("a.md", "c.md")),
+    );
+
+    expect(changed.reloadTabId).toBeNull();
+  });
+
+  test("進行中の読込が別の文書のrenameに影響されなければ、再読込は求めない", () => {
+    const changed = applyChangeToTabs(
+      loading("a.md"),
+      event(renamed("other.md", "c.md")),
+    );
+
+    expect(changed.reloadTabId).toBeNull();
+  });
+
+  test("削除されたタブは、読込が無効になっても再読込を求めない", () => {
+    const changed = applyChangeToTabs(loading("a.md"), event(removed("a.md")));
+
+    expect(tab(changed.set, "a.md").status).toBe("deleted");
+    expect(changed.reloadTabId).toBeNull();
+  });
+});
+
 describe("アクティブタブの切り替え", () => {
   test("再読込を求めるのは、変更を受けた時点のアクティブタブだけ", () => {
     const set = activateTab(opened("a.md", "b.md"), "tab-a.md", 9);
