@@ -54,11 +54,13 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("Tauriアプリケーションの起動に失敗しました");
-    app.run(|app, event| {
+    app.run(|app, event| match event {
+        // 終了の要求の時点では、ウィンドウがまだある。動きが落ち着くのを待つ配置の保存が間に合わない
+        // うちに終了しても、最後の配置を書き出せるよう、ここで確定する（11.1）。
+        RunEvent::ExitRequested { .. } => window_placement::capture_now(app),
         // 変更をまとめて待っている書込みを、終了の前に書き出す（design-decisions.md 11.1）。
-        if let RunEvent::Exit = event {
-            app.state::<SettingsStore>().flush();
-        }
+        RunEvent::Exit => app.state::<SettingsStore>().flush(),
+        _ => {}
     });
 }
 

@@ -78,7 +78,8 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
 /// ときは現在のワークスペースを保ち、理由を返す。示し方（ダイアログ、応答、黙って外す）は
 /// 呼び出し側が決める。
 pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    open_locked(app, path, false)
+    let _lifecycle = lock_lifecycle();
+    open_unlocked(app, path)
 }
 
 /// 起動時に、最後のワークスペースを開き直す（9.2）。
@@ -87,13 +88,21 @@ pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), Erro
 /// 取り除く。起動のたびに開けないフォルダーの失敗を示しても、利用者が取れる行動がない
 /// ためである。
 ///
-/// 応答の遅いストレージでも起動を待たせないよう、呼び出し側は別のスレッドで呼ぶ。その間に
-/// 利用者が別のフォルダーを開いていた場合は、それを上書きしない。
+/// 応答の遅いストレージでも起動を待たせないよう、呼び出し側は別のスレッドで呼ぶ。
+///
+/// 最後のワークスペースの読み取りと、開くかどうかの判断は、開閉と同じロックの内側で行う。
+/// ロックの外で読むと、読んだあとに利用者が「ワークスペースを閉じる」を終えても、古いパスを
+/// 開き直してしまう。閉じる操作は、ロックの内側で最後のワークスペースを消す（`close`）。
+/// 復元が終わる前に利用者が別のフォルダーを開いていたときも、それを上書きしない。
 pub fn restore_last_workspace<R: Runtime>(app: &AppHandle<R>) {
+    let _lifecycle = lock_lifecycle();
     let Some(path) = app.state::<SettingsStore>().settings().last_workspace else {
         return;
     };
-    if open_locked(app, Path::new(&path), true).is_err() {
+    if app.state::<AppState>().scope_id().is_some() {
+        return;
+    }
+    if open_unlocked(app, Path::new(&path)).is_err() {
         recent::forget(app, &path);
     }
 }
@@ -108,19 +117,11 @@ pub fn current_workspace<R: Runtime>(app: &AppHandle<R>) -> Option<WorkspaceOpen
     app.state::<AppState>().current_workspace()
 }
 
-/// `open_path` の本体。`only_if_closed` は、既にワークスペースが開いていれば何もしない
-/// ことを表す（起動時の復元が、その間に利用者が開いたものを上書きしないため）。
-fn open_locked<R: Runtime>(
-    app: &AppHandle<R>,
-    path: &Path,
-    only_if_closed: bool,
-) -> Result<(), ErrorCode> {
+/// `open_path` の本体。開閉を直列にするロック（`lock_lifecycle`）を保持した呼び出し元から
+/// 呼ぶこと。
+fn open_unlocked<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
     let state = app.state::<AppState>();
     let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
-    let _lifecycle = lock_lifecycle();
-    if only_if_closed && state.scope_id().is_some() {
-        return Ok(());
-    }
     let opened = open_selected_folder(&state, path, sink)?;
     if let Some(root) = state.workspace_path() {
         recent::record_opened(app, &root);
@@ -442,6 +443,36 @@ mod tests {
         let opened = collect(&app, WORKSPACE_OPENED_EVENT);
 
         restore_last_workspace(app.handle());
+
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert!(opened.lock().unwrap().is_empty());
+    }
+
+    /// 復元が最後のワークスペースを読んだあとに、利用者が閉じる操作を終えても、閉じたものを
+    /// 開き直さない。復元は、開閉のロックの内側で最後のワークスペースを読む。
+    ///
+    /// 開閉のロックを保持したまま復元を始めて、待たせる。その間に閉じる操作の結果
+    /// （最後のワークスペースを消す）を再現してからロックを放すと、復元は消えたあとの値を読む。
+    /// ロックの外で先に読む実装では、待つ前に読んだ古いパスを開き直して、このテストが失敗する。
+    #[test]
+    fn a_close_finished_before_the_restore_decides_wins() {
+        let temp = TempDir::new("restore-close-race");
+        let app = app_with(Settings {
+            last_workspace: Some(canonical(temp.path())),
+            recent_folders: vec![canonical(temp.path())],
+            ..Settings::default()
+        });
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+        let guard = lock_lifecycle();
+        let handle = app.handle().clone();
+        let restoring = thread::spawn(move || restore_last_workspace(&handle));
+        // 復元のスレッドが、ロックを待つところまで進む。
+        thread::sleep(std::time::Duration::from_millis(100));
+
+        // 閉じる操作が、ロックの内側で終えること。
+        app.state::<SettingsStore>().clear_last_workspace();
+        drop(guard);
+        restoring.join().expect("復元のスレッドが失敗した");
 
         assert!(app.state::<AppState>().scope_id().is_none());
         assert!(opened.lock().unwrap().is_empty());

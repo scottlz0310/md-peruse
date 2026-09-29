@@ -15,6 +15,7 @@ use tauri::{
     AppHandle, Manager, PhysicalPosition, PhysicalSize, Runtime, WebviewWindow, WindowEvent,
 };
 
+use crate::open_folder::MAIN_WINDOW;
 use crate::settings::WindowPlacement;
 use crate::settings_store::SettingsStore;
 
@@ -147,21 +148,37 @@ pub fn apply<R: Runtime>(
 /// 反映は設定のメモリ上の値を書き換えるだけで、書込みはdebounceされ、終了時に書き出される
 /// （11.1）。アイドル時に周期的な書込みは行わない。
 ///
+/// 動きが落ち着くのを待つ間にウィンドウが閉じられると、終了時の書き出し（`flush`）が先に走り、
+/// 最後の配置を失う。そこで、ウィンドウを閉じる要求の時点でも、待たずに読む。メニューの「終了」
+/// のようにウィンドウを経由しない終了は、`capture_now` が終了の要求の時点で読む。
+///
 /// eventの送り手は、eventの購読が破棄されると無くなり、そのときスレッドも終わる。
 pub fn track<R: Runtime>(window: &WebviewWindow<R>) {
     let (notify, moved) = mpsc::channel();
-    let tracked = window.clone();
+    let settled = window.clone();
     thread::spawn(move || {
         while wait_until_quiet(&moved, SETTLE) {
-            capture(&tracked);
+            capture(&settled);
         }
     });
-    window.on_window_event(move |event| {
-        if matches!(event, WindowEvent::Moved(_) | WindowEvent::Resized(_)) {
+    let closing = window.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::Moved(_) | WindowEvent::Resized(_) => {
             // 受け手のスレッドが終わっているのは、終了処理中である。伝える相手がいない。
             let _ = notify.send(());
         }
+        WindowEvent::CloseRequested { .. } => capture(&closing),
+        _ => {}
     });
+}
+
+/// メインウィンドウの配置を、待たずに設定へ反映する。アプリの終了の要求で呼び、終了時の
+/// 書き出しより前に、最後の配置を確定する。ウィンドウが無ければ（既に閉じられて、閉じる要求の
+/// 時点で確定してあれば）何もしない。
+pub fn capture_now<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        capture(&window);
+    }
 }
 
 /// 通知を待ち、届いたあと、`quiet` の間に次の通知が来なくなるまで待つ。
@@ -236,6 +253,64 @@ mod tests {
             height,
             maximized: false,
         }
+    }
+
+    /// テスト用の設定ディレクトリ。終了時に削除する。
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new(name: &str) -> Self {
+            let path = std::env::temp_dir()
+                .join(format!("md-peruse-placement-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("一時フォルダーを作成できない");
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn open_store(dir: &TempDir) -> SettingsStore {
+        SettingsStore::open(dir.0.clone(), Box::new(|error| panic!("{error}"))).0
+    }
+
+    /// 終了の要求の時点で配置を確定してから書き出すと、その配置が次の起動へ届く。
+    /// 動きが落ち着くのを待つ保存が、終了に間に合わなかったときの経路である（11.1）。
+    #[test]
+    fn a_placement_captured_at_exit_survives_the_flush() {
+        let dir = TempDir::new("exit");
+        let app = tauri::test::mock_app();
+        app.manage(open_store(&dir));
+        let _window =
+            tauri::WebviewWindowBuilder::new(&app, MAIN_WINDOW, tauri::WebviewUrl::default())
+                .build()
+                .expect("ウィンドウを作れない");
+        assert_eq!(app.state::<SettingsStore>().settings().window, None);
+
+        capture_now(app.handle());
+        app.state::<SettingsStore>().flush();
+
+        assert!(open_store(&dir).settings().window.is_some());
+    }
+
+    /// ウィンドウが無ければ、何も保存しない。閉じる要求の時点で確定済みのときの終了の要求は、
+    /// その配置を壊さない。
+    #[test]
+    fn capturing_without_a_window_keeps_the_saved_placement() {
+        let dir = TempDir::new("no-window");
+        let app = tauri::test::mock_app();
+        let store = open_store(&dir);
+        let saved = placement(40, 50, 1000, 700);
+        store.set_window(saved);
+        app.manage(store);
+
+        capture_now(app.handle());
+
+        assert_eq!(app.state::<SettingsStore>().settings().window, Some(saved));
     }
 
     /// タイトルバーの中央が、接続中のいずれかのディスプレイの内側なら復元する。
