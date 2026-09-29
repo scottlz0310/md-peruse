@@ -12,6 +12,7 @@ import {
   updateUiSettings,
 } from "./ipc/commands";
 import {
+  onLanguageChanged,
   onMenuCommand,
   onWorkspaceClosed,
   onWorkspaceOpened,
@@ -66,6 +67,7 @@ import { TabBar, tabElementId } from "./tabs/TabBar";
 import { type FocusRequest, TreeView } from "./tree/TreeView";
 import type { FileContent } from "./types/generated/FileContent";
 import type { IpcError } from "./types/generated/IpcError";
+import type { LanguageChangedEvent } from "./types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "./types/generated/MenuCommand";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
@@ -127,9 +129,13 @@ export default function App() {
   const [ui, setUi] = useState<UiSettings | null>(null);
   // メニューコマンドのハンドラーは最初の描画のものが残るため、設定もrefで読む。
   const uiRef = useRef<UiSettings | null>(ui);
-  // UI言語は設定の `effectiveLanguage`（OSの表示言語か、保存済みの選択。10.5）。設定を読むまで
-  // 描画しないため、既定の言語が画面に出ることはない。
-  const language = ui?.effectiveLanguage ?? DEFAULT_LANGUAGE;
+  // メニューから切り替えられた言語。設定の応答との前後を問わず、届いていれば設定より優先する。
+  const [changedLanguage, setChangedLanguage] =
+    useState<LanguageChangedEvent | null>(null);
+  // UI言語は、切り替えがあればその言語、なければ設定の `effectiveLanguage`（OSの表示言語か、
+  // 保存済みの選択。10.5）。設定を読むまで描画しないため、既定の言語が画面に出ることはない。
+  const language =
+    changedLanguage?.language ?? ui?.effectiveLanguage ?? DEFAULT_LANGUAGE;
   const messages = MESSAGES[language];
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
@@ -155,14 +161,29 @@ export default function App() {
   // 本文のスクロール位置はプレビュー領域が持つ。ウィンドウ全体はスクロールしない。
   const previewRef = useRef<HTMLElement>(null);
 
+  // 言語の切り替えを購読してから設定を読む（10.5）。読む前の切り替えは設定に含まれ、読んだ後の
+  // 切り替えはeventで届くため、どの順序でも取りこぼさない。購読より先に読むと、その間の切り替えを
+  // 逃す。購読の完了前に片付けが走ったときは、設定を読まずに解除する。
   useEffect(() => {
-    getUiSettings().then(
-      (loaded) => {
-        uiRef.current = loaded;
-        setUi(loaded);
-      },
-      (reason: unknown) => setStartupError(String(reason)),
-    );
+    let disposed = false;
+    let unlisten: UnlistenFn | undefined;
+    onLanguageChanged(setChangedLanguage)
+      .then((stop) => {
+        if (disposed) {
+          stop();
+          return undefined;
+        }
+        unlisten = stop;
+        return getUiSettings().then((loaded) => {
+          uiRef.current = loaded;
+          setUi(loaded);
+        });
+      })
+      .catch((reason: unknown) => setStartupError(String(reason)));
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   }, []);
 
   useTauriEvent(() =>

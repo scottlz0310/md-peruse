@@ -7,6 +7,7 @@
 use tauri::menu::MenuEvent;
 use tauri::{AppHandle, Emitter, Runtime};
 
+use crate::language;
 use crate::menu::MenuCommand;
 use crate::open_folder;
 use crate::theme;
@@ -34,6 +35,9 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
         MenuCommand::Exit => app.exit(0),
         MenuCommand::UseSystemTheme | MenuCommand::UseLightTheme | MenuCommand::UseDarkTheme => {
             theme::select(app, command)
+        }
+        MenuCommand::UseSystemLanguage | MenuCommand::UseJapanese | MenuCommand::UseEnglish => {
+            language::select(app, command)
         }
         MenuCommand::CloseTab
         | MenuCommand::ToggleSidebar

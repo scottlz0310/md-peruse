@@ -64,7 +64,7 @@ fn apply<R: Runtime>(app: &AppHandle<R>, theme: Option<Theme>) -> tauri::Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::i18n::Language;
+    use crate::i18n::{Language, LanguagePreference};
     use crate::settings::Settings;
 
     #[test]
@@ -89,11 +89,16 @@ mod tests {
         for (command, preference) in CHOICES {
             let app = tauri::test::mock_app();
             app.manage(SettingsStore::without_saving(Settings::default()));
-            let built = menu::build(app.handle(), Language::Ja, ThemePreference::System)
-                .expect("メニューを組み立てられない");
+            let built = menu::build(
+                app.handle(),
+                Language::Ja,
+                ThemePreference::System,
+                LanguagePreference::System,
+            )
+            .expect("メニューを組み立てられない");
             app.set_menu(built).expect("メニューを設定できない");
             let menu = app.menu().expect("メニューが無い");
-            let item = menu::theme_item(&menu, command).expect("テーマの項目が無い");
+            let item = menu::check_item(&menu, command).expect("テーマの項目が無い");
             item.set_checked(!item.is_checked().unwrap()).unwrap();
             let mut applied = Vec::new();
 
@@ -111,7 +116,7 @@ mod tests {
             let checked: Vec<_> = CHOICES
                 .iter()
                 .filter(|(candidate, _)| {
-                    menu::theme_item(&menu, *candidate)
+                    menu::check_item(&menu, *candidate)
                         .expect("テーマの項目が無い")
                         .is_checked()
                         .unwrap()

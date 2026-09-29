@@ -19,7 +19,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::i18n::Language;
+use crate::i18n::{Language, LanguagePreference};
 use crate::settings::{
     SCHEMA_VERSION, SETTINGS_FILE_NAME, Settings, ThemePreference, UiSettings, UiSettingsUpdate,
 };
@@ -128,6 +128,11 @@ impl SettingsStore {
     /// テーマの選択を反映し、書込みを予約する。値が変わらなければ書かない。
     pub fn set_theme(&self, theme: ThemePreference) {
         self.modify(|settings| settings.theme = theme);
+    }
+
+    /// UI言語の選択を反映し、書込みを予約する。値が変わらなければ書かない。
+    pub fn set_language(&self, language: LanguagePreference) {
+        self.modify(|settings| settings.language = language);
     }
 
     fn modify(&self, change: impl FnOnce(&mut Settings)) {

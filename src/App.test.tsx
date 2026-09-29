@@ -29,6 +29,8 @@ type Handlers = {
   setTitle?: (title: string) => void;
   /** 起動時に返す設定の上書き。 */
   ui?: Partial<UiSettings>;
+  /** 設定の取得を受けたときの処理。応答を遅らせたり、その間に何かを起こしたりするために使う。 */
+  onLoadUi?: () => void | Promise<void>;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -45,7 +47,10 @@ function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
       if (command === "get_ui_settings_command")
-        return { ...UI_SETTINGS, ...handlers.ui };
+        return Promise.resolve(handlers.onLoadUi?.()).then(() => ({
+          ...UI_SETTINGS,
+          ...handlers.ui,
+        }));
       if (command === "update_ui_settings_command") {
         handlers.updateSettings?.(
           (payload as { update: UiSettingsUpdate }).update,
@@ -1399,5 +1404,153 @@ describe("App", () => {
     expect(requests).toEqual([
       { documentPath: "README.md", references: ["assets/logo.png"] },
     ]);
+  });
+});
+
+describe("App: UI言語の切り替え（10.5）", () => {
+  const changeLanguage = (
+    preference: "system" | "ja" | "en",
+    language: "ja" | "en",
+  ) =>
+    act(async () => {
+      await emit("language-changed", { preference, language });
+    });
+
+  test("言語の切り替えのeventを受けると、案内の文言とhtmlのlangが切り替わる", async () => {
+    mockBackend({ scan: () => ROOT });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    expect(document.documentElement.lang).toBe("ja");
+
+    await changeLanguage("en", "en");
+
+    expect(screen.getByText(/Open Folder/)).toBeTruthy();
+    expect(screen.queryByText(/フォルダーを開く/)).toBeNull();
+    expect(document.documentElement.lang).toBe("en");
+
+    // `system` を選ぶと、OSの表示言語で決め直した実際の言語が届く。
+    await changeLanguage("system", "ja");
+
+    expect(screen.getByText(/フォルダーを開く/)).toBeTruthy();
+    expect(document.documentElement.lang).toBe("ja");
+  });
+
+  test("設定の応答より先に切り替えのeventが届いても、その言語で表示する", async () => {
+    // 起動直後に言語を選ぶと、設定の応答（旧言語）より先にeventが届くことがある。
+    let release: () => void = () => {};
+    let requested = false;
+    mockBackend({
+      scan: () => ROOT,
+      onLoadUi: () =>
+        new Promise<void>((resolve) => {
+          requested = true;
+          release = resolve;
+        }),
+    });
+    render(<App />);
+    await waitFor(() => expect(requested).toBe(true));
+
+    await changeLanguage("en", "en");
+    await act(async () => release());
+
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+    expect(screen.queryByText(/フォルダーを開く/)).toBeNull();
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  test("設定を読み始める時点で、言語の切り替えの購読は済んでいる", async () => {
+    // 設定を読んだ直後の切り替えは、応答が届く前にeventになる。読み取りを購読より先に発行すると、
+    // その切り替えは誰にも届かず、旧言語の応答だけが残る。
+    mockBackend({
+      scan: () => ROOT,
+      onLoadUi: () =>
+        emit("language-changed", { preference: "en", language: "en" }),
+    });
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+    expect(document.documentElement.lang).toBe("en");
+  });
+
+  test("eventを受けなければ、文言は変わらない", async () => {
+    mockBackend({ scan: () => ROOT, ui: { effectiveLanguage: "en" } });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+
+    // 設定の `language` が `system` のままでも、OSの表示言語を監視して切り替えない。
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(screen.getByText(/Open Folder/)).toBeTruthy();
+  });
+
+  test("ワークスペースの画面のラベルも切り替わる", async () => {
+    mockBackend({ scan: () => ROOT });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    await changeLanguage("en", "en");
+
+    expect(screen.getByRole("tree", { name: "Files" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "Explorer" })).toBeTruthy();
+    expect(screen.queryByRole("tree", { name: "ファイル" })).toBeNull();
+  });
+
+  test("文書の中の数式の理由も、切り替えたあとの言語で組み立て直す", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "前 $\\frac{1}{$ 後\n"),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => screen.getByRole("tree"));
+    await act(async () =>
+      fireEvent.click(within(screen.getByRole("tree")).getByText("README.md"), {
+        detail: 2,
+      }),
+    );
+    const reason = () =>
+      document.querySelector(".math-error-reason")?.textContent;
+    await waitFor(() => expect(reason()).toContain("数式を解釈できません"));
+
+    await changeLanguage("en", "en");
+
+    await waitFor(() => expect(reason()).toContain("Cannot parse the formula"));
+  });
+
+  test("言語を切り替える前に発行した要求の応答が旧言語で届いても、そのまま表示する", async () => {
+    // Rust側はIPCの応答を、要求を受けた時点の言語で組み立てる。切り替えの直後に旧言語の
+    // 応答が届いても、表示は壊れず、同じ操作をやり直せば新しい言語になる（10.5）。
+    let release: (result: ScanResult) => void = () => {};
+    mockBackend({
+      scan: () =>
+        new Promise<ScanResult>((resolve) => {
+          release = resolve;
+        }),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    await changeLanguage("en", "en");
+    await act(async () => release(ROOT));
+
+    expect(
+      await screen.findByText("README.md", {}, { timeout: 1000 }),
+    ).toBeTruthy();
+    expect(screen.getByRole("tree", { name: "Files" })).toBeTruthy();
   });
 });
