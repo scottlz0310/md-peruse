@@ -11,6 +11,7 @@ import {
   within,
 } from "@testing-library/react";
 import App from "./App";
+import type { FileChange } from "./types/generated/FileChange";
 import type { FileContent } from "./types/generated/FileContent";
 import type { ImageResource } from "./types/generated/ImageResource";
 import type { ImageResourceRequest } from "./types/generated/ImageResourceRequest";
@@ -1894,5 +1895,428 @@ describe("App: ワークスペースの復元と最近使ったフォルダー�
       "このフォルダーは見つかりません。",
     );
     expect(screen.queryByRole("tree")).toBeNull();
+  });
+});
+
+describe("App: ファイル変更への追従（6.4、6.5、5.4）", () => {
+  const TWO_DOCS: ScanResult = {
+    path: "",
+    entries: [
+      {
+        path: "README.md",
+        name: "README.md",
+        kind: "markdown",
+        hasChildren: null,
+      },
+      {
+        path: "NOTES.md",
+        name: "NOTES.md",
+        kind: "markdown",
+        hasChildren: null,
+      },
+    ],
+  };
+
+  const heading = () => screen.getByRole("heading", { level: 2 }).textContent;
+  const treeItem = (name: string) =>
+    within(screen.getByRole("tree")).getByText(name);
+
+  /**
+   * 固定タブで開く（ダブルクリック）。タブが増えても、ツリーの項目を名前で引ける。ツリーは
+   * 2回目のクリック（`detail >= 2`）を、ダブルクリックとして扱う。
+   */
+  async function openPinned(name: string) {
+    await act(async () => {
+      fireEvent.click(treeItem(name), { detail: 2 });
+    });
+  }
+
+  function fileChange(change: FileChange, scopeId = "scope-1") {
+    return act(async () => {
+      await emit("file-change", { scopeId, change });
+    });
+  }
+
+  test("外部で変更されたアクティブな文書は、読み直して表示する", async () => {
+    const versions = ["## 1版\n", "## 2版\n"];
+    const reads: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => {
+        reads.push(path);
+        return fileContent(path, versions.shift() ?? "## 想定外\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("1版"));
+
+    await fileChange({ kind: "fileModified", path: "README.md" });
+
+    await waitFor(() => expect(heading()).toBe("2版"));
+    expect(reads).toEqual(["README.md", "README.md"]);
+  });
+
+  test.each([
+    ["別のスコープの同じパス", "README.md", "scope-2"],
+    ["別のパス", "other.md", "scope-1"],
+  ])("%sの変更では読み直さない", async (_, path, scopeId) => {
+    const reads: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (requested) => {
+        reads.push(requested);
+        return fileContent(requested, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("本文"));
+
+    await fileChange({ kind: "fileModified", path }, scopeId);
+
+    expect(reads).toEqual(["README.md"]);
+  });
+
+  test("変更のたびに読み直しても、遅れて届いた古い応答で新しい表示を上書きしない（6.5）", async () => {
+    const answers: ((content: FileContent) => void)[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: () =>
+        new Promise<FileContent>((resolve) => {
+          answers.push(resolve);
+        }),
+    });
+    render(<App />);
+    await openReadme();
+    // 最初の読込が終わらないうちに、文書が変更された。
+    await waitFor(() => expect(answers).toHaveLength(1));
+    await fileChange({ kind: "fileModified", path: "README.md" });
+    await waitFor(() => expect(answers).toHaveLength(2));
+
+    // 後に始めた読込が先に完了し、先に始めた読込があとから届く。
+    await act(async () => answers[1]?.(fileContent("README.md", "## 新\n")));
+    await waitFor(() => expect(heading()).toBe("新"));
+    await act(async () => answers[0]?.(fileContent("README.md", "## 旧\n")));
+
+    expect(heading()).toBe("新");
+  });
+
+  test("読み直しに失敗したら、表示を保ち、原因を示す（6.5）", async () => {
+    const busy: IpcError = {
+      code: "fileNotFound",
+      message: "ファイルが見つかりません。",
+      detail: "README.md",
+    };
+    const results: (FileContent | IpcError)[] = [
+      fileContent("README.md", "## 1版\n"),
+      busy,
+    ];
+    mockBackend({
+      scan: () => ROOT,
+      read: () => {
+        const next = results.shift();
+        if (next === undefined) throw new Error("想定外の読込");
+        return "code" in next ? Promise.reject(next) : next;
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("1版"));
+
+    await fileChange({ kind: "fileModified", path: "README.md" });
+
+    expect((await screen.findByRole("alert")).textContent).toBe(busy.message);
+    expect(heading()).toBe("1版");
+  });
+
+  describe("削除", () => {
+    test("アクティブな文書が削除されたら、最後に読めた内容を保って削除された旨を示し、読み直さない", async () => {
+      const reads: string[] = [];
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => {
+          reads.push(path);
+          return fileContent(path, "## 本文\n");
+        },
+      });
+      render(<App />);
+      await openReadme();
+      await waitFor(() => expect(heading()).toBe("本文"));
+
+      await fileChange({ kind: "fileRemoved", path: "README.md" });
+
+      expect(screen.getByRole("status").textContent).toBe(
+        "このファイルは削除されました。最後に読めた内容を表示しています。",
+      );
+      expect(heading()).toBe("本文");
+      expect(
+        within(screen.getByRole("tablist")).getByText("削除済み"),
+      ).toBeTruthy();
+      // メニューの「再読み込み」も、削除されたタブは読み直さない。
+      await act(async () => {
+        await emit("menu-command", "reloadDocument");
+      });
+      expect(reads).toEqual(["README.md"]);
+    });
+
+    test("離れている間に削除されたタブは、切り替えても読み直さず、削除された旨だけを示す（9.1）", async () => {
+      const reads: string[] = [];
+      mockBackend({
+        scan: () => TWO_DOCS,
+        read: (path) => {
+          reads.push(path);
+          return fileContent(path, `## ${path}\n`);
+        },
+      });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => treeItem("README.md"));
+      await openPinned("README.md");
+      await waitFor(() => expect(heading()).toBe("README.md"));
+      await openPinned("NOTES.md");
+      await waitFor(() => expect(heading()).toBe("NOTES.md"));
+
+      await fileChange({ kind: "fileRemoved", path: "README.md" });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("tab", { name: /README\.md/ }));
+      });
+
+      expect(screen.getByRole("status").textContent).toBe(
+        "このファイルは削除されました。表示できる内容はありません。",
+      );
+      expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+      expect(reads).toEqual(["README.md", "NOTES.md"]);
+    });
+
+    test("削除された文書の本文のリンクは、新しいタブで開く", async () => {
+      mockBackend({
+        scan: () => TWO_DOCS,
+        read: (path) =>
+          fileContent(
+            path,
+            path === "README.md" ? "[ノート](NOTES.md)\n" : "## ノート\n",
+          ),
+      });
+      render(<App />);
+      await openWorkspace({ scopeId: "scope-1", label: "docs" });
+      await waitFor(() => treeItem("README.md"));
+      await openPinned("README.md");
+      await screen.findByRole("link", { name: "ノート" });
+      await fileChange({ kind: "fileRemoved", path: "README.md" });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole("link", { name: "ノート" }));
+      });
+
+      await waitFor(() => expect(heading()).toBe("ノート"));
+      const tabs = screen.getAllByRole("tab");
+      expect(tabs).toHaveLength(2);
+      // 元のタブは削除されたまま残る。
+      expect(within(tabs[0] as HTMLElement).getByText("削除済み")).toBeTruthy();
+    });
+  });
+
+  test("renameされた文書は、タブのパスを追従させ、以後の変更を新しいパスで読み直す", async () => {
+    const reads: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => {
+        reads.push(path);
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("本文"));
+
+    await fileChange({
+      kind: "fileRenamed",
+      oldPath: "README.md",
+      path: "docs/GUIDE.md",
+    });
+
+    const tab = screen.getByRole("tab");
+    expect(tab.getAttribute("title")).toBe("docs/GUIDE.md");
+    expect(tab.textContent).toContain("GUIDE.md");
+    // 内容は変わらないため、renameだけでは読み直さない。
+    expect(reads).toEqual(["README.md"]);
+
+    await fileChange({ kind: "fileModified", path: "docs/GUIDE.md" });
+
+    await waitFor(() => expect(reads).toEqual(["README.md", "docs/GUIDE.md"]));
+  });
+
+  test("展開しているフォルダーの子要素が増減したら、その階層を取り直してツリーへ反映する（6.4）", async () => {
+    const scanned: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return scanned.length === 1
+          ? ROOT
+          : {
+              ...ROOT,
+              entries: [
+                ...ROOT.entries,
+                {
+                  path: "NEW.md",
+                  name: "NEW.md",
+                  kind: "markdown" as const,
+                  hasChildren: null,
+                },
+              ],
+            };
+      },
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => treeItem("README.md"));
+    expect(screen.queryByText("NEW.md")).toBeNull();
+
+    await fileChange({ kind: "directoryChanged", path: "" });
+
+    await waitFor(() => expect(screen.getByText("NEW.md")).toBeTruthy());
+    expect(scanned).toEqual(["", ""]);
+  });
+
+  test("別のスコープの通知では、ツリーの取り直しも監視の断念の処理も行わない", async () => {
+    const scanned: string[] = [];
+    const reads: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return ROOT;
+      },
+      read: (path) => {
+        reads.push(path);
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("本文"));
+
+    await fileChange({ kind: "directoryChanged", path: "" }, "scope-2");
+    await act(async () => {
+      await emit("watcher-error", {
+        scopeId: "scope-2",
+        error: { code: "watcherStopped", message: "止まった", detail: null },
+      });
+    });
+
+    expect(scanned).toEqual([""]);
+    expect(reads).toEqual(["README.md"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  test("変更を個別に追えないときは、フォルダーとアクティブ文書を取り直し、原因を示す（6.4）", async () => {
+    const scanned: string[] = [];
+    const reads: string[] = [];
+    mockBackend({
+      scan: (path) => {
+        scanned.push(path);
+        return ROOT;
+      },
+      read: (path) => {
+        reads.push(path);
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("本文"));
+
+    await act(async () => {
+      await emit("watcher-error", {
+        scopeId: "scope-1",
+        error: {
+          code: "watcherOverflow",
+          message: "変更が多すぎて追えません。",
+          detail: null,
+        },
+      });
+    });
+
+    await waitFor(() => expect(reads).toEqual(["README.md", "README.md"]));
+    expect(scanned).toEqual(["", ""]);
+    // 読み直しの成功で、通知を消さない。
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "変更が多すぎて追えません。",
+      ),
+    );
+  });
+
+  test("監視が止まったときの読み直しが失敗しても、開き直しを案内する通知を書き換えない（6.4）", async () => {
+    const missing: IpcError = {
+      code: "fileNotFound",
+      message: "ファイルが見つかりません。",
+      detail: "README.md",
+    };
+    const results: (FileContent | IpcError)[] = [
+      fileContent("README.md", "## 本文\n"),
+      missing,
+    ];
+    mockBackend({
+      scan: () => ROOT,
+      read: () => {
+        const next = results.shift();
+        if (next === undefined) throw new Error("想定外の読込");
+        return "code" in next ? Promise.reject(next) : next;
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(heading()).toBe("本文"));
+
+    await act(async () => {
+      await emit("watcher-error", {
+        scopeId: "scope-1",
+        error: {
+          code: "watcherStopped",
+          message: "監視が止まりました。フォルダーを開き直してください。",
+          detail: null,
+        },
+      });
+    });
+
+    // 読み直しは失敗する。その結果を待ってから、通知が残っていることを確かめる。
+    await waitFor(() => expect(results).toHaveLength(0));
+    await act(async () => {});
+    expect(screen.getByRole("alert").textContent).toBe(
+      "監視が止まりました。フォルダーを開き直してください。",
+    );
+  });
+
+  test("発行済みの画像が書き換わったら、本文が同じでも画像を発行し直して表示する（5.4）", async () => {
+    let issued = 0;
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "![ロゴ](logo.png)\n"),
+      issue: (request) => {
+        issued += 1;
+        return request.references.map((reference) => ({
+          status: "issued",
+          reference,
+          resourceId: `logo-${issued}`,
+        }));
+      },
+    });
+    render(<App />);
+    await openReadme();
+    const src = () =>
+      screen.getByRole("img", { name: "ロゴ" }).getAttribute("src");
+    await waitFor(() => expect(src()).toContain("logo-1"));
+
+    await act(async () => {
+      await emit("images-changed", { scopeId: "scope-2" });
+    });
+    expect(issued).toBe(1);
+
+    await act(async () => {
+      await emit("images-changed", { scopeId: "scope-1" });
+    });
+
+    await waitFor(() => expect(src()).toContain("logo-2"));
   });
 });

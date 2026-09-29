@@ -22,6 +22,10 @@ export type Messages = {
   sidebarWidthLabel: string;
   tabListLabel: string;
   closeTab: (title: string) => string;
+  /** 削除されたファイルのタブに添える印（6.5）。 */
+  tabDeleted: string;
+  /** アクティブタブのファイルが削除されたときの通知。本文を保っているか否かで文言を分ける。 */
+  fileDeleted: { keepingContent: string; withoutContent: string };
   treeLabel: string;
   treeLoading: string;
   /** ワークスペースを開いていないときの案内に並べる、最近使ったフォルダーの見出し。 */
@@ -78,6 +82,13 @@ const ja: Messages = {
   sidebarWidthLabel: "サイドバーの幅",
   tabListLabel: "開いている文書",
   closeTab: (title) => `${title} を閉じる`,
+  tabDeleted: "削除済み",
+  fileDeleted: {
+    keepingContent:
+      "このファイルは削除されました。最後に読めた内容を表示しています。",
+    withoutContent:
+      "このファイルは削除されました。表示できる内容はありません。",
+  },
   treeLabel: "ファイル",
   treeLoading: "読み込み中…",
   recentFoldersHeading: "最近使ったフォルダー",
@@ -133,6 +144,12 @@ const en: Messages = {
   sidebarWidthLabel: "Sidebar width",
   tabListLabel: "Open documents",
   closeTab: (title) => `Close ${title}`,
+  tabDeleted: "Deleted",
+  fileDeleted: {
+    keepingContent:
+      "This file was deleted. Showing the last content that could be read.",
+    withoutContent: "This file was deleted. There is no content to show.",
+  },
   treeLabel: "Files",
   treeLoading: "Loading...",
   recentFoldersHeading: "Recent folders",

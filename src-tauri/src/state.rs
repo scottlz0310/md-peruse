@@ -194,6 +194,7 @@ mod tests {
     impl ChangeSink for DiscardingSink {
         fn file_change(&self, _event: FileChangeEvent) {}
         fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+        fn images_changed(&self, _scope_id: &str) {}
     }
 
     fn sink() -> Arc<dyn ChangeSink> {

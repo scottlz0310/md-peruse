@@ -451,6 +451,7 @@ mod tests {
         impl ChangeSink for DiscardingSink {
             fn file_change(&self, _event: crate::ipc::types::FileChangeEvent) {}
             fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+            fn images_changed(&self, _scope_id: &str) {}
         }
 
         /// テスト用の一時フォルダー。終了時に削除する。

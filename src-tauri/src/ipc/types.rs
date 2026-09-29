@@ -165,6 +165,20 @@ pub struct WatcherErrorEvent {
     pub error: IpcError,
 }
 
+/// 発行済みの画像が書き換わったことの通知（design-decisions.md 5.4）。
+///
+/// 画像は `FileChange` の対象外であり、どの画像かも運ばない。Frontendは表示中の文書の
+/// 画像を発行し直す。参照している画像の集合をFrontendが持たずに済むのは、Rustが発行済みの
+/// 画像だけを対象に通知するためである。
+///
+/// `scope_id` を持つ理由は `FileChangeEvent` と同じ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct ImagesChangedEvent {
+    pub scope_id: String,
+}
+
 /// ワークスペースを開いたことの通知（design-decisions.md 6.1、10.1）。
 ///
 /// フォルダーの選択はネイティブメニューからRust側のダイアログで行うため、Frontendは

@@ -1,7 +1,10 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { FileChangeEvent } from "../types/generated/FileChangeEvent";
+import type { ImagesChangedEvent } from "../types/generated/ImagesChangedEvent";
 import type { LanguageChangedEvent } from "../types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "../types/generated/MenuCommand";
 import type { RecentFoldersChangedEvent } from "../types/generated/RecentFoldersChangedEvent";
+import type { WatcherErrorEvent } from "../types/generated/WatcherErrorEvent";
 import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
 
 /**
@@ -26,6 +29,47 @@ export function onWorkspaceOpened(
  */
 export function onWorkspaceClosed(handler: () => void): Promise<UnlistenFn> {
   return listen("workspace-closed", () => handler());
+}
+
+/**
+ * ファイル変更の通知を受け取る（design-decisions.md 6.4、6.5）。
+ *
+ * Rust側でdebounceし、atomic replaceを削除と誤判定しないよう確定させてから届く。
+ * `scopeId` が自分の保持するスコープと一致しない通知は、受け手が破棄する。
+ */
+export function onFileChange(
+  handler: (event: FileChangeEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<FileChangeEvent>("file-change", (event) =>
+    handler(event.payload),
+  );
+}
+
+/**
+ * 監視が追従できなくなったことを受け取る（design-decisions.md 6.4）。
+ *
+ * 変更が多すぎて個別に追えないとき（`watcherOverflow`）と、監視そのものが止まったとき
+ * （`watcherStopped`）に届く。
+ */
+export function onWatcherError(
+  handler: (event: WatcherErrorEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<WatcherErrorEvent>("watcher-error", (event) =>
+    handler(event.payload),
+  );
+}
+
+/**
+ * 発行済みの画像が書き換わったことを受け取る（design-decisions.md 5.4）。
+ *
+ * どの画像かは伝わらない。表示中の文書の画像を発行し直す契機として使う。
+ */
+export function onImagesChanged(
+  handler: (event: ImagesChangedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<ImagesChangedEvent>("images-changed", (event) =>
+    handler(event.payload),
+  );
 }
 
 /**

@@ -22,16 +22,19 @@ use crate::i18n::Language;
 use crate::image::resource::ImageResources;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::message;
-use crate::ipc::types::{FileChangeEvent, WatcherErrorEvent};
+use crate::ipc::types::{FileChangeEvent, ImagesChangedEvent, WatcherErrorEvent};
 use crate::scan::is_excluded_directory;
 use crate::state::AppState;
-use crate::watch::{DebounceWindow, WindowOutcome, coalesce, map_event};
+use crate::watch::{DebounceWindow, RawEvent, RawEventKind, WindowOutcome, coalesce, map_event};
 
 /// 確定した変更を運ぶTauri eventの名前。
 pub const FILE_CHANGE_EVENT: &str = "file-change";
 
 /// 監視が追従できなくなったことを運ぶTauri eventの名前。
 pub const WATCHER_ERROR_EVENT: &str = "watcher-error";
+
+/// 発行済みの画像が変わったことを運ぶTauri eventの名前。
+pub const IMAGES_CHANGED_EVENT: &str = "images-changed";
 
 /// 確定した変更の送出先。
 ///
@@ -48,6 +51,12 @@ pub trait ChangeSink: Send + Sync + 'static {
     /// ためである（10.5）。Watcherはワークスペースを開いている間ずっと生きるため、開始時の
     /// 言語で文言を作ると、言語を切り替えた後もずっと旧言語で届く。
     fn watcher_error(&self, scope_id: &str, code: ErrorCode);
+
+    /// 発行済みの画像が書き換わったことを送る。
+    ///
+    /// 画像は `FileChange` の対象外であり、どの画像かも伝えない。Frontendは表示中の文書の
+    /// 画像を発行し直すだけでよく、参照している画像の集合を持たずに済む（5.4）。
+    fn images_changed(&self, scope_id: &str);
 }
 
 /// 監視スコープのIDを採番する。
@@ -194,8 +203,11 @@ fn run(
 ) {
     let origin = Instant::now();
     let mut window = DebounceWindow::new();
+    // 発行済みの画像の変更は、文書の変更とは別の窓で畳み込む。画像は通知の対象外で
+    // `window` の外にあり、除外対象配下の画像は `window` へ入れないため、同じ窓には載らない。
+    let mut image_window = DebounceWindow::new();
     loop {
-        match wait(&window, origin, incoming) {
+        match wait(&window, &image_window, origin, incoming) {
             Wait::Received(Incoming::Stop) | Wait::Disconnected => return,
             Wait::Received(Incoming::Root(event)) => {
                 let now_ms = elapsed_ms(origin);
@@ -204,7 +216,9 @@ fn run(
                     // 再描画に伴って発行し直されるため、それより前に新しい世代になっている
                     // 必要がある。除外対象配下の画像も文書から参照されうるため、除外の判定
                     // より前に行う。
-                    images.advance(&raw.path);
+                    if images.advance(&raw.path) {
+                        image_window.push(now_ms, RawEvent::new(RawEventKind::Modified, &raw.path));
+                    }
                     // notifyはディレクトリ単位の除外を行えないため、受信後にパスで判定して
                     // 破棄する（6.4）。
                     if is_excluded(&raw.path) {
@@ -222,6 +236,7 @@ fn run(
             Wait::Deadline => {}
         }
         drain(&mut window, origin, scope_id, sink, images);
+        drain_images(&mut image_window, origin, scope_id, sink);
     }
 }
 
@@ -231,9 +246,18 @@ enum Wait {
     Disconnected,
 }
 
-/// 窓の期限まで待つ。窓が開いていなければイベントが届くまで待つ。
-fn wait(window: &DebounceWindow, origin: Instant, incoming: &Receiver<Incoming>) -> Wait {
-    let Some(deadline_ms) = window.deadline_ms() else {
+/// 2つの窓のうち早い期限まで待つ。どちらも開いていなければイベントが届くまで待つ。
+fn wait(
+    window: &DebounceWindow,
+    image_window: &DebounceWindow,
+    origin: Instant,
+    incoming: &Receiver<Incoming>,
+) -> Wait {
+    let deadline_ms = match (window.deadline_ms(), image_window.deadline_ms()) {
+        (Some(document), Some(image)) => Some(document.min(image)),
+        (document, image) => document.or(image),
+    };
+    let Some(deadline_ms) = deadline_ms else {
         return match incoming.recv() {
             Ok(received) => Wait::Received(received),
             Err(_) => Wait::Disconnected,
@@ -278,6 +302,25 @@ fn drain(
                 sink.watcher_error(scope_id, ErrorCode::WatcherOverflow);
             }
         }
+    }
+}
+
+/// 期限に達した画像の窓を確定させ、1回だけ通知する。
+///
+/// 縮退した窓（`WindowOutcome::Overflowed`）も同じく1回の通知にする。画像を発行し直す
+/// 判断に、窓の中の件数は要らないためである。
+fn drain_images(
+    image_window: &mut DebounceWindow,
+    origin: Instant,
+    scope_id: &str,
+    sink: &dyn ChangeSink,
+) {
+    let mut due = false;
+    while image_window.take_due(elapsed_ms(origin)).is_some() {
+        due = true;
+    }
+    if due {
+        sink.images_changed(scope_id);
     }
 }
 
@@ -369,6 +412,15 @@ impl<R: tauri::Runtime> ChangeSink for TauriChangeSink<R> {
             watcher_error_event(scope_id, code, language),
         );
     }
+
+    fn images_changed(&self, scope_id: &str) {
+        self.emit(
+            IMAGES_CHANGED_EVENT,
+            ImagesChangedEvent {
+                scope_id: scope_id.to_owned(),
+            },
+        );
+    }
 }
 
 #[cfg(test)]
@@ -384,6 +436,7 @@ mod tests {
     struct RecordingSink {
         changes: Mutex<Vec<FileChangeEvent>>,
         errors: Mutex<Vec<(String, ErrorCode)>>,
+        image_notices: Mutex<Vec<String>>,
     }
 
     impl RecordingSink {
@@ -393,6 +446,13 @@ mod tests {
 
         fn errors(&self) -> Vec<(String, ErrorCode)> {
             self.errors.lock().expect("記録のロックに失敗").clone()
+        }
+
+        fn image_notices(&self) -> Vec<String> {
+            self.image_notices
+                .lock()
+                .expect("記録のロックに失敗")
+                .clone()
         }
     }
 
@@ -406,6 +466,13 @@ mod tests {
                 .lock()
                 .expect("記録のロックに失敗")
                 .push((scope_id.to_owned(), code));
+        }
+
+        fn images_changed(&self, scope_id: &str) {
+            self.image_notices
+                .lock()
+                .expect("記録のロックに失敗")
+                .push(scope_id.to_owned());
         }
     }
 
@@ -706,6 +773,118 @@ mod tests {
         assert_ne!(images.issue("a.png"), issued);
     }
 
+    /// 発行済みの画像の書き換えは、文書の変更とは別に通知する（5.4）。
+    ///
+    /// 除外対象配下の画像も、文書から参照されうるため通知する。文書の窓へは入らないため、
+    /// 別の窓で畳み込まなければ通知が届かない。
+    #[test]
+    fn rewriting_an_issued_image_is_notified() {
+        let temp = TempDir::new("image-notice");
+        let excluded = temp.path().join("node_modules");
+        std::fs::create_dir(&excluded).expect("フォルダーの作成に失敗");
+        std::fs::write(temp.path().join("a.png"), b"0").expect("書込みに失敗");
+        std::fs::write(excluded.join("b.png"), b"0").expect("書込みに失敗");
+        let images = images();
+        images.issue("a.png");
+        images.issue("node_modules/b.png");
+        let sink = Arc::new(RecordingSink::default());
+        let watcher = WorkspaceWatcher::start(temp.path(), sink.clone(), Arc::clone(&images))
+            .expect("監視を開始できない");
+
+        std::fs::write(temp.path().join("a.png"), b"1").expect("書込みに失敗");
+        wait_until(|| (!sink.image_notices().is_empty()).then_some(()))
+            .expect("画像の書き換えが通知されない");
+        assert_eq!(sink.image_notices(), vec![watcher.scope_id().to_owned()]);
+
+        std::fs::write(excluded.join("b.png"), b"1").expect("書込みに失敗");
+        wait_until(|| (sink.image_notices().len() >= 2).then_some(()))
+            .expect("除外対象配下の画像の書き換えが通知されない");
+        assert!(
+            sink.image_notices()
+                .iter()
+                .all(|scope| scope == watcher.scope_id())
+        );
+    }
+
+    /// 発行していない画像の書き換えは通知しない。参照されていない画像のために、表示中の
+    /// 文書を描き直す理由がない。
+    #[test]
+    fn rewriting_an_unissued_image_is_not_notified() {
+        let temp = TempDir::new("image-unissued");
+        let sink = Arc::new(RecordingSink::default());
+        let _watcher = WorkspaceWatcher::start(temp.path(), sink.clone(), images())
+            .expect("監視を開始できない");
+
+        std::fs::write(temp.path().join("c.png"), b"1").expect("書込みに失敗");
+        // 文書の窓が閉じたことで、画像の窓も閉じる時間が過ぎたと言える。
+        std::fs::write(temp.path().join("s.md"), b"# s\n").expect("書込みに失敗");
+        wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
+        std::thread::sleep(Duration::from_millis(MAX_WINDOW_MS + 200));
+
+        assert_eq!(sink.image_notices(), Vec::<String>::new());
+    }
+
+    /// 画像の窓は、期限に達したときに件数によらず1回だけ通知する。縮退した窓も同じ。
+    #[test]
+    fn a_due_image_window_notifies_once() {
+        let cases = [
+            ("イベントなし", 0, true, 0),
+            ("1件", 1, true, 1),
+            ("複数件", 5, true, 1),
+            ("縮退", MAX_EVENTS_PER_WINDOW + 1, true, 1),
+            ("期限前", 3, false, 0),
+        ];
+        for (name, count, due, expected) in cases {
+            let mut window = DebounceWindow::new();
+            for index in 0..count {
+                window.push(
+                    0,
+                    RawEvent::new(RawEventKind::Modified, &format!("img/{index}.png")),
+                );
+            }
+            let sink = RecordingSink::default();
+            let origin = if due {
+                elapsed_origin(MAX_WINDOW_MS + 1)
+            } else {
+                Instant::now()
+            };
+
+            drain_images(&mut window, origin, "scope-5", &sink);
+
+            assert_eq!(
+                sink.image_notices(),
+                vec!["scope-5".to_owned(); expected],
+                "{name}"
+            );
+        }
+    }
+
+    /// 文書の窓が開いていなくても、画像の窓の期限で起きる。
+    ///
+    /// 除外対象配下の画像は文書の窓へ入らない。画像の窓の期限を待たないと、通知は次のイベントが
+    /// 届くまで送られない。実Watcherのテストでは、同じ一時フォルダーの親を監視する別のテストの
+    /// イベントが監視スレッドを起こしてしまい、この不具合が隠れる。
+    #[test]
+    fn waiting_wakes_at_the_image_window_deadline() {
+        let mut image_window = DebounceWindow::new();
+        image_window.push(0, RawEvent::new(RawEventKind::Modified, "img/a.png"));
+        let (sender, incoming) = channel::<Incoming>();
+        // 期限で起きなければ、この送信で起こして失敗にする。永久には待たない。
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            let _ = sender.send(Incoming::Stop);
+        });
+
+        let waited = wait(
+            &DebounceWindow::new(),
+            &image_window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            &incoming,
+        );
+
+        assert!(matches!(waited, Wait::Deadline));
+    }
+
     /// 期限を過ぎた時刻を起点として返す。
     ///
     /// 窓へ渡す時刻は呼び出し側が決める契約（`DebounceWindow`）であり、起点を過去へ
@@ -859,6 +1038,31 @@ mod tests {
                 ErrorCode::WatcherStopped,
                 Language::En
             )]
+        );
+    }
+
+    /// 画像の変更は、スコープIDだけを載せたTauri eventとして届く。
+    #[test]
+    fn the_tauri_sink_emits_the_images_changed_event() {
+        let app = tauri::test::mock_app();
+        let notices: Arc<Mutex<Vec<ImagesChangedEvent>>> = Arc::new(Mutex::new(Vec::new()));
+        {
+            let notices = notices.clone();
+            app.listen(IMAGES_CHANGED_EVENT, move |event| {
+                notices
+                    .lock()
+                    .expect("記録のロックに失敗")
+                    .push(serde_json::from_str(event.payload()).expect("通知を解釈できない"));
+            });
+        }
+
+        TauriChangeSink::new(app.handle().clone()).images_changed("scope-6");
+
+        assert_eq!(
+            *notices.lock().expect("記録のロックに失敗"),
+            vec![ImagesChangedEvent {
+                scope_id: "scope-6".to_owned()
+            }]
         );
     }
 

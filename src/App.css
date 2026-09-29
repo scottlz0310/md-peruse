@@ -173,6 +173,13 @@ body {
   text-overflow: ellipsis;
 }
 
+/* 削除されたファイルのタブ（6.5）。色だけに頼らず、文字で示す。 */
+.tab-deleted {
+  flex: none;
+  color: var(--color-fg-muted);
+  font-size: 0.75rem;
+}
+
 .tab-close {
   flex: none;
   padding: 0 0.25rem;

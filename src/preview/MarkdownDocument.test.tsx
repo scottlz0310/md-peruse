@@ -52,6 +52,7 @@ function mount(
     path: options.path ?? "docs/guide.md",
     onNavigate: (target: LinkTarget) => navigated.push(target),
     issueImages: noImages,
+    imageRevision: 0,
     scroller,
   };
   const initialView = options.view ?? TOP;
@@ -254,6 +255,7 @@ describe("MarkdownDocument", () => {
         view={TOP}
         onNavigate={() => {}}
         issueImages={issueImages}
+        imageRevision={0}
         scroller={scroller}
       />,
     );
@@ -261,5 +263,47 @@ describe("MarkdownDocument", () => {
     const image = await waitFor(() => screen.getByRole("img", { name: "図" }));
     expect(image.getAttribute("src")).toBe("http://mdperuse-img.localhost/abc");
     expect(requests).toEqual([["docs/guide.md", ["../img/a.png"]]]);
+  });
+
+  test("画像の書き換えを知らされたら、本文が同じでも画像を発行し直す（5.4）", async () => {
+    let issued = 0;
+    const issueImages = async (
+      _documentPath: string,
+      references: string[],
+    ): Promise<ImageResource[]> => {
+      issued += 1;
+      return references.map((reference) => ({
+        status: "issued",
+        reference,
+        resourceId: `id-${issued}`,
+      }));
+    };
+    const element = (imageRevision: number) => (
+      <MarkdownDocument
+        text={"![図](a.png)\n"}
+        path="guide.md"
+        view={TOP}
+        onNavigate={() => {}}
+        issueImages={issueImages}
+        imageRevision={imageRevision}
+        scroller={scroller}
+      />
+    );
+    const { rerender } = render(element(0));
+    const src = async () =>
+      (
+        await waitFor(() => screen.getByRole("img", { name: "図" }))
+      ).getAttribute("src");
+    expect(await src()).toBe("http://mdperuse-img.localhost/id-1");
+
+    // 同じ値の再描画では発行し直さない。
+    rerender(element(0));
+    expect(issued).toBe(1);
+
+    rerender(element(1));
+    await waitFor(async () =>
+      expect(await src()).toBe("http://mdperuse-img.localhost/id-2"),
+    );
+    expect(issued).toBe(2);
   });
 });
