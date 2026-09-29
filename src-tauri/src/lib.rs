@@ -36,6 +36,10 @@ use std::thread;
 use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 
 pub fn run() {
+    // `env::args` は、Unicodeでない引数で異常終了するため使わない。
+    let argv: Vec<String> = std::env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     let app = image::protocol::register(tauri::Builder::default())
         // 関連付け起動の受け口。他のプラグインより先に登録する（プラグインの要件）。2つ目の
         // プロセスは引数を渡して終了し、ここへ届く（design-decisions.md 9.2）。
@@ -43,8 +47,10 @@ pub fn run() {
             launch::second_instance(app, argv, cwd);
         }))
         // プラグインは起動処理より先に引数を届けうるため、保留は他の状態に依存させず、
-        // ここで登録する（`launch` のモジュール文書）。
-        .manage(launch::LaunchQueue::new())
+        // ここで登録する。起動引数のファイルも、ここで保留へ入れる。復元とFrontendの準備が
+        // 済むまで開かれず、先に届いた2つ目のプロセスの引数に追い越されない（`launch` の
+        // モジュール文書）。
+        .manage(launch::LaunchQueue::started_with(&argv))
         .plugin(tauri_plugin_opener::init())
         // Rust側からだけ使う。capabilityへdialogの権限を加えないため、Frontendからは
         // 呼べない（design-decisions.md 5.5）。
@@ -135,12 +141,6 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     window_placement::track(&window);
     drag_drop::track(&window);
 
-    // 起動引数のファイルは、復元とFrontendの準備が済むまで保留される（`launch`）。
-    // `env::args` は、Unicodeでない引数で異常終了するため使わない。
-    let argv: Vec<String> = std::env::args_os()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
-    launch::received_at_startup(app.handle(), &argv);
     let restore_handle = app.handle().clone();
     thread::spawn(move || {
         open_folder::restore_last_workspace(&restore_handle);

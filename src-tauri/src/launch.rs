@@ -15,11 +15,18 @@
 //! それまでに届いたファイルは、届いた順に保留する。保留は最初のプロセスの起動の直後から
 //! 効かせる必要がある。プラグインは起動処理より先に2つ目のプロセスの引数を受け取りうるため、
 //! この状態は `tauri::Builder` の段階で登録し、他の状態に触れずに保留できるようにする。
+//! 新規起動の引数も、その登録と同時に保留へ入れる。あとから入れると、先に届いた2つ目の
+//! プロセスの引数が、新規起動の引数を追い越す。
 //!
-//! 保留から取り出してから開き終えるまでは、受け取りごとに1つずつ行う。複数のスレッド
-//! （復元、Frontendの準備、2つ目のプロセス）が同時に開くと、先に取り出したファイルの
-//! ストレージの応答が遅いとき、後のファイルが先に開き、最後にアクティブになるタブが
-//! 届いた順と食い違う。
+//! 「届いた順」は、2段階で守る。
+//!
+//! - 保留へ入れる順は、通知を受けた時点で確定する。2つ目のプロセスの通知は、受けたスレッドが
+//!   その場で保留へ入れ、開く処理だけを別のスレッドへ渡す。開く処理のスレッドで入れると、
+//!   スレッドを作る順と実行を始める順が一致せず、後の通知が先に保留へ入りうる。
+//! - 保留から取り出してから開き終えるまでは、受け取りごとに1つずつ行う。複数のスレッド
+//!   （復元、Frontendの準備、2つ目のプロセス）が同時に開くと、先に取り出したファイルの
+//!   ストレージの応答が遅いとき、後のファイルが先に開き、最後にアクティブになるタブが
+//!   届いた順と食い違う。
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -66,6 +73,16 @@ impl LaunchQueue {
         Self::default()
     }
 
+    /// 新規に起動したプロセスの起動引数（`argv[0]` を含む）を、保留へ入れた状態で作る。
+    ///
+    /// 作業ディレクトリは空を渡す。相対パスはそのまま残り、開くときにプロセス自身の作業
+    /// ディレクトリで解決される。
+    pub fn started_with(argv: &[String]) -> Self {
+        let queue = Self::default();
+        queue.enqueue(requested_files(argv, Path::new("")));
+        queue
+    }
+
     fn lock(&self) -> MutexGuard<'_, Pending> {
         // `panic = "abort"` の下では毒される経路が生じない（12章）。
         self.pending
@@ -85,11 +102,16 @@ impl LaunchQueue {
         open(&openable);
     }
 
-    /// ファイルを保留の末尾へ加え、いま開いてよいものを返す。
-    fn push(&self, files: Vec<String>) -> Vec<String> {
-        let mut pending = self.lock();
-        pending.files.extend(files);
-        pending.take_openable()
+    /// ファイルを保留の末尾へ加える。取り出さない。
+    ///
+    /// 保留へ入れる順を、通知を受けた時点で確定するために、取り出しと分ける。
+    fn enqueue(&self, files: Vec<String>) {
+        self.lock().files.extend(files);
+    }
+
+    /// いま開いてよいファイルがあれば、保留を空にして返す。
+    fn take(&self) -> Vec<String> {
+        self.lock().take_openable()
     }
 
     /// 最後のワークスペースの復元が済んだことを記録し、いま開いてよいものを返す。
@@ -127,23 +149,18 @@ fn requested_files(argv: &[String], base: &Path) -> Vec<String> {
     files_to_open(&absolute)
 }
 
-/// 新規に起動したプロセスの起動引数を受け取る。
-///
-/// 作業ディレクトリは空を渡す。相対パスはそのまま残り、開くときにプロセス自身の作業
-/// ディレクトリで解決される。
-pub fn received_at_startup<R: Runtime>(app: &AppHandle<R>, argv: &[String]) {
-    receive(app, argv, Path::new(""));
-}
-
 /// 起動中のインスタンスへ渡された、2つ目のプロセスの引数を受け取る。
 ///
-/// ウィンドウを前面へ出してから、ファイルを別のスレッドで開く。プラグインの呼び出しは、
-/// 2つ目のプロセスの通知を処理するスレッドで行われる。ここでファイルシステムを待つと、
-/// 応答の遅いストレージで通知の処理が止まる。
+/// ウィンドウを前面へ出し、ファイルを保留へ入れてから、開く処理を別のスレッドへ渡す。
+/// プラグインの呼び出しは、2つ目のプロセスの通知を1つずつ処理するスレッドで行われる。
+/// 保留へ入れる順は、ここで確定する（モジュールの文書を参照）。開く処理でファイルシステムを
+/// 待つと、応答の遅いストレージで通知の処理が止まるため、別のスレッドで行う。
 pub fn second_instance<R: Runtime>(app: &AppHandle<R>, argv: Vec<String>, cwd: String) {
     focus_main_window(app);
+    app.state::<LaunchQueue>()
+        .enqueue(requested_files(&argv, Path::new(&cwd)));
     let app = app.clone();
-    thread::spawn(move || receive(&app, &argv, Path::new(&cwd)));
+    thread::spawn(move || open_queued(&app));
 }
 
 /// 起動時の、最後のワークスペースの復元が済んだことを知らせる。復元に失敗した場合も呼ぶ。
@@ -163,10 +180,10 @@ pub fn frontend_ready<R: Runtime>(app: &AppHandle<R>) {
         .deliver(LaunchQueue::mark_frontend_ready, |files| open(app, files));
 }
 
-fn receive<R: Runtime>(app: &AppHandle<R>, argv: &[String], base: &Path) {
-    let files = requested_files(argv, base);
+/// 保留のうち、いま開いてよいものを開く。開けるものがなければ何もしない。
+fn open_queued<R: Runtime>(app: &AppHandle<R>) {
     app.state::<LaunchQueue>()
-        .deliver(|queue| queue.push(files), |files| open(app, files));
+        .deliver(LaunchQueue::take, |files| open(app, files));
 }
 
 /// ファイルを開く。開けなかったものの理由は、1つのダイアログへまとめて示す。
@@ -310,7 +327,10 @@ mod tests {
             let returned: Vec<Vec<String>> = steps
                 .into_iter()
                 .map(|step| match step {
-                    Push(files) => queue.push(strings(files)),
+                    Push(files) => {
+                        queue.enqueue(strings(files));
+                        queue.take()
+                    }
                     Restored => queue.mark_restored(),
                     Ready => queue.mark_frontend_ready(),
                 })
@@ -333,7 +353,7 @@ mod tests {
 
         let queue = Arc::new(LaunchQueue::new());
         // 起動引数のファイルを保留し、復元を済ませておく。Frontendの準備が済むと、取り出せる。
-        assert!(queue.push(strings(&["a"])).is_empty());
+        queue.enqueue(strings(&["a"]));
         assert!(queue.mark_restored().is_empty());
         let opened = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
         let (started_tx, started_rx) = mpsc::channel();
@@ -352,14 +372,15 @@ mod tests {
         };
         started_rx.recv().unwrap();
 
-        // 先のファイルを開いている間に、2つ目のプロセスの起動が届く。
+        // 先のファイルを開いている間に、2つ目のプロセスの通知が届く。通知を受けたスレッドが
+        // 保留へ入れ、開く処理は別のスレッドで行う（`second_instance`）。
+        queue.enqueue(strings(&["b"]));
         let second = {
             let (queue, opened) = (Arc::clone(&queue), Arc::clone(&opened));
             thread::spawn(move || {
-                queue.deliver(
-                    |queue| queue.push(strings(&["b"])),
-                    |files| opened.lock().unwrap().push(files.to_vec()),
-                );
+                queue.deliver(LaunchQueue::take, |files| {
+                    opened.lock().unwrap().push(files.to_vec());
+                });
             })
         };
         thread::sleep(Duration::from_millis(100));
@@ -375,6 +396,28 @@ mod tests {
             *opened.lock().unwrap(),
             vec![strings(&["a"]), strings(&["b"])]
         );
+    }
+
+    /// 続けて届いた2つの通知は、開く処理のスレッドが実行を始める順によらず、通知の順に開く。
+    /// 先に実行を始めたスレッドが、保留のすべてを届いた順に開き、あとのスレッドには開くものがない。
+    #[test]
+    fn workers_starting_out_of_order_open_in_notification_order() {
+        let queue = LaunchQueue::new();
+        assert!(queue.mark_restored().is_empty());
+        assert!(queue.mark_frontend_ready().is_empty());
+        // 通知A、Bが、この順に保留へ入る。
+        queue.enqueue(strings(&["a"]));
+        queue.enqueue(strings(&["b"]));
+        let opened = Mutex::new(Vec::<Vec<String>>::new());
+
+        // Bの開く処理が、Aのものより先に実行を始める。どちらが先でも、同じ結果になる。
+        for _ in 0..2 {
+            queue.deliver(LaunchQueue::take, |files| {
+                opened.lock().unwrap().push(files.to_vec());
+            });
+        }
+
+        assert_eq!(opened.lock().unwrap().concat(), strings(&["a", "b"]));
     }
 
     struct TempDir(PathBuf);
@@ -404,10 +447,23 @@ mod tests {
 
     /// 状態を登録した `mock_app`。
     fn app() -> tauri::App<tauri::test::MockRuntime> {
+        app_started_with(&[])
+    }
+
+    /// 起動引数にファイルを渡して起動した `mock_app`。保留は起動引数のファイルで始まる。
+    fn app_started_with(files: &[&Path]) -> tauri::App<tauri::test::MockRuntime> {
         let app = tauri::test::mock_app();
         app.manage(AppState::new(LanguagePreference::System));
-        app.manage(LaunchQueue::new());
+        app.manage(LaunchQueue::started_with(&argv(files)));
         app
+    }
+
+    /// 2つ目のプロセスの通知を、開く処理まで同じスレッドで行う（`second_instance` の、
+    /// スレッドを分けない版）。
+    fn receive(app: &tauri::App<tauri::test::MockRuntime>, argv: &[String], base: &Path) {
+        app.state::<LaunchQueue>()
+            .enqueue(requested_files(argv, base));
+        open_queued(app.handle());
     }
 
     fn collect(app: &tauri::App<tauri::test::MockRuntime>) -> Arc<Mutex<Vec<OpenDocumentEvent>>> {
@@ -442,10 +498,9 @@ mod tests {
     fn a_startup_file_is_not_opened_before_both_conditions_are_met() {
         let temp = TempDir::new("startup");
         let a = temp.write("a.md");
-        let app = app();
+        let app = app_started_with(&[&a]);
         let events = collect(&app);
 
-        received_at_startup(app.handle(), &argv(&[&a]));
         assert!(paths(&events).is_empty());
         restored(app.handle());
         assert!(paths(&events).is_empty(), "Frontendの準備の前に開いた");
@@ -459,10 +514,9 @@ mod tests {
     fn a_startup_file_is_opened_when_the_restore_finishes_last() {
         let temp = TempDir::new("slow-restore");
         let a = temp.write("a.md");
-        let app = app();
+        let app = app_started_with(&[&a]);
         let events = collect(&app);
 
-        received_at_startup(app.handle(), &argv(&[&a]));
         frontend_ready(app.handle());
         assert!(paths(&events).is_empty(), "復元の前に開いた");
         restored(app.handle());
@@ -477,14 +531,13 @@ mod tests {
         let temp = TempDir::new("second");
         let a = temp.write("a.md");
         let b = temp.write("sub/b.md");
-        let app = app();
+        let app = app_started_with(&[&a]);
         let events = collect(&app);
-        received_at_startup(app.handle(), &argv(&[&a]));
         restored(app.handle());
         frontend_ready(app.handle());
         assert_eq!(paths(&events), ["a.md"]);
 
-        receive(app.handle(), &argv(&[&b]), &temp.0);
+        receive(&app, &argv(&[&b]), &temp.0);
 
         assert_eq!(paths(&events), ["a.md", "b.md"]);
     }
@@ -495,11 +548,10 @@ mod tests {
         let temp = TempDir::new("early-second");
         let a = temp.write("a.md");
         let b = temp.write("b.md");
-        let app = app();
+        let app = app_started_with(&[&a]);
         let events = collect(&app);
 
-        received_at_startup(app.handle(), &argv(&[&a]));
-        receive(app.handle(), &argv(&[&b]), &temp.0);
+        receive(&app, &argv(&[&b]), &temp.0);
         restored(app.handle());
         frontend_ready(app.handle());
 
@@ -518,7 +570,7 @@ mod tests {
         frontend_ready(app.handle());
 
         let command_line = strings(&["md-peruse.exe", "notes.md"]);
-        receive(app.handle(), &command_line, &temp.0.join("work"));
+        receive(&app, &command_line, &temp.0.join("work"));
 
         assert_eq!(paths(&events), ["notes.md"]);
     }
@@ -532,11 +584,36 @@ mod tests {
         frontend_ready(app.handle());
 
         receive(
-            app.handle(),
+            &app,
             &strings(&["md-peruse.exe", "--debug"]),
             Path::new(r"C:\work"),
         );
 
         assert!(paths(&events).is_empty());
+    }
+
+    /// 2つ目のプロセスの通知は、受けた時点で保留へ入る。開く処理のスレッドが実行を始める前に
+    /// 次の通知が届いても、届いた順が変わらない。開く処理のスレッドでは、スレッドを作る順と
+    /// 実行を始める順が一致せず、後の通知が先に保留へ入りうる。
+    ///
+    /// 開く処理のスレッドが順序の錠で止まっている間に、2つの通知を続けて届ける。通知を受けた
+    /// スレッドが保留へ入れていれば、開く処理が止まっていても、保留は届いた順に並ぶ。
+    #[test]
+    fn a_notification_is_queued_before_its_worker_starts() {
+        let temp = TempDir::new("notified");
+        let a = temp.write("a.md");
+        let b = temp.write("b.md");
+        let app = app();
+        let queue = app.state::<LaunchQueue>();
+        let held = queue.order.lock().unwrap();
+
+        second_instance(app.handle(), argv(&[&a]), String::new());
+        second_instance(app.handle(), argv(&[&b]), String::new());
+
+        assert_eq!(
+            queue.lock().files,
+            [a, b].map(|file| file.to_string_lossy().into_owned())
+        );
+        drop(held);
     }
 }
