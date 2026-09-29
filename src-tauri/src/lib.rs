@@ -1,3 +1,4 @@
+pub mod drag_drop;
 pub mod drop;
 pub mod file_kind;
 pub mod i18n;
@@ -8,6 +9,7 @@ pub mod limits;
 pub mod menu;
 pub mod menu_command;
 pub mod natural_order;
+pub mod open_document;
 pub mod open_folder;
 pub mod path_guard;
 pub mod read;
@@ -44,13 +46,15 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            ipc::commands::close_loose_scope_command,
             ipc::commands::get_ui_settings_command,
             ipc::commands::get_workspace_command,
             ipc::commands::issue_image_resources_command,
             ipc::commands::open_recent_folder_command,
             ipc::commands::read_file_command,
             ipc::commands::scan_directory_command,
-            ipc::commands::update_ui_settings_command
+            ipc::commands::update_ui_settings_command,
+            ipc::commands::watch_loose_document_command
         ])
         .build(tauri::generate_context!())
         .expect("Tauriアプリケーションの起動に失敗しました");
@@ -119,6 +123,7 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     }
     webview_keys::attach(&window)?;
     window_placement::track(&window);
+    drag_drop::track(&window);
 
     let restore_handle = app.handle().clone();
     thread::spawn(move || open_folder::restore_last_workspace(&restore_handle));

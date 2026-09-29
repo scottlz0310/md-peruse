@@ -13,6 +13,11 @@ import { MAX_OPEN_TABS, selectEvictableTab } from "./tabs";
  */
 
 export type OpenTab = DocumentTab & {
+  /**
+   * loose tab（9.1）の暗黙のルート（所在フォルダー）の表示名。パンくずのルートに使う。
+   * ワークスペースのタブでは `null`（表示名はワークスペースが持つ）。
+   */
+  readonly rootLabel: string | null;
   /** 次のプレビューで差し替えられるタブか。 */
   readonly preview: boolean;
   /** 最後にアクティブになった時刻（ミリ秒）。上限を超えたときの退避に使う（9.1）。 */
@@ -51,14 +56,23 @@ export function activeTab(set: TabSet): OpenTab | undefined {
 }
 
 /**
- * その文書を表示している、または読み込んでいるタブ。
+ * そのスコープの文書を表示している、または読み込んでいるタブ。
+ *
+ * パスはスコープのルートからの相対パスであり、それだけではタブを一意にできない。暗黙のルートが
+ * 異なる2つのloose tabの `README.md` や、ワークスペースの `README.md` は、どれも同じパスに
+ * なる（6.4）。
  *
  * 削除されたタブは対象にしない。`deleted` は終端であり、同じパスにファイルが作り直されても
  * 復帰させない。開き直したときは新しいタブになる（design-decisions.md 6.5）。
  */
-export function findTabByPath(set: TabSet, path: string): OpenTab | undefined {
+export function findTabByPath(
+  set: TabSet,
+  scopeId: string,
+  path: string,
+): OpenTab | undefined {
   return set.tabs.find(
     (tab) =>
+      tab.scopeId === scopeId &&
       tab.status !== "deleted" &&
       (tab.path === path || pendingPath(tab) === path),
   );
@@ -69,14 +83,21 @@ export type OpenRequest = {
   /** プレビューとして開くか。`false` なら固定タブとして開く。 */
   readonly preview: boolean;
   readonly now: number;
-  /** 新しいタブを作るときに使うIDとスコープ。 */
-  readonly fresh: { readonly tabId: string; readonly scopeId: string };
+  /**
+   * 新しいタブを作るときに使うIDとスコープ。`rootLabel` はloose tabの暗黙のルートの表示名で、
+   * ワークスペースのタブでは省く。
+   */
+  readonly fresh: {
+    readonly tabId: string;
+    readonly scopeId: string;
+    readonly rootLabel?: string;
+  };
 };
 
 /**
  * 文書をタブで開く。
  *
- * - 同じ文書のタブがあれば、それをアクティブにする。固定で開いたときはそのタブを固定する
+ * - 同じスコープの同じ文書のタブがあれば、それをアクティブにする。固定で開いたときはそのタブを固定する
  * - プレビューで開き、プレビュータブがあれば、それを新しいタブで置き換える（同じ位置）
  * - それ以外は、アクティブタブの右に新しいタブを加える。上限を超えたら退避する
  *
@@ -88,7 +109,7 @@ export function openTab(
   set: TabSet,
   request: OpenRequest,
 ): { set: TabSet; opened: OpenTab | undefined } {
-  const existing = findTabByPath(set, request.path);
+  const existing = findTabByPath(set, request.fresh.scopeId, request.path);
   if (existing) {
     const pinned = request.preview ? set : pinTab(set, existing.tabId);
     return {
@@ -97,7 +118,9 @@ export function openTab(
     };
   }
   const fresh: OpenTab = {
-    ...request.fresh,
+    tabId: request.fresh.tabId,
+    scopeId: request.fresh.scopeId,
+    rootLabel: request.fresh.rootLabel ?? null,
     path: request.path,
     status: "loaded",
     loadGeneration: 0,

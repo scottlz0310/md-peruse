@@ -22,8 +22,8 @@ use crate::image::issue::issue;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{
-    FileContent, ImageResource, ImageResourceRequest, ReadRequest, ScanRequest, ScanResult,
-    WorkspaceOpenedEvent,
+    FileContent, ImageResource, ImageResourceRequest, LooseWatchRequest, ReadRequest, ScanRequest,
+    ScanResult, WorkspaceOpenedEvent,
 };
 use crate::open_folder;
 use crate::path_guard::{PathRejection, ResolveError};
@@ -116,11 +116,13 @@ pub async fn read_file_command(
     let language = state.language();
     let workspace = state.workspace();
     let requested_path = request.path.clone();
-    let result = spawn_blocking(move || workspace.with(|root| read_file(root, &request.path)))
-        .await
-        .expect("読込タスクの実行に失敗");
-    // ワークスペースを開いていない状態で読込を求められた場合。loose tab（9.1）は暗黙の
-    // ルートを持つため、その経路は監視スコープとともにPhase 4-1dで用意する。
+    let result = spawn_blocking(move || {
+        workspace.with_scope(&request.scope_id, |root| read_file(root, &request.path))
+    })
+    .await
+    .expect("読込タスクの実行に失敗");
+    // 開いていないスコープを求められた場合。閉じたloose tabや、切り替え前のワークスペースの
+    // スコープIDで届いた要求である。スコープが閉じていることを、ルートの不在として返す。
     let Some(result) = result else {
         return Err(ipc_error(ErrorCode::WorkspaceNotFound, language, None));
     };
@@ -182,7 +184,7 @@ pub async fn issue_image_resources_command(
     let language = state.language();
     let workspace = state.workspace();
     let result = spawn_blocking(move || {
-        workspace.with_images(|root, images| {
+        workspace.with_scope_images(&request.scope_id, |root, images| {
             request
                 .references
                 .into_iter()
@@ -207,6 +209,63 @@ pub async fn issue_image_resources_command(
     .await
     .expect("画像resource IDの発行タスクの実行に失敗");
     result.ok_or_else(|| ipc_error(ErrorCode::WorkspaceNotFound, language, None))
+}
+
+/// loose tabの監視先を、タブが表示している文書へ付け替える（design-decisions.md 6.4）。
+///
+/// 相対リンクで同じ暗黙のルートの別の文書へ移ると、タブの文書が替わる。監視は開いているファイル
+/// 1件に限るため、Frontendが読込の応答を採用したときに、この文書へ付け替えさせる。読込
+/// （`read_file_command`）は付け替えない。読んだ応答をFrontendが世代の判定で捨てることがあり、その
+/// 文書へ監視が移ると、表示中の文書の更新を検知できなくなるためである。
+///
+/// `path` はFrontendから届くため、暗黙のルートに対して再検証する（7.1）。読込と同じ規則
+/// （相対パスの形式、境界、実在）に加えて、Markdownファイルであることを確かめ、逸脱した要求は
+/// 読込と同じ `ErrorCode` で拒否する。拒否した要求は、監視も確定した世代も変えない。
+///
+/// Watcherを開始できなかったときは、そのスコープへ `watcherStopped` を通知する（event）。ワークスペースと、
+/// 開いていないスコープには何もしない。監視の停止は監視スレッドの終了まで待つため、
+/// ブロッキングスレッドで実行する。
+#[tauri::command]
+pub async fn watch_loose_document_command(
+    state: State<'_, AppState>,
+    request: LooseWatchRequest,
+) -> Result<(), IpcError> {
+    let language = state.language();
+    let workspace = state.workspace();
+    let requested_path = request.path.clone();
+    spawn_blocking(move || {
+        workspace.retarget_loose(
+            &request.scope_id,
+            &request.path,
+            &request.tab_id,
+            request.generation,
+        )
+    })
+    .await
+    .expect("loose tabの監視の付け替えタスクの実行に失敗")
+    .map_err(|error| read_error(&ReadError::Resolve(error), &requested_path, language))
+}
+
+/// loose tabのスコープを閉じ、そのファイルの監視を止める（design-decisions.md 6.4、9.1）。
+///
+/// タブを閉じたときと、上限（9.1）で退避されたときに、Frontendが求める。開いていない
+/// スコープ（ワークスペースを切り替えて破棄済みのものを含む）には何もしない。ワークスペースの
+/// スコープIDを渡されても閉じない。閉じる操作は「ワークスペースを閉じる」（10.1）だけである。
+///
+/// 監視の停止は監視スレッドの終了まで待つため、ブロッキングスレッドで実行する。
+///
+/// 失敗しない操作だが、借用（`State`）を受ける `async` のcommandは `Result` を返す決まりであり、
+/// Tauriのマクロが要求する。
+#[tauri::command]
+pub async fn close_loose_scope_command(
+    state: State<'_, AppState>,
+    scope_id: String,
+) -> Result<(), IpcError> {
+    let workspace = state.workspace();
+    spawn_blocking(move || workspace.close_loose(&scope_id))
+        .await
+        .expect("loose tabのスコープを閉じるタスクの実行に失敗");
+    Ok(())
 }
 
 /// 起動時の設定をFrontendへ渡す（design-decisions.md 11.1）。
@@ -514,6 +573,7 @@ mod tests {
             let content = block_on(read_file_command(
                 app.state::<AppState>(),
                 ReadRequest {
+                    scope_id: app.state::<AppState>().scope_id().expect("スコープがない"),
                     path: "note.md".to_owned(),
                 },
             ))
@@ -540,6 +600,7 @@ mod tests {
             let read = block_on(read_file_command(
                 app.state::<AppState>(),
                 ReadRequest {
+                    scope_id: "scope".to_owned(),
                     path: "note.md".to_owned(),
                 },
             ))
@@ -563,6 +624,7 @@ mod tests {
             let error = block_on(read_file_command(
                 app.state::<AppState>(),
                 ReadRequest {
+                    scope_id: app.state::<AppState>().scope_id().expect("スコープがない"),
                     path: r"C:\Windows\System32\drivers\etc\hosts".to_owned(),
                 },
             ))
@@ -590,6 +652,7 @@ mod tests {
             let resources = block_on(issue_image_resources_command(
                 app.state::<AppState>(),
                 ImageResourceRequest {
+                    scope_id: app.state::<AppState>().scope_id().expect("スコープがない"),
                     document_path: "docs/note.md".to_owned(),
                     references: vec![
                         "a.png".to_owned(),
@@ -651,12 +714,256 @@ mod tests {
             let error = block_on(issue_image_resources_command(
                 app.state::<AppState>(),
                 ImageResourceRequest {
+                    scope_id: "scope".to_owned(),
                     document_path: "a.md".to_owned(),
                     references: vec!["a.png".to_owned()],
                 },
             ))
             .expect_err("開いていないのに発行が成功した");
             assert_eq!(error.code, ErrorCode::WorkspaceNotFound);
+        }
+
+        /// loose tab（9.1）は所在フォルダーを暗黙のルートとする。ワークスペースの外のファイルを、
+        /// そのスコープIDで読み、相対リンクで移った先の文書を読める。暗黙のルートの外は読めない。
+        /// スコープを閉じると、以後の読込は `WorkspaceNotFound` になる。
+        #[test]
+        fn a_loose_scope_reads_within_its_implicit_root() {
+            let temp = TempDir::new("loose");
+            let workspace = temp.path().join("ws");
+            let outside = temp.path().join("outside");
+            std::fs::create_dir_all(&workspace).expect("フォルダーの作成に失敗");
+            std::fs::create_dir_all(outside.join("sub")).expect("フォルダーの作成に失敗");
+            std::fs::write(outside.join("note.md"), b"# note\n").expect("書込みに失敗");
+            std::fs::write(outside.join("sub/b.md"), b"# b\n").expect("書込みに失敗");
+            std::fs::write(temp.path().join("secret.md"), b"# secret\n").expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            state
+                .open_workspace(&workspace, Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+            let opened = state
+                .open_loose(&outside.join("note.md"), Arc::new(DiscardingSink))
+                .expect("loose tabを開けない");
+            let read = |path: &str| {
+                block_on(read_file_command(
+                    app.state::<AppState>(),
+                    ReadRequest {
+                        scope_id: opened.scope_id.clone(),
+                        path: path.to_owned(),
+                    },
+                ))
+            };
+
+            assert_eq!(read("note.md").expect("読込が失敗した").text, "# note\n");
+            assert_eq!(read("sub/b.md").expect("読込が失敗した").text, "# b\n");
+            // 暗黙のルートの外（親フォルダー）は、`..` を含む相対パスとして拒否される。
+            assert_eq!(
+                read("../secret.md").expect_err("境界外を読めた").code,
+                ErrorCode::PathRejected
+            );
+
+            block_on(close_loose_scope_command(
+                app.state::<AppState>(),
+                opened.scope_id.clone(),
+            ))
+            .expect("スコープを閉じられない");
+            assert_eq!(
+                read("note.md").expect_err("閉じたスコープを読めた").code,
+                ErrorCode::WorkspaceNotFound
+            );
+        }
+
+        /// 読込は、loose tabの監視を付け替えない。付け替えは、Frontendが読込の応答を採用したときに
+        /// 求める `watch_loose_document_command` で行う（6.4）。読んだ応答をFrontendが捨てることが
+        /// あり、その文書へ監視が移ると、表示中の文書の更新を検知できなくなる。
+        #[test]
+        fn a_read_does_not_move_the_watch_but_the_confirmation_does() {
+            use std::sync::Mutex;
+
+            struct RecordingSink(Mutex<Vec<String>>);
+
+            impl ChangeSink for RecordingSink {
+                fn file_change(&self, event: crate::ipc::types::FileChangeEvent) {
+                    if let crate::ipc::types::FileChange::FileModified { path } = event.change {
+                        self.0.lock().unwrap().push(path);
+                    }
+                }
+                fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+                fn images_changed(&self, _scope_id: &str) {}
+            }
+
+            let temp = TempDir::new("loose-retarget");
+            std::fs::create_dir_all(temp.path().join("sub")).expect("フォルダーの作成に失敗");
+            std::fs::write(
+                temp.path().join("note.md"),
+                b"# note
+",
+            )
+            .expect("書込みに失敗");
+            std::fs::write(
+                temp.path().join("sub/b.md"),
+                b"# b
+",
+            )
+            .expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+            let opened = state
+                .open_loose(
+                    &temp.path().join("note.md"),
+                    Arc::clone(&recording) as Arc<dyn ChangeSink>,
+                )
+                .expect("loose tabを開けない");
+            let wait_for = |path: &str| {
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+                while std::time::Instant::now() < deadline {
+                    if recording.0.lock().unwrap().iter().any(|seen| seen == path) {
+                        return true;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                false
+            };
+
+            // 別の文書を読んでも、監視は元の文書のままである。
+            block_on(read_file_command(
+                app.state::<AppState>(),
+                ReadRequest {
+                    scope_id: opened.scope_id.clone(),
+                    path: "sub/b.md".to_owned(),
+                },
+            ))
+            .expect("読込が失敗した");
+            std::fs::write(
+                temp.path().join("note.md"),
+                b"# note2
+",
+            )
+            .expect("書込みに失敗");
+            assert!(wait_for("note.md"), "読んだだけで、監視が動いている");
+
+            // Frontendが読込を採用したと知らせると、その文書へ付け替わる。
+            block_on(watch_loose_document_command(
+                app.state::<AppState>(),
+                LooseWatchRequest {
+                    scope_id: opened.scope_id,
+                    path: "sub/b.md".to_owned(),
+                    tab_id: "tab-1".to_owned(),
+                    generation: 1,
+                },
+            ))
+            .expect("付け替えられない");
+            std::fs::write(
+                temp.path().join("sub/b.md"),
+                b"# b2
+",
+            )
+            .expect("書込みに失敗");
+            assert!(wait_for("sub/b.md"), "確認のあとも、付け替わっていない");
+        }
+
+        /// 付け替えの要求のパスは、暗黙のルートに対して検証する。ルートの外へ出るパス、絶対パス、
+        /// Markdownではないファイル、実在しないファイルは、読込と同じ `ErrorCode` で拒否し、
+        /// 応答へ要求のパスを載せない（7.1）。開いていないスコープには何も起きない。
+        #[test]
+        fn a_watch_request_is_validated_against_the_implicit_root() {
+            let temp = TempDir::new("watch-validation");
+            std::fs::create_dir_all(temp.path().join("root")).expect("フォルダーの作成に失敗");
+            std::fs::write(temp.path().join("root/note.md"), b"# note\n").expect("書込みに失敗");
+            std::fs::write(temp.path().join("secret.md"), b"# secret\n").expect("書込みに失敗");
+            std::fs::write(temp.path().join("root/plain.txt"), b"text\n").expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            let opened = state
+                .open_loose(&temp.path().join("root/note.md"), Arc::new(DiscardingSink))
+                .expect("loose tabを開けない");
+            let watch = |scope_id: &str, path: &str| {
+                block_on(watch_loose_document_command(
+                    app.state::<AppState>(),
+                    LooseWatchRequest {
+                        scope_id: scope_id.to_owned(),
+                        path: path.to_owned(),
+                        tab_id: "tab-1".to_owned(),
+                        generation: 1,
+                    },
+                ))
+            };
+            let absolute = temp.path().join("secret.md").to_string_lossy().into_owned();
+
+            let cases = [
+                (
+                    "親フォルダーへ出る",
+                    "../secret.md",
+                    ErrorCode::PathRejected,
+                ),
+                ("絶対パス", absolute.as_str(), ErrorCode::PathRejected),
+                ("Markdownではない", "plain.txt", ErrorCode::PathRejected),
+                ("実在しない", "missing.md", ErrorCode::FileNotFound),
+            ];
+            for (name, path, code) in cases {
+                let error = watch(&opened.scope_id, path).expect_err(name);
+                assert_eq!(error.code, code, "{name}");
+                // 形式の検証に落ちた入力は、応答へ載せない。
+                if code == ErrorCode::PathRejected {
+                    assert_eq!(error.detail, None, "{name}");
+                }
+                assert!(
+                    !error.message.contains("secret"),
+                    "{name}: {}",
+                    error.message
+                );
+            }
+            // 正当な要求と、開いていないスコープは成功する。
+            watch(&opened.scope_id, "note.md").expect("正当な要求が拒否された");
+            watch("unknown", "../secret.md").expect("開いていないスコープに何かした");
+        }
+
+        /// スコープIDは、ワークスペースの切り替え前のものでは引けない。切り替える前に発行した
+        /// 要求が、切り替え後の別のワークスペースの同じ相対パスへ当たらない（6.4）。
+        #[test]
+        fn a_request_for_a_previous_workspace_scope_is_rejected() {
+            let temp = TempDir::new("stale-scope");
+            std::fs::write(temp.path().join("note.md"), b"# note\n").expect("書込みに失敗");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            state
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+            let previous = state.scope_id().expect("スコープがない");
+            state
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開き直せない");
+
+            let error = block_on(read_file_command(
+                app.state::<AppState>(),
+                ReadRequest {
+                    scope_id: previous,
+                    path: "note.md".to_owned(),
+                },
+            ))
+            .expect_err("切り替え前のスコープで読めた");
+
+            assert_eq!(error.code, ErrorCode::WorkspaceNotFound);
+        }
+
+        /// ワークスペースのスコープIDでは、`close_loose_scope_command` はワークスペースを閉じない。
+        #[test]
+        fn closing_a_loose_scope_never_closes_the_workspace() {
+            let temp = TempDir::new("keep-workspace");
+            let app = mock_app_with_state(LanguagePreference::Ja);
+            let state = app.state::<AppState>();
+            state
+                .open_workspace(temp.path(), Arc::new(DiscardingSink))
+                .expect("ワークスペースを開けない");
+
+            block_on(close_loose_scope_command(
+                app.state::<AppState>(),
+                state.scope_id().expect("スコープがない"),
+            ))
+            .expect("スコープを閉じられない");
+
+            assert!(state.workspace().with(|_| ()).is_some());
         }
 
         /// 設定の取得は現在のUI言語を添え、更新は取得へ反映される（11.1）。

@@ -1,8 +1,10 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { DragState } from "../types/generated/DragState";
 import type { FileChangeEvent } from "../types/generated/FileChangeEvent";
 import type { ImagesChangedEvent } from "../types/generated/ImagesChangedEvent";
 import type { LanguageChangedEvent } from "../types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "../types/generated/MenuCommand";
+import type { OpenDocumentEvent } from "../types/generated/OpenDocumentEvent";
 import type { RecentFoldersChangedEvent } from "../types/generated/RecentFoldersChangedEvent";
 import type { WatcherErrorEvent } from "../types/generated/WatcherErrorEvent";
 import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
@@ -68,6 +70,32 @@ export function onImagesChanged(
   handler: (event: ImagesChangedEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<ImagesChangedEvent>("images-changed", (event) =>
+    handler(event.payload),
+  );
+}
+
+/**
+ * ドラッグ中の受け入れ可否を受け取る（design-decisions.md 10.4）。
+ *
+ * ドロップされたパスはRust側が受け取り、Frontendへは渡らない（7.1）。ここへ届くのは
+ * `DragState` だけで、オーバーレイの表示に使う。
+ */
+export function onDragState(
+  handler: (state: DragState) => void,
+): Promise<UnlistenFn> {
+  return listen<DragState>("drag-state", (event) => handler(event.payload));
+}
+
+/**
+ * 文書をタブで開く指示を受け取る（design-decisions.md 9.1、10.4）。
+ *
+ * ドロップされたファイルを、Rust側が開く場所（ワークスペースの通常タブ、またはloose tab）を
+ * 決めて知らせる。開き先はスコープIDとスコープ相対パスで、絶対パスは含まない。
+ */
+export function onOpenDocument(
+  handler: (event: OpenDocumentEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<OpenDocumentEvent>("open-document", (event) =>
     handler(event.payload),
   );
 }

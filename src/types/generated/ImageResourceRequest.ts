@@ -8,7 +8,11 @@
  */
 export type ImageResourceRequest = { 
 /**
- * 画像を参照している文書のワークスペース相対パス。
+ * 画像を参照している文書が属するスコープ。画像resource IDはスコープごとに発行する。
+ */
+scopeId: string, 
+/**
+ * 画像を参照している文書のスコープ相対パス。
  * 相対リンクの基点として使う。
  */
 documentPath: string, 

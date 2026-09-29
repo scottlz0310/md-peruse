@@ -8,8 +8,11 @@ type Props = {
   rootLabel: string;
   /** 表示中の文書の、ワークスペースのルートからの相対パス。 */
   path: string;
-  /** フォルダーのセグメントを選んだ。先頭のセグメントは `ROOT_PATH` を渡す。 */
-  onSelect: (folder: string) => void;
+  /**
+   * フォルダーのセグメントを選んだ。先頭のセグメントは `ROOT_PATH` を渡す。省くと、フォルダーは
+   * 選べない文字として出す。ツリーを持たないloose tab（9.1）では、フォルダーを見せる先がない。
+   */
+  onSelect?: (folder: string) => void;
 };
 
 /**
@@ -46,9 +49,13 @@ export function Breadcrumb({ rootLabel, path, onSelect }: Props) {
       <ol>
         {folders.map((folder) => (
           <li key={folder.path}>
-            <button type="button" onClick={() => onSelect(folder.path)}>
-              {folder.name}
-            </button>
+            {onSelect ? (
+              <button type="button" onClick={() => onSelect(folder.path)}>
+                {folder.name}
+              </button>
+            ) : (
+              <span>{folder.name}</span>
+            )}
             <span className="breadcrumb-separator" aria-hidden="true">
               ›
             </span>

@@ -45,15 +45,41 @@ pub struct ScanRequest {
 
 /// ファイル1件の読込要求。
 ///
-/// 対象はワークスペース相対パスであり、絶対パスもUNC表記も受け付けない（7.1）。
+/// 対象はスコープのルートからの相対パスであり、絶対パスもUNC表記も受け付けない（7.1）。
 /// 走査と同じく、要求へ世代を載せない。陳腐化した応答の破棄はFrontendが持つ
 /// タブごとの読込世代で行う（design-decisions.md 5.3、6.5）。
+///
+/// スコープIDを載せるのは、ワークスペースとloose tabの暗黙のルート（9.1）のどちらの相対
+/// パスかを示すためであり、切り替えの前に発行した要求が、切り替え後の別のスコープの同じ
+/// 相対パスへ当たらないようにするためでもある（6.4）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct ReadRequest {
-    /// 読み込むファイルのワークスペース相対パス。
+    /// 読み込むファイルが属するスコープ。
+    pub scope_id: String,
+    /// 読み込むファイルのスコープ相対パス。
     pub path: String,
+}
+
+/// loose tabの監視先を、タブが表示している文書へ付け替える要求（design-decisions.md 6.4）。
+///
+/// Frontendが読込の応答を採用したとき（世代の判定を通ったとき）だけ送る。読んだだけで付け替えると、
+/// 素早くリンクを辿って応答が逆順に完了したとき、捨てた古い応答の文書へ監視が移る。
+/// `tab_id` と `generation` は、その読込のタブと世代であり、Rust側は同じタブの、確定済みの世代以下の
+/// 要求を、到着順や実行順が入れ替わったものとして捨てる。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct LooseWatchRequest {
+    /// 対象のloose tabのスコープ。
+    pub scope_id: String,
+    /// タブが表示している文書の、スコープ相対パス。
+    pub path: String,
+    /// 読込を採用したタブのインスタンスID。
+    pub tab_id: String,
+    /// 採用した読込の世代（design-decisions.md 6.5）。
+    pub generation: u32,
 }
 
 /// 読み込んだファイルの文字コード。
@@ -220,7 +246,9 @@ pub struct ScanResult {
 #[serde(rename_all = "camelCase")]
 #[ts(export, export_to = "../../src/types/generated/")]
 pub struct ImageResourceRequest {
-    /// 画像を参照している文書のワークスペース相対パス。
+    /// 画像を参照している文書が属するスコープ。画像resource IDはスコープごとに発行する。
+    pub scope_id: String,
+    /// 画像を参照している文書のスコープ相対パス。
     /// 相対リンクの基点として使う。
     pub document_path: String,
     /// 文書内に現れた画像参照。Markdownに書かれた文字列をそのまま渡す。
@@ -275,6 +303,26 @@ pub enum DragState {
     /// Windows実装はCF_HDROPを取得できた時点で `DROPEFFECT_COPY` を返し、通知先の
     /// 判断を待たないためである（実測）。拒否をカーソルで示せない分をUIで補う。
     Rejected,
+}
+
+/// 文書をタブで開く指示（design-decisions.md 9.1、10.4）。
+///
+/// ドロップされたファイルを、Rust側が開く場所を決めてから、Frontendへ知らせる。ドロップされた
+/// パスはFrontendへ渡さないため（7.1）、開く場所は絶対パスではなく、スコープIDとスコープ相対
+/// パスで表す。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct OpenDocumentEvent {
+    /// 文書が属するスコープ。開いているワークスペースの中のファイルはそのスコープ、外のファイルは
+    /// loose tab（9.1）のスコープである。
+    pub scope_id: String,
+    /// スコープのルートからの相対パス。
+    pub path: String,
+    /// loose tabの暗黙のルート（所在フォルダー）の表示名。パンくずのルートに使う。
+    /// 最近使ったフォルダーと同じく末尾2コンポーネントで、絶対パスは含まない。
+    /// ワークスペースの文書では `None`（表示名は `WorkspaceOpenedEvent::label`）。
+    pub label: Option<String>,
 }
 
 /// UIの表示言語が変わったときの通知（design-decisions.md 10.5）。

@@ -664,3 +664,45 @@ body {
 .recent-folders button:hover {
   text-decoration: underline;
 }
+
+/*
+ * ドラッグ中のオーバーレイ（10.4）。ウィンドウ全体を覆い、操作は受けない。受け入れるときは
+ * 強調色の破線、受け入れないときは控えめな実線で囲む。線の違いだけに頼らず、文言でも示す。
+ */
+.drag-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  margin: 0.5rem;
+  border: 3px dashed var(--color-accent);
+  border-radius: 8px;
+  background-color: color-mix(in srgb, var(--color-bg) 82%, transparent);
+  pointer-events: none;
+}
+
+.drag-overlay[data-state="rejected"] {
+  border-style: solid;
+  border-color: var(--color-fg-muted);
+}
+
+.drag-overlay p {
+  margin: 0;
+  padding: 0 1rem;
+  font-size: 1.125rem;
+  text-align: center;
+}
+
+@media (forced-colors: active) {
+  .drag-overlay {
+    border-color: Highlight;
+    background-color: Canvas;
+  }
+
+  .drag-overlay[data-state="rejected"] {
+    border-color: GrayText;
+  }
+}

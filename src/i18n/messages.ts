@@ -22,6 +22,8 @@ export type Messages = {
   sidebarWidthLabel: string;
   tabListLabel: string;
   closeTab: (title: string) => string;
+  /** ドラッグ中のオーバーレイ（10.4）。受け入れるときと、開けるものを含まないときで文言を分ける。 */
+  dragOverlay: { acceptable: string; rejected: string };
   /** 削除されたファイルのタブに添える印（6.5）。 */
   tabDeleted: string;
   /** アクティブタブのファイルが削除されたときの通知。本文を保っているか否かで文言を分ける。 */
@@ -82,6 +84,10 @@ const ja: Messages = {
   sidebarWidthLabel: "サイドバーの幅",
   tabListLabel: "開いている文書",
   closeTab: (title) => `${title} を閉じる`,
+  dragOverlay: {
+    acceptable: "ここにドロップして開く",
+    rejected: "開けません。Markdownのファイルとフォルダーだけ開けます。",
+  },
   tabDeleted: "削除済み",
   fileDeleted: {
     keepingContent:
@@ -144,6 +150,10 @@ const en: Messages = {
   sidebarWidthLabel: "Sidebar width",
   tabListLabel: "Open documents",
   closeTab: (title) => `Close ${title}`,
+  dragOverlay: {
+    acceptable: "Drop here to open",
+    rejected: "Can't open this. Only Markdown files and folders can be opened.",
+  },
   tabDeleted: "Deleted",
   fileDeleted: {
     keepingContent:

@@ -22,7 +22,7 @@ use crate::i18n::Language;
 use crate::image::resource::ImageResources;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::message;
-use crate::ipc::types::{FileChangeEvent, ImagesChangedEvent, WatcherErrorEvent};
+use crate::ipc::types::{FileChange, FileChangeEvent, ImagesChangedEvent, WatcherErrorEvent};
 use crate::scan::is_excluded_directory;
 use crate::state::AppState;
 use crate::watch::{DebounceWindow, RawEvent, RawEventKind, WindowOutcome, coalesce, map_event};
@@ -66,7 +66,7 @@ pub trait ChangeSink: Send + Sync + 'static {
 /// 弱くなるためである。`rand` を足さずに `RandomState` を使う。標準ライブラリがOSの
 /// エントロピーで鍵を初期化するため、呼び出しごとに異なる値になる。連番を混ぜるのは、
 /// 万一同じ鍵が引かれても同一プロセス内で衝突しないようにするためである。
-fn new_scope_id() -> String {
+pub fn new_scope_id() -> String {
     static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
     // `hash_of` は呼ぶたびに別の鍵を引く。2回呼んで128ビットにする。
@@ -176,6 +176,148 @@ impl Drop for WorkspaceWatcher {
         let _ = self.commands.send(Incoming::Stop);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
+        }
+    }
+}
+
+/// loose tabが開いているファイル1件を監視するWatcher（design-decisions.md 6.4）。
+///
+/// ファイルの所在フォルダーを非再帰で監視し、そのファイルに関わる変更だけを送出する。
+/// ファイルを直接監視しないのは、atomic replaceが一時ファイルからのrenameになり、ファイルの
+/// 監視は置換のたびに対象を失うためである。フォルダーの他の項目に関わる通知は捨てる。
+/// ツリーを持たないため、`DirectoryChanged` も送らない。画像の変更も検知しない。相対画像の
+/// 差し替えは追従の対象外である（6.4）。
+///
+/// ワークスペースのWatcherと違い、ルートの親は監視しない。所在フォルダーの削除は、そのファイルの
+/// 削除として届く。
+pub struct LooseWatcher {
+    scope_id: String,
+    commands: Sender<Incoming>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl LooseWatcher {
+    /// 監視を開始する。
+    ///
+    /// `root` は暗黙のルート（所在フォルダー）、`file` はそこからの相対パス、`folder` は `file` の
+    /// 所在フォルダー（絶対パス）である。`folder` を呼び出し側から受けるのは、検証で確定した場所を
+    /// そのまま監視するためである。`file` から組み立て直すと、検証のあとに途中のフォルダーが
+    /// 差し替えられたとき、検証していない場所を監視しうる（7.1）。`scope_id` は呼び出し側が
+    /// 採番する。監視を付け替えるとき（`WorkspaceHandle::retarget_loose`）に、スコープを保ったまま
+    /// 対象だけを替えるためである。
+    pub fn start(
+        root: &Path,
+        folder: &Path,
+        file: &str,
+        scope_id: String,
+        sink: Arc<dyn ChangeSink>,
+    ) -> notify::Result<Self> {
+        let (commands, incoming) = channel();
+        let mut watcher = forwarding_watcher(commands.clone(), Incoming::Root)?;
+        watcher.watch(folder, RecursiveMode::NonRecursive)?;
+
+        let root = root.to_path_buf();
+        let file = file.to_owned();
+        let thread_scope_id = scope_id.clone();
+        let thread = std::thread::Builder::new()
+            .name("md-peruse-watch-file".to_owned())
+            .spawn(move || {
+                // Watcherはこのスレッドが終わるまで生かす。dropした時点で監視が止まる。
+                let _watcher = watcher;
+                run_loose(&root, file, &thread_scope_id, sink.as_ref(), &incoming);
+            })?;
+        Ok(Self {
+            scope_id,
+            commands,
+            thread: Some(thread),
+        })
+    }
+
+    /// このWatcherが送出するイベントのスコープID。
+    pub fn scope_id(&self) -> &str {
+        &self.scope_id
+    }
+}
+
+impl Drop for LooseWatcher {
+    /// 監視を止め、スレッドの終了を待つ。`WorkspaceWatcher` と同じく、停止後に旧スレッドが
+    /// 送出しないことを保証する。
+    fn drop(&mut self) {
+        let _ = self.commands.send(Incoming::Stop);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// loose tabの監視スレッドの本体。
+fn run_loose(
+    root: &Path,
+    mut file: String,
+    scope_id: &str,
+    sink: &dyn ChangeSink,
+    incoming: &Receiver<Incoming>,
+) {
+    let origin = Instant::now();
+    let mut window = DebounceWindow::new();
+    // ワークスペースの監視と `wait` を共有するため、画像の窓を1つ渡す。ここでは常に空である。
+    let no_images = DebounceWindow::new();
+    loop {
+        match wait(&window, &no_images, origin, incoming) {
+            Wait::Received(Incoming::Stop) | Wait::Disconnected => return,
+            Wait::Received(Incoming::Root(event)) => {
+                let now_ms = elapsed_ms(origin);
+                for raw in map_event(root, &event) {
+                    window.push(now_ms, raw);
+                }
+            }
+            Wait::Received(Incoming::Parent(_)) | Wait::Deadline => {}
+        }
+        drain_loose(&mut window, origin, scope_id, sink, &mut file);
+    }
+}
+
+/// 期限に達した窓を確定させ、監視しているファイルに関わる変更だけを送出する。
+///
+/// 畳み込みの規則はワークスペースと同じ（`coalesce`）。対象はMarkdownファイルとして畳み込み、
+/// 結果から監視しているファイルの分だけを取り出す。対象を監視しているファイル1件にすると、
+/// 一時ファイルからのrenameによる置換と、別のMarkdownファイルへのrenameを区別できない。
+/// renameで名前が替わったときは、監視の対象を新しい名前へ移す。
+///
+/// 縮退した窓は、ファイルの変更として送る。個別に追えないことを、ツリーを持たないloose tabへ
+/// 別のイベントで知らせる理由がなく、読み直せば済むためである。
+fn drain_loose(
+    window: &mut DebounceWindow,
+    origin: Instant,
+    scope_id: &str,
+    sink: &dyn ChangeSink,
+    file: &mut String,
+) {
+    while let Some(outcome) = window.take_due(elapsed_ms(origin)) {
+        let changes = match outcome {
+            WindowOutcome::Events(events) => coalesce(&events, is_markdown_path),
+            WindowOutcome::Overflowed => vec![FileChange::FileModified { path: file.clone() }],
+        };
+        for change in changes {
+            let relevant = match &change {
+                FileChange::FileModified { path } | FileChange::FileRemoved { path } => {
+                    path.eq_ignore_ascii_case(file)
+                }
+                FileChange::FileRenamed { old_path, path } => {
+                    let renamed = old_path.eq_ignore_ascii_case(file);
+                    if renamed {
+                        file.clone_from(path);
+                    }
+                    renamed
+                }
+                FileChange::DirectoryChanged { .. } => false,
+            };
+            if relevant {
+                sink.file_change(FileChangeEvent {
+                    scope_id: scope_id.to_owned(),
+                    change,
+                });
+            }
         }
     }
 }
@@ -857,6 +999,206 @@ mod tests {
                 "{name}"
             );
         }
+    }
+
+    /// loose tabの窓の確定は、監視しているファイルに関わる変更だけを送る。別のMarkdownファイルの
+    /// 変更と、ツリーのための `DirectoryChanged` は捨てる（6.4）。
+    #[test]
+    fn a_loose_window_reports_only_its_own_file() {
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(RawEventKind::Created, "a.md"));
+        window.push(0, RawEvent::new(RawEventKind::Created, "other.md"));
+        window.push(0, RawEvent::new(RawEventKind::Removed, "gone.md"));
+        let sink = RecordingSink::default();
+        let mut file = "a.md".to_owned();
+
+        drain_loose(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-7",
+            &sink,
+            &mut file,
+        );
+
+        assert_eq!(
+            sink.changes(),
+            vec![FileChangeEvent {
+                scope_id: "scope-7".to_owned(),
+                change: FileChange::FileModified {
+                    path: "a.md".to_owned()
+                },
+            }]
+        );
+    }
+
+    /// 監視しているファイルが別のMarkdownファイルへrenameされたら、renameとして知らせ、以後は
+    /// 新しい名前を監視する。一時ファイルからのrenameによる置換は、置換として知らせる。
+    #[test]
+    fn a_loose_window_follows_a_rename_of_its_file() {
+        let sink = RecordingSink::default();
+        let mut file = "a.md".to_owned();
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(RawEventKind::RenamedFrom, "a.md"));
+        window.push(0, RawEvent::new(RawEventKind::RenamedTo, "b.md"));
+
+        drain_loose(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-8",
+            &sink,
+            &mut file,
+        );
+
+        assert_eq!(file, "b.md");
+        assert_eq!(
+            sink.changes()[0].change,
+            FileChange::FileRenamed {
+                path: "b.md".to_owned(),
+                old_path: "a.md".to_owned()
+            }
+        );
+
+        // 以後は新しい名前の変更だけを送る。一時ファイルからのrenameは、置換（変更）になる。
+        let mut window = DebounceWindow::new();
+        window.push(0, RawEvent::new(RawEventKind::RenamedFrom, "b.md.tmp"));
+        window.push(0, RawEvent::new(RawEventKind::RenamedTo, "b.md"));
+        window.push(0, RawEvent::new(RawEventKind::Modified, "a.md"));
+        drain_loose(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-8",
+            &sink,
+            &mut file,
+        );
+        assert_eq!(
+            sink.changes()[1..]
+                .iter()
+                .map(|event| event.change.clone())
+                .collect::<Vec<_>>(),
+            vec![FileChange::FileModified {
+                path: "b.md".to_owned()
+            }]
+        );
+    }
+
+    /// 縮退した窓は、ファイルの変更として送る。ツリーを持たないloose tabでは、読み直せば済む。
+    #[test]
+    fn a_degraded_loose_window_asks_for_a_reload() {
+        let mut window = DebounceWindow::new();
+        for index in 0..=MAX_EVENTS_PER_WINDOW {
+            window.push(
+                0,
+                RawEvent::new(RawEventKind::Created, &format!("f{index}.md")),
+            );
+        }
+        let sink = RecordingSink::default();
+        let mut file = "a.md".to_owned();
+
+        drain_loose(
+            &mut window,
+            elapsed_origin(MAX_WINDOW_MS + 1),
+            "scope-9",
+            &sink,
+            &mut file,
+        );
+
+        assert_eq!(
+            sink.changes()
+                .iter()
+                .map(|event| event.change.clone())
+                .collect::<Vec<_>>(),
+            vec![FileChange::FileModified {
+                path: "a.md".to_owned()
+            }]
+        );
+        assert!(sink.errors().is_empty());
+    }
+
+    /// 実ファイルで、書き換えとatomic replaceが監視しているファイルの変更として届く。同じ
+    /// フォルダーの別のファイルは通知されない。
+    #[test]
+    fn a_loose_watcher_follows_its_file_including_atomic_replace() {
+        let temp = TempDir::new("loose-watch");
+        let target = temp.path().join("a.md");
+        std::fs::write(&target, b"# a\n").expect("書込みに失敗");
+        let sink = Arc::new(RecordingSink::default());
+        let watcher = LooseWatcher::start(
+            temp.path(),
+            temp.path(),
+            "a.md",
+            "scope-10".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
+        assert_eq!(watcher.scope_id(), "scope-10");
+
+        std::fs::write(temp.path().join("other.md"), b"# other\n").expect("書込みに失敗");
+        std::fs::write(&target, b"# a2\n").expect("書込みに失敗");
+        wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
+
+        // atomic replace: 一時ファイルを書いて、対象へrenameで置き換える。削除とは扱わない。
+        let before = sink.changes().len();
+        std::fs::write(temp.path().join("a.md.tmp"), b"# a3\n").expect("書込みに失敗");
+        std::fs::rename(temp.path().join("a.md.tmp"), &target).expect("置換に失敗");
+        wait_until(|| (sink.changes().len() > before).then_some(())).expect("置換が届かない");
+
+        let changes = sink.changes();
+        assert!(
+            changes.iter().all(|event| event.scope_id == "scope-10"
+                && matches!(&event.change, FileChange::FileModified { path } if path == "a.md")),
+            "{changes:?}"
+        );
+    }
+
+    /// 下位のフォルダーにある文書（相対リンクで移った先）も、そのフォルダーを監視して追従する。
+    #[test]
+    fn a_loose_watcher_can_watch_a_document_in_a_subfolder() {
+        let temp = TempDir::new("loose-sub");
+        std::fs::create_dir(temp.path().join("sub")).expect("フォルダーの作成に失敗");
+        std::fs::write(temp.path().join("sub/b.md"), b"# b\n").expect("書込みに失敗");
+        let sink = Arc::new(RecordingSink::default());
+        let _watcher = LooseWatcher::start(
+            temp.path(),
+            &temp.path().join("sub"),
+            "sub/b.md",
+            "scope-11".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
+
+        std::fs::write(temp.path().join("sub/b.md"), b"# b2\n").expect("書込みに失敗");
+
+        wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
+        assert!(matches!(
+            &sink.changes()[0].change,
+            FileChange::FileModified { path } if path == "sub/b.md"
+        ));
+    }
+
+    /// 監視を止めると、以後の変更は送らない。
+    #[test]
+    fn dropping_a_loose_watcher_stops_the_notifications() {
+        let temp = TempDir::new("loose-drop");
+        let target = temp.path().join("a.md");
+        std::fs::write(&target, b"# a\n").expect("書込みに失敗");
+        let sink = Arc::new(RecordingSink::default());
+        let watcher = LooseWatcher::start(
+            temp.path(),
+            temp.path(),
+            "a.md",
+            "scope-12".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
+        std::fs::write(&target, b"# a2\n").expect("書込みに失敗");
+        wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
+
+        drop(watcher);
+        let after_stop = sink.changes().len();
+        std::fs::write(&target, b"# a3\n").expect("書込みに失敗");
+        std::thread::sleep(Duration::from_millis(800));
+
+        assert_eq!(sink.changes().len(), after_stop, "停止後も送出している");
     }
 
     /// 文書の窓が開いていなくても、画像の窓の期限で起きる。
