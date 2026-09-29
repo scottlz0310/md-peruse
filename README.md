@@ -138,7 +138,7 @@ winapp cert install .\devcert.pfx
 Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
 ```
 
-`Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`ProcessorArchitecture` と `Version` をビルド時に置換する。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
+`Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`Version` をビルド時に置換する。`ProcessorArchitecture` は `x64` に固定している。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
 
 ### アイコン
 

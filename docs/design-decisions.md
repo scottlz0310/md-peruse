@@ -1686,7 +1686,7 @@ Phase 1のスパイクで次を確定した。
 | 関連付け | `windows.fileTypeAssociation` で `.md` と `.markdown` |
 | winapp CLI | 0.6.1（WinGet `Microsoft.WinAppCli`） |
 
-マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `ProcessorArchitecture` と `Version` を置換して生成する。アーキテクチャごとに別のマニフェストを保守しない。
+マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `Version` を置換して生成する。`ProcessorArchitecture` は `x64` に固定する（ARM64は対応外。3章）。
 
 visual assetの原本は2点とし、いずれも手作業でのリサイズは行わない。
 
