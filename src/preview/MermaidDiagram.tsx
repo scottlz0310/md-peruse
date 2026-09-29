@@ -1,6 +1,9 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { useMessages } from "../i18n/LanguageContext";
+import type { Messages } from "../i18n/messages";
 import { MERMAID_LIMITS } from "../markdown/limits";
 import {
+  type MermaidFailure,
   MermaidRenderError,
   type MermaidTheme,
   renderMermaid,
@@ -24,7 +27,7 @@ type Props = {
 type State =
   | { status: "pending" }
   | { status: "done"; svg: string }
-  | { status: "failed"; reason: string };
+  | { status: "failed"; failure: MermaidFailure };
 
 const DARK = "(prefers-color-scheme: dark)";
 const FORCED_COLORS = "(forced-colors: active)";
@@ -47,6 +50,23 @@ function currentTheme(): MermaidTheme {
   return matchMedia(DARK).matches ? "dark" : "default";
 }
 
+/** 失敗の種類から、現在のUI言語の文言を組み立てる。言語を切り替えても、描画し直さずに変わる。 */
+function failureMessage(
+  messages: Messages["mermaid"],
+  failure: MermaidFailure,
+): string {
+  switch (failure.kind) {
+    case "tooLarge":
+      return messages.tooLarge;
+    case "timeout":
+      return messages.timeout;
+    case "loadFailed":
+      return messages.loadFailed(failure.detail);
+    case "renderFailed":
+      return messages.renderFailed(failure.detail);
+  }
+}
+
 /**
  * Mermaidの図（design-decisions.md 8.4）。
  *
@@ -59,6 +79,7 @@ export function MermaidDiagram({
   index,
   render = renderMermaid,
 }: Props) {
+  const messages = useMessages().mermaid;
   const theme = useSyncExternalStore(subscribeTheme, currentTheme);
   const overLimit = index >= MERMAID_LIMITS.perDocumentDiagrams;
   const [state, setState] = useState<State>({ status: "pending" });
@@ -75,10 +96,10 @@ export function MermaidDiagram({
         if (!current) return;
         setState({
           status: "failed",
-          reason:
+          failure:
             error instanceof MermaidRenderError
-              ? error.message
-              : `図を描画できません（${String(error)}）。`,
+              ? error.failure
+              : { kind: "renderFailed", detail: String(error) },
         });
       },
     );
@@ -97,9 +118,9 @@ export function MermaidDiagram({
     );
   }
   const reason = overLimit
-    ? "1つの文書に図が多すぎるため描画していません。"
+    ? messages.tooManyInDocument
     : state.status === "failed"
-      ? state.reason
+      ? failureMessage(messages, state.failure)
       : null;
   return (
     <>

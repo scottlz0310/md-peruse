@@ -6,6 +6,7 @@ import {
   useEffect,
   useState,
 } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import type { LinkTarget } from "../markdown/link-target";
 import { renderMarkdown } from "../markdown/render";
 import type { ViewTarget } from "../state/document-tab";
@@ -56,22 +57,27 @@ export function MarkdownDocument({
   scroller,
   ref,
 }: Props) {
+  const messages = useMessages();
   const [content, setContent] = useState<ReactElement | null>(null);
   const [rendered, setRendered] = useState<string | null>(null);
 
+  // 数式の描画できなかった理由はhastへ文言として書き込まれるため、UI言語が変わったときも
+  // 組み立て直す（10.5）。
   useEffect(() => {
     let current = true;
-    renderMarkdown(text, (references) => issueImages(path, references)).then(
-      (element) => {
-        if (!current) return;
-        setContent(element);
-        setRendered(text);
-      },
-    );
+    renderMarkdown(
+      text,
+      (references) => issueImages(path, references),
+      messages,
+    ).then((element) => {
+      if (!current) return;
+      setContent(element);
+      setRendered(text);
+    });
     return () => {
       current = false;
     };
-  }, [text, path, issueImages]);
+  }, [text, path, issueImages, messages]);
 
   // 描画が現在の本文に追いついてから移動する。追いつく前に探すと、前の文書の同名の
   // 見出しへ移動しうる。

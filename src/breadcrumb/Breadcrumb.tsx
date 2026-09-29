@@ -1,4 +1,5 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import { useResizeObserver } from "../layout/use-resize-observer";
 import { pathChain, ROOT_PATH } from "../state/file-tree";
 
@@ -20,6 +21,7 @@ type Props = {
  * ときと幅が変わったときに動かし、それ以外は、手で動かした位置を保つ。
  */
 export function Breadcrumb({ rootLabel, path, onSelect }: Props) {
+  const messages = useMessages();
   const nav = useRef<HTMLElement>(null);
   const scrollToEnd = useCallback(() => {
     const element = nav.current;
@@ -40,7 +42,7 @@ export function Breadcrumb({ rootLabel, path, onSelect }: Props) {
     })),
   ];
   return (
-    <nav ref={nav} className="breadcrumb" aria-label="パンくずリスト">
+    <nav ref={nav} className="breadcrumb" aria-label={messages.breadcrumbLabel}>
       <ol>
         {folders.map((folder) => (
           <li key={folder.path}>

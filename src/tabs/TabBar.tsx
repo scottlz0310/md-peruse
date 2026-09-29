@@ -1,4 +1,5 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import { useResizeObserver } from "../layout/use-resize-observer";
 import { type TabSet, tabTitle } from "../state/tab-set";
 
@@ -24,6 +25,7 @@ export function tabElementId(tabId: string): string {
  * アクティブなタブは、変わったときと幅が変わったときに、見える位置へ動かす。
  */
 export function TabBar({ set, onActivate, onClose, onPin }: Props) {
+  const messages = useMessages();
   const list = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<string, HTMLDivElement>());
 
@@ -70,7 +72,7 @@ export function TabBar({ set, onActivate, onClose, onPin }: Props) {
     <div
       ref={list}
       role="tablist"
-      aria-label="開いている文書"
+      aria-label={messages.tabListLabel}
       className="tab-bar"
     >
       {set.tabs.map((tab, index) => {
@@ -101,7 +103,7 @@ export function TabBar({ set, onActivate, onClose, onPin }: Props) {
             <button
               type="button"
               className="tab-close"
-              aria-label={`${tabTitle(tab)} を閉じる`}
+              aria-label={messages.closeTab(tabTitle(tab))}
               tabIndex={-1}
               onClick={(event) => {
                 // タブのクリック（アクティブ化）へ伝えない。

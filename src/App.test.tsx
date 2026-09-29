@@ -27,6 +27,8 @@ type Handlers = {
   issue?: (request: ImageResourceRequest) => ImageResource[];
   updateSettings?: (update: UiSettingsUpdate) => void;
   setTitle?: (title: string) => void;
+  /** 起動時に返す設定の上書き。 */
+  ui?: Partial<UiSettings>;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -42,7 +44,8 @@ const UI_SETTINGS: UiSettings = {
 function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
-      if (command === "get_ui_settings_command") return UI_SETTINGS;
+      if (command === "get_ui_settings_command")
+        return { ...UI_SETTINGS, ...handlers.ui };
       if (command === "update_ui_settings_command") {
         handlers.updateSettings?.(
           (payload as { update: UiSettingsUpdate }).update,
@@ -126,6 +129,20 @@ describe("App", () => {
     expect(screen.queryByRole("separator")).toBeNull();
   });
 
+  test.each([
+    ["ja", "メニューの「ファイル」から「フォルダーを開く」を選んでください。"],
+    ["en", 'Choose "Open Folder..." from the "File" menu.'],
+  ] as const)(
+    "設定の effectiveLanguage（%s）で案内を表示し、html の lang を合わせる（10.5）",
+    async (language, welcome) => {
+      mockBackend({ scan: () => ROOT, ui: { effectiveLanguage: language } });
+      render(<App />);
+
+      await waitFor(() => expect(screen.getByText(welcome)).toBeTruthy());
+      expect(document.documentElement.lang).toBe(language);
+    },
+  );
+
   test("ワークスペースを開くと、設定の幅で2ペインを表示し、変えた幅を保存する（10.2、11.1）", async () => {
     const updates: UiSettingsUpdate[] = [];
     mockBackend({ scan: () => ROOT, updateSettings: (u) => updates.push(u) });
@@ -143,6 +160,21 @@ describe("App", () => {
 
     expect(separator.getAttribute("aria-valuenow")).toBe("296");
     await waitFor(() => expect(updates).toEqual([{ sidebarWidth: 296 }]));
+  });
+
+  test("英語の設定では、ワークスペースの画面の文言も英語になる（10.5）", async () => {
+    mockBackend({ scan: () => ROOT, ui: { effectiveLanguage: "en" } });
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+
+    await waitFor(() =>
+      expect(screen.getByRole("navigation", { name: "Explorer" })).toBeTruthy(),
+    );
+    expect(screen.getByRole("tree", { name: "Files" })).toBeTruthy();
+    expect(
+      screen.getByRole("separator", { name: "Sidebar width" }),
+    ).toBeTruthy();
   });
 
   test("ワークスペースを開いたらルート直下を走査して表示する", async () => {

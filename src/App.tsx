@@ -2,6 +2,8 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useEffect, useRef, useState } from "react";
 import { Breadcrumb } from "./breadcrumb/Breadcrumb";
+import { LanguageProvider } from "./i18n/LanguageContext";
+import { DEFAULT_LANGUAGE, MESSAGES } from "./i18n/messages";
 import {
   getUiSettings,
   issueImageResources,
@@ -18,7 +20,6 @@ import { setWindowTitle } from "./ipc/window";
 import { SidebarLayout } from "./layout/SidebarLayout";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
-import { LINK_REJECTION_MESSAGES } from "./preview/link-click";
 import { MarkdownDocument } from "./preview/MarkdownDocument";
 import { currentEntry, updateCurrentScroll } from "./state/doc-history";
 import {
@@ -126,6 +127,10 @@ export default function App() {
   const [ui, setUi] = useState<UiSettings | null>(null);
   // メニューコマンドのハンドラーは最初の描画のものが残るため、設定もrefで読む。
   const uiRef = useRef<UiSettings | null>(ui);
+  // UI言語は設定の `effectiveLanguage`（OSの表示言語か、保存済みの選択。10.5）。設定を読むまで
+  // 描画しないため、既定の言語が画面に出ることはない。
+  const language = ui?.effectiveLanguage ?? DEFAULT_LANGUAGE;
+  const messages = MESSAGES[language];
   const [startupError, setStartupError] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
@@ -180,6 +185,11 @@ export default function App() {
   useEffect(() => {
     setWindowTitle(title).catch((reason: unknown) => setError(String(reason)));
   }, [title]);
+
+  // スクリーンリーダーの読み上げや文字の選択（字形）が、UI言語に合うようにする。
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   function handleCommand(command: MenuCommand) {
     const current = uiRef.current;
@@ -612,7 +622,7 @@ export default function App() {
         });
         return;
       case "rejected":
-        setError(LINK_REJECTION_MESSAGES[target.reason]);
+        setError(messages.linkRejection[target.reason]);
         return;
     }
   }
@@ -630,7 +640,7 @@ export default function App() {
     return (
       <main className="app">
         <h1>md-peruse</h1>
-        <p>メニューの「ファイル」から「フォルダーを開く」を選んでください。</p>
+        <p>{messages.welcome}</p>
         {error && <p role="alert">{error}</p>}
       </main>
     );
@@ -643,61 +653,65 @@ export default function App() {
     shown !== null && shown.tabId === active?.tabId ? shown : null;
 
   return (
-    <SidebarLayout
-      savedWidth={ui.sidebarWidth}
-      sidebarVisible={ui.sidebarVisible}
-      onWidthCommit={(sidebarWidth) => saveUi({ sidebarWidth })}
-      previewRef={previewRef}
-      sidebar={
-        <>
-          <h1>{workspace.label}</h1>
-          <TreeView
-            tree={tree}
-            selectedPath={active?.path ?? null}
-            onToggle={toggleDirectory}
-            onOpen={openFromTree}
-            focusRequest={treeFocus}
-            onFocusRequestSettled={(request) =>
-              setTreeFocus((current) => (current === request ? null : current))
-            }
-          />
-        </>
-      }
-      previewHeader={
-        active && (
+    <LanguageProvider language={language}>
+      <SidebarLayout
+        savedWidth={ui.sidebarWidth}
+        sidebarVisible={ui.sidebarVisible}
+        onWidthCommit={(sidebarWidth) => saveUi({ sidebarWidth })}
+        previewRef={previewRef}
+        sidebar={
           <>
-            <TabBar
-              set={tabs}
-              onActivate={activate}
-              onClose={close}
-              onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
-            />
-            <Breadcrumb
-              rootLabel={workspace.label}
-              path={active.path}
-              onSelect={revealFolder}
+            <h1>{workspace.label}</h1>
+            <TreeView
+              tree={tree}
+              selectedPath={active?.path ?? null}
+              onToggle={toggleDirectory}
+              onOpen={openFromTree}
+              focusRequest={treeFocus}
+              onFocusRequestSettled={(request) =>
+                setTreeFocus((current) =>
+                  current === request ? null : current,
+                )
+              }
             />
           </>
-        )
-      }
-      previewLabelledBy={active ? tabElementId(active.tabId) : undefined}
-    >
-      <style>{`.markdown-body { --font-scale: ${fontScale / 100}; }`}</style>
-      {error && <p role="alert">{error}</p>}
-      {visible && (
-        <>
-          <DocumentFind root={documentRef} />
-          <MarkdownDocument
-            ref={documentRef}
-            text={visible.content.text}
-            path={visible.content.path}
-            view={visible.view}
-            onNavigate={navigate}
-            issueImages={issueImageResources}
-            scroller={previewRef}
-          />
-        </>
-      )}
-    </SidebarLayout>
+        }
+        previewHeader={
+          active && (
+            <>
+              <TabBar
+                set={tabs}
+                onActivate={activate}
+                onClose={close}
+                onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
+              />
+              <Breadcrumb
+                rootLabel={workspace.label}
+                path={active.path}
+                onSelect={revealFolder}
+              />
+            </>
+          )
+        }
+        previewLabelledBy={active ? tabElementId(active.tabId) : undefined}
+      >
+        <style>{`.markdown-body { --font-scale: ${fontScale / 100}; }`}</style>
+        {error && <p role="alert">{error}</p>}
+        {visible && (
+          <>
+            <DocumentFind root={documentRef} />
+            <MarkdownDocument
+              ref={documentRef}
+              text={visible.content.text}
+              path={visible.content.path}
+              view={visible.view}
+              onNavigate={navigate}
+              issueImages={issueImageResources}
+              scroller={previewRef}
+            />
+          </>
+        )}
+      </SidebarLayout>
+    </LanguageProvider>
   );
 }

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { FakeResizeObserver } from "../../test/fake-resize-observer";
+import { LanguageProvider } from "../i18n/LanguageContext";
 import { ROOT_PATH } from "../state/file-tree";
 import { Breadcrumb } from "./Breadcrumb";
 
@@ -122,5 +123,20 @@ describe("Breadcrumb: 幅に収まらないときは末尾へスクロールす�
     FakeResizeObserver.notify();
 
     expect(written).toEqual([SCROLL_WIDTH, SCROLL_WIDTH]);
+  });
+});
+
+describe("Breadcrumb: UI言語（10.5）", () => {
+  test.each([
+    ["ja", "パンくずリスト"],
+    ["en", "Breadcrumbs"],
+  ] as const)("%s: ナビゲーションの名前", (language, name) => {
+    render(
+      <LanguageProvider language={language}>
+        <Breadcrumb rootLabel="docs" path="a.md" onSelect={() => {}} />
+      </LanguageProvider>,
+    );
+
+    expect(screen.getByRole("navigation", { name })).toBeTruthy();
   });
 });

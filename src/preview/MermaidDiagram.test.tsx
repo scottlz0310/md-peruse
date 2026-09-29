@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { LanguageProvider } from "../i18n/LanguageContext";
 import { MERMAID_LIMITS } from "../markdown/limits";
-import { MermaidRenderError, type MermaidTheme } from "../markdown/mermaid";
+import {
+  type MermaidFailure,
+  MermaidRenderError,
+  type MermaidTheme,
+} from "../markdown/mermaid";
 import {
   MERMAID_DIAGRAM_CLASS,
   MERMAID_ERROR_CLASS,
@@ -46,7 +51,10 @@ describe("MermaidDiagram", () => {
         index={0}
         render={() =>
           Promise.reject(
-            new MermaidRenderError("図を描画できません（Parse error）。"),
+            new MermaidRenderError({
+              kind: "renderFailed",
+              detail: "Parse error",
+            }),
           )
         }
       />,
@@ -142,5 +150,84 @@ describe("MermaidDiagram のテーマ（8.4）", () => {
     await waitFor(() => {
       expect(renderDiagram).toHaveBeenLastCalledWith(SOURCE, "dark");
     });
+  });
+});
+
+describe("MermaidDiagram: UI言語（10.5）", () => {
+  test.each([
+    [
+      "ja",
+      { kind: "timeout" },
+      "図の描画に時間がかかりすぎたため中断しました。",
+    ],
+    [
+      "en",
+      { kind: "timeout" },
+      "Rendering the diagram took too long and was stopped.",
+    ],
+    [
+      "ja",
+      { kind: "loadFailed", detail: "chunk" },
+      "図の描画機能を読み込めませんでした（chunk）。",
+    ],
+    [
+      "en",
+      { kind: "loadFailed", detail: "chunk" },
+      "Could not load the diagram renderer (chunk).",
+    ],
+    ["ja", { kind: "tooLarge" }, "図が大きすぎるため描画していません。"],
+    [
+      "en",
+      { kind: "tooLarge" },
+      "The diagram is too large and was not rendered.",
+    ],
+    [
+      "en",
+      { kind: "renderFailed", detail: "Parse error" },
+      "Cannot render the diagram (Parse error).",
+    ],
+  ] as const satisfies readonly (readonly [
+    "ja" | "en",
+    MermaidFailure,
+    string,
+  ])[])(
+    "%s: 失敗の種類（%p）から、現在の言語の理由を示す",
+    async (language, failure, expected) => {
+      const { container } = render(
+        <LanguageProvider language={language}>
+          <MermaidDiagram
+            source={SOURCE}
+            index={0}
+            render={() => Promise.reject(new MermaidRenderError(failure))}
+          />
+        </LanguageProvider>,
+      );
+
+      const error = await waitFor(() => {
+        const element = container.querySelector(`.${MERMAID_ERROR_CLASS}`);
+        expect(element).not.toBeNull();
+        return element;
+      });
+      expect(error?.textContent).toBe(expected);
+    },
+  );
+
+  test.each([
+    ["ja", "1つの文書に図が多すぎるため描画していません。"],
+    ["en", "Too many diagrams in one document. This diagram is not rendered."],
+  ] as const)("%s: 1文書の上限を超えた図の理由を示す", (language, expected) => {
+    const { container } = render(
+      <LanguageProvider language={language}>
+        <MermaidDiagram
+          source={SOURCE}
+          index={MERMAID_LIMITS.perDocumentDiagrams}
+          render={mock(() => Promise.resolve("<svg></svg>"))}
+        />
+      </LanguageProvider>,
+    );
+
+    expect(
+      container.querySelector(`.${MERMAID_ERROR_CLASS}`)?.textContent,
+    ).toBe(expected);
   });
 });

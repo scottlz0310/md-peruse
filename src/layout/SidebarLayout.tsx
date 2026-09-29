@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useMessages } from "../i18n/LanguageContext";
 import {
   clampSidebarWidth,
   effectiveMaxSidebarWidth,
@@ -54,6 +55,7 @@ export function SidebarLayout({
   previewHeader,
   previewLabelledBy,
 }: Props) {
+  const messages = useMessages();
   const [width, setWidth] = useState(savedWidth);
   const [windowWidth, setWindowWidth] = useState(() => window.innerWidth);
   const dragging = useRef(false);
@@ -132,7 +134,7 @@ export function SidebarLayout({
       <style>{`.sidebar-layout { --sidebar-width: ${effective}px; }`}</style>
       {sidebarVisible && (
         <>
-          <nav className="sidebar" aria-label="エクスプローラー">
+          <nav className="sidebar" aria-label={messages.explorerLabel}>
             {sidebar}
           </nav>
           {/* biome-ignore lint/a11y/useSemanticElements: `hr` はフォーカスとキー操作を持てない。ペイン境界は操作できる区切りであり、`role="separator"` にARIAの値を載せる（10.2）。 */}
@@ -140,7 +142,7 @@ export function SidebarLayout({
             className="resizer"
             role="separator"
             aria-orientation="vertical"
-            aria-label="サイドバーの幅"
+            aria-label={messages.sidebarWidthLabel}
             aria-valuenow={effective}
             aria-valuemin={MIN_SIDEBAR_WIDTH}
             aria-valuemax={max}
