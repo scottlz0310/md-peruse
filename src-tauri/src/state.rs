@@ -20,13 +20,25 @@ use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_languag
 use crate::image::resource::ImageResources;
 use crate::ipc::error::ErrorCode;
 use crate::ipc::types::WorkspaceOpenedEvent;
-use crate::path_guard::{PathRejection, ResolveError, WorkspaceRoot, is_valid_name};
+use crate::path_guard::{PathRejection, ResolveError, WorkspaceRoot, is_valid_name, is_within};
 use crate::settings::recent_folder_label;
 use crate::watch_runtime::{ChangeSink, LooseWatcher, WorkspaceWatcher, new_scope_id};
 
+/// 監視しているフォルダーが、検証したときのまま、暗黙のルートの中にあるか。
+///
+/// `folder` は `canonicalize` 済みの絶対パスである。いま解決し直した結果が同じでなければ、途中の
+/// フォルダーがjunctionなどへ差し替えられている（7.1）。
+fn verify_watched_folder(root: &Path, folder: &Path) -> Result<(), ResolveError> {
+    let now = fs::canonicalize(folder).map_err(ResolveError::Io)?;
+    if now != folder || !is_within(root, &now) {
+        return Err(PathRejection::Outside.into());
+    }
+    Ok(())
+}
+
 /// loose tabのWatcherを開始する関数。テストで開始の失敗を再現できるよう、差し替えられる形にする。
-type StartLooseWatcher =
-    dyn Fn(&Path, &str, String, Arc<dyn ChangeSink>) -> notify::Result<LooseWatcher>;
+type StartLooseWatcher<'a> =
+    dyn Fn(&Path, &Path, &str, String, Arc<dyn ChangeSink>) -> notify::Result<LooseWatcher> + 'a;
 
 /// 開いているスコープ。ワークスペースか、loose tabの暗黙のルートである。
 ///
@@ -186,8 +198,14 @@ impl AppState {
 
         let root = WorkspaceRoot::open(folder)?;
         let id = new_scope_id();
-        let watcher = LooseWatcher::start(root.path(), &name, id.clone(), Arc::clone(&sink))
-            .map_err(io::Error::other)?;
+        let watcher = LooseWatcher::start(
+            root.path(),
+            root.path(),
+            &name,
+            id.clone(),
+            Arc::clone(&sink),
+        )
+        .map_err(io::Error::other)?;
         self.lock_loose_watchers().push(watcher);
         self.lock_scopes().loose.push(LooseScope {
             scope: OpenScope {
@@ -415,9 +433,9 @@ impl WorkspaceHandle {
         file: &str,
         tab_id: &str,
         generation: u32,
-        start: &StartLooseWatcher,
+        start: &StartLooseWatcher<'_>,
     ) -> Result<(), ResolveError> {
-        let (root, sink) = {
+        let (root, folder, sink) = {
             let mut scopes = self.lock();
             let Some(loose) = scopes
                 .loose
@@ -429,7 +447,12 @@ impl WorkspaceHandle {
             if !is_markdown_path(file) {
                 return Err(PathRejection::Malformed.into());
             }
-            loose.scope.root.resolve(file)?;
+            // 検証で確定した場所（`canonicalize` 済みの絶対パス）を、そのまま監視する。
+            let resolved = loose.scope.root.resolve(file)?;
+            let folder = resolved
+                .parent()
+                .ok_or(ResolveError::Rejected(PathRejection::Malformed))?
+                .to_owned();
             if let Some((confirmed_tab, confirmed)) = &loose.confirmed {
                 if confirmed_tab == tab_id && generation <= *confirmed {
                     return Ok(());
@@ -442,7 +465,11 @@ impl WorkspaceHandle {
             // 確定した文書は、Watcherを付け替える前に記録する。付け替えの間に届く、より新しい
             // 要求が、この記録との差で「付け替えが要るか」を判断できる。
             loose.file = file.to_owned();
-            (loose.scope.root.path().to_owned(), Arc::clone(&loose.sink))
+            (
+                loose.scope.root.path().to_owned(),
+                folder,
+                Arc::clone(&loose.sink),
+            )
         };
         let mut watchers = self
             .loose_watchers
@@ -462,8 +489,28 @@ impl WorkspaceHandle {
         }
         // 旧Watcherを止める。停止は監視スレッドの終了まで待つ。
         watchers.retain(|watcher| watcher.scope_id() != scope_id);
-        match start(&root, file, scope_id.to_owned(), Arc::clone(&sink)) {
-            Ok(watcher) => watchers.push(watcher),
+        match start(&root, &folder, file, scope_id.to_owned(), Arc::clone(&sink)) {
+            Ok(watcher) => {
+                // 検証から開始までの間に、途中のフォルダーが差し替えられていないかを、開始の後に
+                // 確かめる。開いた監視は、差し替え前のフォルダーを指し続けるため、開始の前に
+                // 差し替えられていた場合を、ここで検出できる。差し替えられていたら、監視を捨てる。
+                if let Err(error) = verify_watched_folder(&root, &folder) {
+                    drop(watcher);
+                    drop(watchers);
+                    // 監視が無い状態を、確定した文書として記録しない。同じ文書の次の要求が、
+                    // 「すでに監視している」として何もしないと、監視が戻らない。
+                    if let Some(loose) = self
+                        .lock()
+                        .loose
+                        .iter_mut()
+                        .find(|loose| loose.scope.id == scope_id)
+                    {
+                        loose.file.clear();
+                    }
+                    return Err(error);
+                }
+                watchers.push(watcher);
+            }
             Err(_) => {
                 drop(watchers);
                 sink.watcher_error(scope_id, ErrorCode::WatcherStopped);
@@ -1015,9 +1062,13 @@ mod tests {
 
         state
             .workspace()
-            .retarget_loose_with(&opened.scope_id, "sub/b.md", "tab-1", 1, &|_, _, _, _| {
-                Err(notify::Error::generic("開始できない"))
-            })
+            .retarget_loose_with(
+                &opened.scope_id,
+                "sub/b.md",
+                "tab-1",
+                1,
+                &|_, _, _, _, _| Err(notify::Error::generic("開始できない")),
+            )
             .unwrap();
 
         assert_eq!(
@@ -1095,6 +1146,81 @@ mod tests {
         recording.0.lock().unwrap().clear();
         fs::write(&sub, b"# rewritten target\n").unwrap();
         wait_for_any();
+        assert_eq!(*recording.0.lock().unwrap(), vec!["sub/b.md".to_owned()]);
+    }
+
+    /// junctionを作る。
+    fn create_junction(link: &Path, target: &Path) {
+        let status = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("mklinkを実行できない");
+        assert!(status.success(), "junctionを作れない");
+    }
+
+    /// 検証のあとに、監視するフォルダーがルート外を指すjunctionへ差し替えられても、そのフォルダーを
+    /// 監視し続けない（7.1）。検証で確定した場所をそのまま監視し、開始の後にもう一度確かめる。
+    /// 差し替えは、検証と開始の間へ、注入した開始関数で挟む。差し替えを検出したら、監視を捨てて
+    /// 拒否し、次の要求が監視を作り直せるようにする。
+    #[test]
+    fn a_folder_swapped_after_validation_is_not_watched() {
+        struct RecordingSink(Mutex<Vec<String>>);
+        impl ChangeSink for RecordingSink {
+            fn file_change(&self, event: FileChangeEvent) {
+                if let crate::ipc::types::FileChange::FileModified { path } = event.change {
+                    self.0.lock().unwrap().push(path);
+                }
+            }
+            fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+            fn images_changed(&self, _scope_id: &str) {}
+        }
+        let (temp, state, outside) = with_workspace_and_outside("swapped-folder");
+        let sub_path = outside.parent().unwrap().join("sub");
+        write_document(&sub_path, "b.md");
+        // ルートの外にあるフォルダー。同じ名前のファイルを持つ。
+        let elsewhere = temp.path().join("elsewhere");
+        let external = write_document(&elsewhere, "b.md");
+        let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+        let opened = state
+            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .unwrap();
+        let handle = state.workspace();
+
+        let swap_then_start = |root: &Path, watched: &Path, file: &str, id: String, sink| {
+            // 検証を通ったあとに、下位のフォルダーをルート外を指すjunctionへ差し替える。
+            fs::remove_dir_all(&sub_path).unwrap();
+            create_junction(&sub_path, &elsewhere);
+            LooseWatcher::start(root, watched, file, id, sink)
+        };
+        let error = handle
+            .retarget_loose_with(&opened.scope_id, "sub/b.md", "tab-1", 1, &swap_then_start)
+            .expect_err("差し替えを検出できない");
+        assert!(matches!(
+            error,
+            ResolveError::Rejected(PathRejection::Outside)
+        ));
+
+        // 監視は残っておらず、ルート外の変更は届かない。
+        assert_eq!(state.lock_loose_watchers().len(), 0);
+        fs::write(&external, b"# rewritten external\n").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(recording.0.lock().unwrap().is_empty());
+
+        // 差し替えを元へ戻すと、同じ文書の次の要求が監視を作り直す。
+        fs::remove_dir(&sub_path).unwrap();
+        let sub = write_document(&sub_path, "b.md");
+        handle
+            .retarget_loose(&opened.scope_id, "sub/b.md", "tab-1", 2)
+            .unwrap();
+        assert_eq!(state.lock_loose_watchers().len(), 1);
+        fs::write(&sub, b"# rewritten inside\n").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while recording.0.lock().unwrap().is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         assert_eq!(*recording.0.lock().unwrap(), vec!["sub/b.md".to_owned()]);
     }
 }

@@ -199,23 +199,22 @@ pub struct LooseWatcher {
 impl LooseWatcher {
     /// 監視を開始する。
     ///
-    /// `root` は暗黙のルート（所在フォルダー）、`file` はそこからの相対パスである。`scope_id` は
-    /// 呼び出し側が採番する。監視を付け替えるとき（`AppState::retarget_loose`）に、スコープを
-    /// 保ったまま対象だけを替えるためである。
+    /// `root` は暗黙のルート（所在フォルダー）、`file` はそこからの相対パス、`folder` は `file` の
+    /// 所在フォルダー（絶対パス）である。`folder` を呼び出し側から受けるのは、検証で確定した場所を
+    /// そのまま監視するためである。`file` から組み立て直すと、検証のあとに途中のフォルダーが
+    /// 差し替えられたとき、検証していない場所を監視しうる（7.1）。`scope_id` は呼び出し側が
+    /// 採番する。監視を付け替えるとき（`WorkspaceHandle::retarget_loose`）に、スコープを保ったまま
+    /// 対象だけを替えるためである。
     pub fn start(
         root: &Path,
+        folder: &Path,
         file: &str,
         scope_id: String,
         sink: Arc<dyn ChangeSink>,
     ) -> notify::Result<Self> {
         let (commands, incoming) = channel();
         let mut watcher = forwarding_watcher(commands.clone(), Incoming::Root)?;
-        // `file` が `sub/b.md` のように下位のフォルダーにあるときは、その所在フォルダーを監視する。
-        let folder = match file.rsplit_once('/') {
-            Some((parent, _)) => root.join(parent),
-            None => root.to_path_buf(),
-        };
-        watcher.watch(&folder, RecursiveMode::NonRecursive)?;
+        watcher.watch(folder, RecursiveMode::NonRecursive)?;
 
         let root = root.to_path_buf();
         let file = file.to_owned();
@@ -1123,8 +1122,14 @@ mod tests {
         let target = temp.path().join("a.md");
         std::fs::write(&target, b"# a\n").expect("書込みに失敗");
         let sink = Arc::new(RecordingSink::default());
-        let watcher = LooseWatcher::start(temp.path(), "a.md", "scope-10".to_owned(), sink.clone())
-            .expect("監視を開始できない");
+        let watcher = LooseWatcher::start(
+            temp.path(),
+            temp.path(),
+            "a.md",
+            "scope-10".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
         assert_eq!(watcher.scope_id(), "scope-10");
 
         std::fs::write(temp.path().join("other.md"), b"# other\n").expect("書込みに失敗");
@@ -1152,9 +1157,14 @@ mod tests {
         std::fs::create_dir(temp.path().join("sub")).expect("フォルダーの作成に失敗");
         std::fs::write(temp.path().join("sub/b.md"), b"# b\n").expect("書込みに失敗");
         let sink = Arc::new(RecordingSink::default());
-        let _watcher =
-            LooseWatcher::start(temp.path(), "sub/b.md", "scope-11".to_owned(), sink.clone())
-                .expect("監視を開始できない");
+        let _watcher = LooseWatcher::start(
+            temp.path(),
+            &temp.path().join("sub"),
+            "sub/b.md",
+            "scope-11".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
 
         std::fs::write(temp.path().join("sub/b.md"), b"# b2\n").expect("書込みに失敗");
 
@@ -1172,8 +1182,14 @@ mod tests {
         let target = temp.path().join("a.md");
         std::fs::write(&target, b"# a\n").expect("書込みに失敗");
         let sink = Arc::new(RecordingSink::default());
-        let watcher = LooseWatcher::start(temp.path(), "a.md", "scope-12".to_owned(), sink.clone())
-            .expect("監視を開始できない");
+        let watcher = LooseWatcher::start(
+            temp.path(),
+            temp.path(),
+            "a.md",
+            "scope-12".to_owned(),
+            sink.clone(),
+        )
+        .expect("監視を開始できない");
         std::fs::write(&target, b"# a2\n").expect("書込みに失敗");
         wait_until(|| (!sink.changes().is_empty()).then_some(())).expect("変更が届かない");
 
