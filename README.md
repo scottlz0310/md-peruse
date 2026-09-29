@@ -84,14 +84,14 @@ bun install
 | コマンド | 内容 |
 | --- | --- |
 | `bun run tauri dev` | 開発用にアプリを起動する |
-| `bun run tauri build` | Releaseビルドを生成する（MSIX生成は別工程） |
+| `bun run tauri build` | ライセンス一覧を生成してからReleaseビルドを生成する（`cargo-about` が必要。MSIX生成は別工程） |
 | `bun run build` | 型検査とFrontendのビルドを実行する |
 | `bun run check` | BiomeでLintとFormattingを検査する |
 | `bun run check:fix` | Biomeの自動修正を適用する |
 | `bun run typecheck` | `tsc --noEmit` で型検査する |
 | `bun test` | Frontendのテストを実行する |
 | `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
-| `bun run generate:licenses` | サードパーティライセンス一覧を生成する（`cargo-about` が必要） |
+| `bun run generate:licenses` | サードパーティライセンス一覧を `public/` へ生成する（`cargo-about` が必要） |
 | `bun run check:icons` | `src-tauri/icons` が原本 `assets/app-icon.png` と一致するか検査する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
@@ -183,7 +183,11 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-ライセンス一覧 `src/generated/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージがあれば失敗する。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
+ライセンス一覧 `public/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージがあれば失敗する。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
+
+一覧は、ヘルプメニューの「md-peruse について」が開くダイアログで表示する。`bun run tauri build`（`build-msix.ps1` を含む）は、`beforeBuildCommand` で先に一覧を生成してから同梱するため、`cargo-about` が要る。`bun run build` と `bun run tauri dev` は生成しない。開発中にダイアログで一覧を見るときは、先に `bun run generate:licenses` を実行する。
+
+ソースコードの入手方法の案内を求めるライセンス（EPL-2.0の `elkjs`）は、`licenses/overrides/<パッケージ名>/SOURCE-URL` に上流のURLを置く。ダイアログが本文の前に示す。
 
 上流が条文を同梱していないパッケージは `licenses/overrides/<パッケージ名>/` に本文を配置する。配置がない場合は生成が失敗する。
 

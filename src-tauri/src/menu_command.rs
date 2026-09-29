@@ -44,7 +44,8 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
         | MenuCommand::ReloadDocument
         | MenuCommand::IncreaseFontSize
         | MenuCommand::DecreaseFontSize
-        | MenuCommand::ResetFontSize => forward(app, command),
+        | MenuCommand::ResetFontSize
+        | MenuCommand::About => forward(app, command),
         // 載せていないコマンドは、選ばれることがない。
         _ => {}
     }
@@ -76,6 +77,7 @@ mod tests {
             (MenuCommand::IncreaseFontSize, "\"increaseFontSize\""),
             (MenuCommand::DecreaseFontSize, "\"decreaseFontSize\""),
             (MenuCommand::ResetFontSize, "\"resetFontSize\""),
+            (MenuCommand::About, "\"about\""),
         ];
         for (command, expected) in cases {
             let app = tauri::test::mock_app();
@@ -94,7 +96,7 @@ mod tests {
     /// Rust側で処理するコマンドと、メニューへ載せていないコマンドはeventを送らない。
     #[test]
     fn other_commands_are_not_forwarded() {
-        for command in [MenuCommand::CloseWorkspace, MenuCommand::About] {
+        for command in [MenuCommand::CloseWorkspace, MenuCommand::OpenRecentFolder] {
             let app = tauri::test::mock_app();
             app.manage(AppState::new(LanguagePreference::System));
             let received = Arc::new(AtomicUsize::new(0));

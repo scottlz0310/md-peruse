@@ -527,3 +527,100 @@ body {
   background-color: var(--find-active-bg);
   color: inherit;
 }
+
+/*
+ * 「md-peruse について」（design-decisions.md 11.3）。モーダルの `<dialog>` で、一覧の部分だけが
+ * スクロールする。
+ */
+.about-dialog {
+  box-sizing: border-box;
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 3rem);
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background-color: var(--color-bg);
+  color: var(--color-fg);
+}
+
+.about-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.about-dialog::backdrop {
+  background-color: rgb(0 0 0 / 0.4);
+}
+
+.about-dialog h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.about-dialog h3 {
+  margin: 0.5rem 0 0;
+  font-size: 1rem;
+}
+
+.about-dialog p {
+  margin: 0;
+}
+
+.license-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.license-filter input {
+  flex: 1;
+  min-width: 0;
+}
+
+.license-list {
+  flex: 1 1 auto;
+  min-height: 8rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+}
+
+.license-list li + li {
+  border-top: 1px solid var(--color-border);
+}
+
+.about-dialog summary {
+  padding: 0.25rem 0.5rem;
+}
+
+.license-name {
+  font-weight: 600;
+}
+
+.license-id {
+  color: var(--color-fg-muted);
+}
+
+.license-body {
+  padding: 0 0.5rem 0.5rem;
+}
+
+.license-body h4 {
+  margin: 0.5rem 0 0;
+}
+
+.license-text {
+  margin: 0.25rem 0 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.about-actions {
+  display: flex;
+  justify-content: flex-end;
+}

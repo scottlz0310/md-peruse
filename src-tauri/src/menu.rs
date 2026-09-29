@@ -123,7 +123,7 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 15] = [
+pub const IMPLEMENTED: [MenuCommand; 16] = [
     MenuCommand::OpenFolder,
     MenuCommand::CloseWorkspace,
     MenuCommand::CloseTab,
@@ -139,6 +139,7 @@ pub const IMPLEMENTED: [MenuCommand; 15] = [
     MenuCommand::IncreaseFontSize,
     MenuCommand::DecreaseFontSize,
     MenuCommand::ResetFontSize,
+    MenuCommand::About,
 ];
 
 /// コマンドの表示名。
@@ -177,6 +178,8 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::DecreaseFontSize, Language::En) => "&Decrease Font Size",
         (MenuCommand::ResetFontSize, Language::Ja) => "文字サイズを既定に戻す(&E)",
         (MenuCommand::ResetFontSize, Language::En) => "R&eset Font Size",
+        (MenuCommand::About, Language::Ja) => "md-peruse について(&A)",
+        (MenuCommand::About, Language::En) => "&About md-peruse",
         _ => unreachable!("メニューへ載せていないコマンドの表示名: {command:?}"),
     }
 }
@@ -192,6 +195,13 @@ fn view_menu_label(language: Language) -> &'static str {
     match language {
         Language::Ja => "表示(&V)",
         Language::En => "&View",
+    }
+}
+
+fn help_menu_label(language: Language) -> &'static str {
+    match language {
+        Language::Ja => "ヘルプ(&H)",
+        Language::En => "&Help",
     }
 }
 
@@ -298,7 +308,13 @@ pub fn build<R: Runtime, M: Manager<R>>(
             &item(MenuCommand::ResetFontSize)?,
         ],
     )?;
-    Menu::with_items(manager, &[&file, &view])
+    let help = Submenu::with_items(
+        manager,
+        help_menu_label(language),
+        true,
+        &[&item(MenuCommand::About)?],
+    )?;
+    Menu::with_items(manager, &[&file, &view, &help])
 }
 
 /// テーマの項目のチェックを、選択中の1つだけに付け直す。
@@ -380,7 +396,7 @@ mod tests {
         for command in IMPLEMENTED {
             assert!(contains(command), "{command:?} が無い");
         }
-        assert!(!contains(MenuCommand::About));
+        assert!(!contains(MenuCommand::OpenRecentFolder));
     }
 
     /// 保存済みのテーマの項目だけにチェックが付いた状態で組み立てる。

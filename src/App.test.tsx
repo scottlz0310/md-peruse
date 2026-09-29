@@ -1554,3 +1554,99 @@ describe("App: UI言語の切り替え（10.5）", () => {
     expect(screen.getByRole("tree", { name: "Files" })).toBeTruthy();
   });
 });
+
+describe("App: md-peruse について（11.3）", () => {
+  const LICENSES = {
+    application: {
+      name: "md-peruse",
+      version: "9.8.7",
+      license: "MIT",
+      texts: [{ label: "LICENSE", index: 0 }],
+    },
+    licenseTexts: ["MIT License"],
+    packages: [
+      {
+        name: "react",
+        version: "19.0.0",
+        license: "MIT",
+        texts: [{ label: "LICENSE", index: 0 }],
+      },
+    ],
+  };
+
+  const originalFetch = globalThis.fetch;
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  /** 同梱したライセンス一覧を返す `fetch` へ差し替え、要求したURLを控える。 */
+  function serveLicenses() {
+    const requested: string[] = [];
+    globalThis.fetch = (async (url: string) => {
+      requested.push(url);
+      return new Response(JSON.stringify(LICENSES));
+    }) as unknown as typeof fetch;
+    return requested;
+  }
+
+  const aboutCommand = () =>
+    act(async () => {
+      await emit("menu-command", "about");
+    });
+
+  test("ワークスペースを開いていなくても、ダイアログを開ける", async () => {
+    const requested = serveLicenses();
+    mockBackend({ scan: () => ROOT });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+
+    await aboutCommand();
+
+    const dialog = screen.getByRole("dialog", { name: "md-peruse について" });
+    expect(await within(dialog).findByText("バージョン 9.8.7")).toBeTruthy();
+    expect(requested).toEqual(["/third-party-licenses.json"]);
+  });
+
+  test("ワークスペースを開いているときも開け、閉じると本文へ戻る", async () => {
+    serveLicenses();
+    mockBackend({ scan: () => ROOT });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => screen.getByRole("tree", { name: "ファイル" }));
+
+    await aboutCommand();
+    const dialog = screen.getByRole("dialog", { name: "md-peruse について" });
+    await within(dialog).findByText("バージョン 9.8.7");
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    });
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("tree", { name: "ファイル" })).toBeTruthy();
+  });
+
+  test("言語を切り替えると、開いているダイアログの文言も切り替わる", async () => {
+    serveLicenses();
+    mockBackend({ scan: () => ROOT });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await aboutCommand();
+    await screen.findByText("バージョン 9.8.7");
+
+    await act(async () => {
+      await emit("language-changed", { preference: "en", language: "en" });
+    });
+
+    expect(
+      screen.getByRole("dialog", { name: "About md-peruse" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Version 9.8.7")).toBeTruthy();
+  });
+});

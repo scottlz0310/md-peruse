@@ -1261,7 +1261,7 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 | 表示 | テーマ > システム / ライト / ダーク | `useSystemTheme` ほか | — | Rust（設定を保存し、ウィンドウとメニューバーへ適用する） |
 | 表示 | 文字を大きく / 小さく / 既定に戻す | `increaseFontSize` ほか | `Ctrl+Equal` / `Ctrl+Minus` / `Ctrl+0` | Frontend |
 | 表示 | 言語: システム / 日本語 / English | `useSystemLanguage` ほか | — | Rust（設定を保存し、メニューを組み直す。10.5） |
-| ヘルプ | md-peruse について | `about` | — | Rust（バージョンとライセンス一覧。11.3） |
+| ヘルプ | md-peruse について | `about` | — | Frontend（バージョンとライセンス一覧のダイアログ。11.3） |
 
 保存、印刷、ソース表示、開発者ツールは置かない（10章）。終了にアクセラレータを割り当てないのは、`Alt+F4` をWindowsが処理するためである。
 
@@ -1532,7 +1532,7 @@ IDはプロセス内でのみ有効な不透明値とし、対応表はRust側�
 | JavaScript | `scripts/generate-licenses.ts`（Bunで実行）が `package.json` の `dependencies` から推移閉包を辿り、`node_modules` のメタデータとライセンスファイルを収集する |
 | 条文を同梱しないパッケージ | `licenses/overrides/<パッケージ名>/` へ上流の条文を配置し、それも無ければ生成を失敗させる |
 | Rust | `cargo-about` が `src-tauri/about.toml` の設定で依存crateのライセンス本文を収集する |
-| 出力 | `src/generated/third-party-licenses.json`。リポジトリへコミットせず、lockfileから都度生成する |
+| 出力 | `public/third-party-licenses.json`。リポジトリへコミットせず、lockfileから都度生成する。Viteが `public/` をビルドの出力へ複写する |
 | 検査 | CIの `Licenses` ジョブが生成を実行し、条文を取得できないパッケージがあれば失敗する |
 
 判断の理由は次のとおり。
@@ -1546,11 +1546,18 @@ IDはプロセス内でのみ有効な不透明値とし、対応表はRust側�
 - Mermaid 12の依存 `elkjs`（EPL-2.0、`layout: elk` 用）を受け入れて同梱する（Phase 4-2で判断）。EPL-2.0はオブジェクト形式での配布でもソースコードの入手方法の案内を求めるため、サードパーティライセンスの表示で上流のリポジトリを示す。依存の内部を差し替えて除外する案は、Mermaidの更新で壊れやすいため採らなかった。
 - 生成物をリポジトリへコミットしない。バージョンの正本を `bun.lock` と `Cargo.lock` の1か所へ寄せ、生成物はそこから都度導出する。当初は生成物をコミットし `git diff --exit-code` で最新かを検査していたが、Renovateが依存を更新してもlockfileしか書き換えないため、依存更新のPull Requestが例外なく `Licenses` ジョブで失敗した（[#32](https://github.com/scottlz0310/md-peruse/pull/32) で顕在化）。バージョンを2か所で持つ限り、生成物を手で追随させるか自動マージを諦めるかの二択になる。導出へ変えれば不整合が構造として生じない。
 - 差分でライセンスの増減が見えなくなる点は、生成の失敗で代替する。条文を取得できないパッケージがあれば生成自体が失敗するため、未知の依存が黙って入ることはない。Rust側は `about.toml` の `accepted` が未列挙のライセンスも検出する。JavaScript側に同等のライセンス種別allowlistがないことは残る穴であり、`tasks.md` の「検討待ち」へ記録する。
-- 生成をビルド工程へ組み込むかはPhase 4で決める。現時点で生成物を参照するコードはなく、`bun run build` へ組み込むと `Frontend` と `Rust` の両ジョブにもcargo-aboutの導入が要る。アプリ内でライセンス一覧を表示する実装（下記）と同時に、生成のタイミングとジョブ構成を決める。
+- 生成はリリースのビルドの前に行う。`tauri.conf.json` の `beforeBuildCommand` を `bun run generate:licenses && bun run build` とし、`build-msix.ps1` が呼ぶ `tauri build` が、生成してから同梱する。`bun run build` 単体には組み込まない。組み込むと `Frontend` と `Rust` の両ジョブに `cargo-about` の導入が要り、生成に約6秒（コールドで約33秒）が加わる（実測）。
+- 生成物は `public/` へ置き、ダイアログを開いたときに `fetch` で読む（`connect-src 'self'` が許す）。JavaScriptのバンドルへ入らず、`typecheck`、`test`、`dev` は生成物に依存しない。静的に `import` する案は、型が付く代わりに、生成物が無いと `typecheck` と `dev` が失敗する。すべての入口の前で生成が要るため採らなかった。Rustが `include_str!` で埋め込みIPCで返す案は、`cargo build`、`test`、`clippy` のすべてで生成物が要り、約500KBをIPCで運ぶことにもなるため採らなかった。
+- 生成物の形は `src/licenses/licenses.ts` を正本とし、生成スクリプトも同じ型を使う。読み込んだ生成物の形は検証しない。生成物は同じビルドで生成した自前のファイルであり、形が食い違うのは開発中に古い生成物が残っているときに限られる。
+- md-peruse自身の名前、バージョン、ライセンスも生成物へ含める。バージョンの正本は `package.json` である（`Cargo.toml`、`tauri.conf.json` とCIで同期する）。Tauriの `getVersion` は `core:app` のcapabilityを増やすため使わない（5.5）。`package.json` には `license` を宣言する。
 - JavaScript側に既製ツールを使わない。主要なツールはnpmのnode_modulesレイアウトとCLIに依存し、Bunでの動作保証がない。走査するのは `package.json` とライセンスファイルだけで、実装は小さい。
 - ライセンス本文を `licenseTexts` へ集約し、各パッケージはインデックスで参照する。同じ本文を多数のcrateが共有するため、パッケージごとに本文を持たせると生成物が数MBに達し、バンドルサイズと依存更新時の差分の両方を悪化させる。
 
-アプリ内での表示はPhase 4のUI実装で行う。
+アプリ内の表示は、ヘルプメニューの「md-peruse について」（`about`）が開くダイアログで行う。処理はFrontendが担い、Rustは `about` を `menu-command` でFrontendへ渡す（10.1）。約490件の一覧はネイティブのダイアログに載せられない。専用のウィンドウはWebView2のプロセスを増やし、アイドル時の低負荷（`spec.md` 5.2）に反する。そこでWebView内のモーダルな `<dialog>`（`src/licenses/AboutDialog.tsx`）とする。フォーカスの閉じ込めと `Esc` で閉じる操作はブラウザーに任せ、閉じたあとは開く前にフォーカスのあった要素へ戻す。ワークスペースを開いていなくても開ける。ライセンスの本文を外部のファイルとして同梱し、既定のアプリで開く案は、検索できず、関連付けとMSIXのパスに依存し、`spec.md` 5.7の「アプリ内から参照できる」を満たすか怪しいため採らなかった。
+
+- 一覧はパッケージ単位とし、名前・バージョン・ライセンスの行を並べる。名前で絞り込める。本文は行を開いたときにだけ描く。同じ本文を多数のパッケージが共有し、全件を描くとDOMの文字が数MBになるためである。本文ごとにパッケージをまとめる案は、パッケージ名から探すのに検索が要り、約490名を目で追うことになるため採らなかった。
+- EPL-2.0の依存（`elkjs`）は、ソースコードの入手先（上流のリポジトリ）を本文の前に示す。EPL-2.0はオブジェクト形式での配布でも、ソースコードの入手方法の案内を求める。入手先は `licenses/overrides/<パッケージ名>/SOURCE-URL` に置いたURLで、生成物の `sourceUrl` へ書く。URLはリンクにせず文字として示す。外部のブラウザーを開く操作と、その失敗の扱いを増やさないためである。
+- 開発中は、`bun run generate:licenses` を実行するまで、ダイアログは一覧を読み込めない。その場合は読み込めなかった理由を示す。
 
 ### 11.4 Store向けカスタムイベント
 
