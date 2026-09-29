@@ -23,7 +23,9 @@ import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEven
 
 type Handlers = {
   scan: (path: string) => ScanResult | Promise<ScanResult>;
-  read?: (path: string) => FileContent | Promise<FileContent>;
+  read?: (path: string, scopeId: string) => FileContent | Promise<FileContent>;
+  /** loose tabのスコープを閉じる要求（`close_loose_scope_command`）。 */
+  closeLoose?: (scopeId: string) => void | Promise<void>;
   openUrl?: (url: string) => void;
   issue?: (request: ImageResourceRequest) => ImageResource[];
   updateSettings?: (update: UiSettingsUpdate) => void;
@@ -82,11 +84,16 @@ function mockBackend(handlers: Handlers) {
           (payload as { request: ImageResourceRequest }).request,
         );
       }
-      const request = (payload as { request: { path: string } }).request;
+      if (command === "close_loose_scope_command") {
+        return handlers.closeLoose?.((payload as { scopeId: string }).scopeId);
+      }
+      const request = (
+        payload as { request: { path: string; scopeId: string } }
+      ).request;
       if (command === "scan_directory_command")
         return handlers.scan(request.path);
       if (command === "read_file_command" && handlers.read)
-        return handlers.read(request.path);
+        return handlers.read(request.path, request.scopeId);
       throw new Error(`想定外のcommand: ${command}`);
     },
     { shouldMockEvents: true },
@@ -1414,7 +1421,11 @@ describe("App", () => {
       "http://mdperuse-img.localhost/logo-id",
     );
     expect(requests).toEqual([
-      { documentPath: "README.md", references: ["assets/logo.png"] },
+      {
+        scopeId: "scope-1",
+        documentPath: "README.md",
+        references: ["assets/logo.png"],
+      },
     ]);
   });
 });
@@ -2455,5 +2466,357 @@ describe("App: ファイル変更への追従（6.4、6.5、5.4）", () => {
     });
 
     await waitFor(() => expect(src()).toContain("logo-2"));
+  });
+});
+
+describe("App: ワークスペース外のファイルとドラッグ＆ドロップ（9.1、10.4）", () => {
+  const LOOSE = "loose-1";
+  const LABEL = "work\\notes";
+
+  /** Rust側が、ドロップされたファイルの開き先を決めて知らせる。 */
+  function openDocumentEvent(
+    scopeId: string,
+    path: string,
+    label: string | null = null,
+  ) {
+    return act(async () => {
+      await emit("open-document", { scopeId, path, label });
+    });
+  }
+
+  const heading = () => screen.getByRole("heading", { level: 2 }).textContent;
+  const breadcrumb = () =>
+    screen.getByRole("navigation", { name: "パンくずリスト" });
+
+  test("ワークスペースがなくても、loose tabの文書を表示する（9.2）", async () => {
+    const reads: [string, string][] = [];
+    const titles: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push([scopeId, path]);
+        return fileContent(path, "## メモ\n");
+      },
+      setTitle: (title) => titles.push(title),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+
+    await waitFor(() => expect(heading()).toBe("メモ"));
+    // 読むスコープは、タブが持つloose tabのスコープである。
+    expect(reads).toEqual([[LOOSE, "note.md"]]);
+    // ツリーとサイドバーの境界は出さない。ワークスペースを開いていない。
+    expect(screen.queryByRole("tree")).toBeNull();
+    expect(screen.queryByRole("separator")).toBeNull();
+    // パンくずは所在フォルダーの表示名から始まり、フォルダーは選べない（ツリーがない）。
+    expect(breadcrumb().textContent).toContain(LABEL);
+    expect(within(breadcrumb()).queryAllByRole("button")).toHaveLength(0);
+    // タイトルの「ワークスペース名」は、所在フォルダーの表示名になる。
+    await waitFor(() =>
+      expect(titles.at(-1)).toBe(`note.md - ${LABEL} - md-peruse`),
+    );
+  });
+
+  test("ウィンドウタイトルの名前は、アクティブなタブのルートの表示名になる（10.1.2）", async () => {
+    const titles: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## 本文\n"),
+      setTitle: (title) => titles.push(title),
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByRole("tree")).toBeTruthy());
+
+    await openDocumentEvent("scope-1", "README.md");
+    await waitFor(() =>
+      expect(titles.at(-1)).toBe("README.md - docs - md-peruse"),
+    );
+    // ワークスペースを開いたまま、外のファイルをアクティブにすると、所在フォルダーの表示名になる。
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await waitFor(() =>
+      expect(titles.at(-1)).toBe(`note.md - ${LABEL} - md-peruse`),
+    );
+    // ワークスペースのタブへ戻すと、ワークスペース名に戻る。
+    await act(async () => {
+      fireEvent.click(screen.getByRole("tab", { name: /README\.md/ }));
+    });
+    await waitFor(() =>
+      expect(titles.at(-1)).toBe("README.md - docs - md-peruse"),
+    );
+  });
+
+  test("開いているタブがなくなると、welcome状態へ戻り、loose tabのスコープを閉じるよう求める（6.4）", async () => {
+    const closed: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## メモ\n"),
+      closeLoose: (scopeId) => {
+        closed.push(scopeId);
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await waitFor(() => expect(heading()).toBe("メモ"));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "note.md を閉じる" }));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    expect(closed).toEqual([LOOSE]);
+  });
+
+  test("ワークスペースを開くと、loose tabは破棄され、そのスコープを閉じるよう求める（6.1）", async () => {
+    const closed: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## メモ\n"),
+      closeLoose: (scopeId) => {
+        closed.push(scopeId);
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await waitFor(() => expect(heading()).toBe("メモ"));
+
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+
+    await waitFor(() => expect(screen.getByRole("tree")).toBeTruthy());
+    expect(screen.queryAllByRole("tab")).toHaveLength(0);
+    await waitFor(() => expect(closed).toEqual([LOOSE]));
+  });
+
+  test("ワークスペースの中のファイルは、ワークスペースのスコープの通常タブで開く", async () => {
+    const reads: [string, string][] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push([scopeId, path]);
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByRole("tree")).toBeTruthy());
+
+    await openDocumentEvent("scope-1", "README.md");
+
+    await waitFor(() => expect(heading()).toBe("本文"));
+    expect(reads).toEqual([["scope-1", "README.md"]]);
+    // 通常タブのパンくずは、ワークスペース名から始まり、フォルダーを選べる。
+    expect(within(breadcrumb()).getAllByRole("button")).toHaveLength(1);
+    expect(breadcrumb().textContent).toContain("docs");
+  });
+
+  test("loose tabの文書は、同じ相対パスのワークスペースの文書とは別物である（6.4）", async () => {
+    const closed: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) =>
+        fileContent(path, scopeId === LOOSE ? "## 外\n" : "## 中\n"),
+      closeLoose: (scopeId) => {
+        closed.push(scopeId);
+      },
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByRole("tree")).toBeTruthy());
+    await openDocumentEvent("scope-1", "README.md");
+    await waitFor(() => expect(heading()).toBe("中"));
+
+    // 同じ相対パスのloose tabを開く。ワークスペースのタブへ切り替えず、別のタブで開く。
+    await openDocumentEvent(LOOSE, "README.md", LABEL);
+
+    await waitFor(() => expect(heading()).toBe("外"));
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    // ツリーで選択されるのは、ワークスペースの文書だけである。
+    const readme = within(screen.getByRole("tree"))
+      .getByText("README.md")
+      .closest('[role="treeitem"]');
+    expect(readme?.getAttribute("aria-selected")).toBe("false");
+
+    // 同じスコープの同じ文書を開き直すと、新しいタブは作らない。
+    await openDocumentEvent(LOOSE, "README.md", LABEL);
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(closed).toEqual([]);
+  });
+
+  test("loose tabの本文のリンクは、同じ暗黙のルートの文書を同じタブで開く（7.2、9.1）", async () => {
+    const reads: [string, string][] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push([scopeId, path]);
+        return fileContent(
+          path,
+          path === "note.md" ? "[次](sub/b.md)\n" : "## 次の文書\n",
+        );
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await screen.findByRole("link", { name: "次" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("link", { name: "次" }));
+    });
+
+    await waitFor(() => expect(heading()).toBe("次の文書"));
+    expect(reads).toEqual([
+      [LOOSE, "note.md"],
+      [LOOSE, "sub/b.md"],
+    ]);
+    expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+
+  test("loose tabの文書も、外部での変更に追従する。別のスコープの変更は無関係（6.4）", async () => {
+    const versions = ["## 1版\n", "## 2版\n"];
+    const reads: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path, scopeId) => {
+        reads.push(`${scopeId}:${path}`);
+        return fileContent(path, versions.shift() ?? "## 想定外\n");
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await waitFor(() => expect(heading()).toBe("1版"));
+
+    await act(async () => {
+      await emit("file-change", {
+        scopeId: "other-scope",
+        change: { kind: "fileModified", path: "note.md" },
+      });
+    });
+    expect(reads).toEqual([`${LOOSE}:note.md`]);
+
+    await act(async () => {
+      await emit("file-change", {
+        scopeId: LOOSE,
+        change: { kind: "fileModified", path: "note.md" },
+      });
+    });
+
+    await waitFor(() => expect(heading()).toBe("2版"));
+  });
+
+  test("loose tabの監視が止まったときは、原因を示す", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## メモ\n"),
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+    await waitFor(() => expect(heading()).toBe("メモ"));
+
+    await act(async () => {
+      await emit("watcher-error", {
+        scopeId: LOOSE,
+        error: {
+          code: "watcherStopped",
+          message: "監視が止まりました。",
+          detail: null,
+        },
+      });
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "監視が止まりました。",
+    );
+  });
+
+  test("画像resource IDは、表示中のタブのスコープで発行する（5.4）", async () => {
+    const requests: ImageResourceRequest[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "![図](a.png)\n"),
+      issue: (request) => {
+        requests.push(request);
+        return request.references.map((reference) => ({
+          status: "issued",
+          reference,
+          resourceId: "id",
+        }));
+      },
+    });
+    render(<App />);
+    await waitFor(() =>
+      expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+    );
+
+    await openDocumentEvent(LOOSE, "note.md", LABEL);
+
+    await waitFor(() =>
+      expect(requests).toEqual([
+        { scopeId: LOOSE, documentPath: "note.md", references: ["a.png"] },
+      ]),
+    );
+  });
+
+  test.each([
+    ["acceptable", "ここにドロップして開く"],
+    ["rejected", "開けません。Markdownのファイルとフォルダーだけ開けます。"],
+  ])(
+    "ドラッグ中は、%sの旨をオーバーレイで示し、離れたら消す（10.4）",
+    async (state, text) => {
+      mockBackend({
+        scan: () => ROOT,
+        read: (path) => fileContent(path, "## 本文\n"),
+      });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
+      );
+      expect(screen.queryByText(text)).toBeNull();
+
+      await act(async () => {
+        await emit("drag-state", state);
+      });
+      expect(screen.getByText(text)).toBeTruthy();
+
+      await act(async () => {
+        await emit("drag-state", "idle");
+      });
+      expect(screen.queryByText(text)).toBeNull();
+    },
+  );
+
+  test("ドラッグのオーバーレイは、文書を表示している間も出る", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## 本文\n"),
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByRole("tree")).toBeTruthy());
+
+    await act(async () => {
+      await emit("drag-state", "acceptable");
+    });
+
+    expect(screen.getByText("ここにドロップして開く")).toBeTruthy();
   });
 });

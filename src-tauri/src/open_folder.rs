@@ -38,7 +38,7 @@ pub const WORKSPACE_CLOSED_EVENT: &str = "workspace-closed";
 /// Rust側では開いているのにFrontendはwelcome状態になる。
 static LIFECYCLE: Mutex<()> = Mutex::new(());
 
-fn lock_lifecycle() -> MutexGuard<'static, ()> {
+pub(crate) fn lock_lifecycle() -> MutexGuard<'static, ()> {
     // `panic = "abort"` の下では毒される経路が生じない（12章）。
     LIFECYCLE.lock().expect("ワークスペース開閉のロックに失敗")
 }

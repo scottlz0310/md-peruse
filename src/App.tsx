@@ -1,10 +1,11 @@
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Breadcrumb } from "./breadcrumb/Breadcrumb";
 import { LanguageProvider } from "./i18n/LanguageContext";
 import { DEFAULT_LANGUAGE, MESSAGES } from "./i18n/messages";
 import {
+  closeLooseScope,
   getUiSettings,
   getWorkspace,
   issueImageResources,
@@ -14,16 +15,19 @@ import {
   updateUiSettings,
 } from "./ipc/commands";
 import {
+  onDragState,
   onFileChange,
   onImagesChanged,
   onLanguageChanged,
   onMenuCommand,
+  onOpenDocument,
   onRecentFoldersChanged,
   onWatcherError,
   onWorkspaceClosed,
   onWorkspaceOpened,
 } from "./ipc/events";
 import { setWindowTitle } from "./ipc/window";
+import { DragOverlay } from "./layout/DragOverlay";
 import { SidebarLayout } from "./layout/SidebarLayout";
 import { AboutDialog } from "./licenses/AboutDialog";
 import { loadLicenses } from "./licenses/licenses";
@@ -77,12 +81,14 @@ import {
 import { windowTitle } from "./state/window-title";
 import { TabBar, tabElementId } from "./tabs/TabBar";
 import { type FocusRequest, TreeView } from "./tree/TreeView";
+import type { DragState } from "./types/generated/DragState";
 import type { FileChangeEvent } from "./types/generated/FileChangeEvent";
 import type { FileContent } from "./types/generated/FileContent";
 import type { ImagesChangedEvent } from "./types/generated/ImagesChangedEvent";
 import type { IpcError } from "./types/generated/IpcError";
 import type { LanguageChangedEvent } from "./types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "./types/generated/MenuCommand";
+import type { OpenDocumentEvent } from "./types/generated/OpenDocumentEvent";
 import type { RecentFolderView } from "./types/generated/RecentFolderView";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
@@ -179,6 +185,8 @@ export default function App() {
   const [treeFocus, setTreeFocus] = useState<FocusRequest | null>(null);
   const [tabs, setTabs] = useState<TabSet>(EMPTY_TAB_SET);
   const [shown, setShown] = useState<Shown | null>(null);
+  // ドラッグ中の受け入れ可否。パスは含まず、オーバーレイの表示だけに使う（10.4）。
+  const [dragState, setDragState] = useState<DragState>("idle");
   // 発行済みの画像が書き換わるたびに進める。本文が同じでも、画像を発行し直して描き直す（5.4）。
   const [imageRevision, setImageRevision] = useState(0);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
@@ -287,9 +295,47 @@ export default function App() {
   useTauriEvent(() => onWatcherError((event) => handleWatcherError(event)));
   useTauriEvent(() => onImagesChanged((event) => handleImagesChanged(event)));
 
+  // ドラッグの受け入れ可否と、ドロップされたファイルを開く指示（10.4）。
+  useTauriEvent(() => onDragState(setDragState));
+  useTauriEvent(() => onOpenDocument((event) => handleOpenDocument(event)));
+
+  // loose tab（9.1）のスコープは、そのタブがある間だけ開いておく。タブを閉じたとき、上限で
+  // 退避されたとき、ワークスペースの切り替えで破棄されたときに、Rust側のスコープと監視を
+  // 閉じる（6.4）。Rust側は切り替えのときに自分で閉じるため、その場合は何も起きない。
+  const looseScopesRef = useRef(new Set<string>());
+  useEffect(() => {
+    const current = new Set(
+      tabs.tabs
+        .map((tab) => tab.scopeId)
+        .filter((scopeId) => scopeId !== workspace?.scopeId),
+    );
+    for (const scopeId of looseScopesRef.current) {
+      if (!current.has(scopeId)) {
+        closeLooseScope(scopeId).catch((reason: unknown) =>
+          setError(String(reason)),
+        );
+      }
+    }
+    looseScopesRef.current = current;
+  }, [tabs, workspace]);
+
+  const activeScopeId = activeTab(tabs)?.scopeId ?? "";
+  // 画像resource IDはスコープごとに発行する。スコープが変わらない間は同じ関数を渡し、
+  // 変わらない参照で描き直しを起こさない（`MarkdownDocument`）。
+  const issueImages = useCallback(
+    (documentPath: string, references: string[]) =>
+      issueImageResources(activeScopeId, documentPath, references),
+    [activeScopeId],
+  );
+
+  // ウィンドウタイトルの「ワークスペース名」は、アクティブタブのルートの表示名にする。loose tabでは
+  // 所在フォルダーである。タブがなければワークスペース名。
+  const activeForTitle = activeTab(tabs);
   const title = windowTitle(
-    workspace?.label ?? null,
-    activeTab(tabs)?.path ?? null,
+    activeForTitle
+      ? (activeForTitle.rootLabel ?? workspace?.label ?? null)
+      : (workspace?.label ?? null),
+    activeForTitle?.path ?? null,
   );
   useEffect(() => {
     setWindowTitle(title).catch((reason: unknown) => setError(String(reason)));
@@ -436,6 +482,17 @@ export default function App() {
     return previewRef.current?.scrollTop ?? 0;
   }
 
+  /**
+   * 通知を受けるスコープか。開いているワークスペースと、loose tabを持つスコープである。
+   * 切り替えの直前に旧Watcherが送った通知や、閉じたloose tabの通知は、ここで捨てる（6.4）。
+   */
+  function isKnownScope(scopeId: string): boolean {
+    return (
+      scopeId === scopeRef.current ||
+      tabsRef.current.tabs.some((tab) => tab.scopeId === scopeId)
+    );
+  }
+
   function findTab(tabId: string): OpenTab | undefined {
     return tabsRef.current.tabs.find((tab) => tab.tabId === tabId);
   }
@@ -471,9 +528,10 @@ export default function App() {
     // 通知（6.4）を、その回復のための読み直しの結果で書き換えないために使う。
     notice: NoticePolicy = "replace",
   ) {
-    const scopeId = scopeRef.current;
     const tab = findTab(tabId);
-    if (scopeId === null || tab === undefined) return;
+    if (tab === undefined) return;
+    // 読むスコープはタブが持つ。ワークスペースのタブも、loose tabも同じ経路である（9.1）。
+    const scopeId = tab.scopeId;
     const started = startLoad(tab, { tabId, scopeId }, path);
     updateTabs(
       updateTab(tabsRef.current, tabId, (current) => ({
@@ -482,7 +540,7 @@ export default function App() {
         pending: { path, generation: started.token.generation },
       })),
     );
-    readFile(path).then(
+    readFile(scopeId, path).then(
       (content) => {
         const current = findTab(tabId);
         if (current === undefined) return;
@@ -576,22 +634,44 @@ export default function App() {
 
   /**
    * ツリーから文書を開く。シングルクリックはプレビュー、`Enter` とダブルクリックは固定。
+   * ワークスペースの文書である。
+   */
+  function openFromTree(path: string, preview: boolean) {
+    const scopeId = scopeRef.current;
+    if (scopeId === null) return;
+    openDocument({ scopeId }, path, preview);
+  }
+
+  /**
+   * ドロップされたファイルを開く指示を受ける（10.4）。開き先（ワークスペースの通常タブか、
+   * loose tab）はRust側が決めて、スコープIDとスコープ相対パスで知らせる。固定タブで開く。
+   * 複数あれば届いた順に開き、最後の1つがアクティブになる。
+   */
+  function handleOpenDocument(event: OpenDocumentEvent) {
+    openDocument(
+      { scopeId: event.scopeId, rootLabel: event.label ?? undefined },
+      event.path,
+      false,
+    );
+  }
+
+  /**
+   * 文書をタブで開く。同じスコープの同じ文書が開いていれば、そのタブへ切り替える（9.1）。
    * `anchor` は、削除されたタブの本文のリンクから開くとき（`openLink`）の見出し。
    */
-  function openFromTree(
+  function openDocument(
+    scope: { scopeId: string; rootLabel?: string },
     path: string,
     preview: boolean,
     anchor?: string | null,
   ) {
-    const scopeId = scopeRef.current;
-    if (scopeId === null) return;
     const before = tabsRef.current.activeTabId;
     saveActiveScroll();
     const result = openTab(tabsRef.current, {
       path,
       preview,
       now: Date.now(),
-      fresh: { tabId: nextTabId(), scopeId },
+      fresh: { tabId: nextTabId(), ...scope },
     });
     updateTabs(result.set);
     setError(null);
@@ -660,9 +740,12 @@ export default function App() {
    * スコープIDが一致しないものは捨てる。
    */
   function handleFileChange(event: FileChangeEvent) {
-    if (event.scopeId !== scopeRef.current) return;
+    if (!isKnownScope(event.scopeId)) return;
     if (event.change.kind === "directoryChanged") {
-      applyTreeRefresh(refreshDirectory(treeRef.current, event.change.path));
+      // ツリーを持つのはワークスペースだけである。loose tabのWatcherは送らない（6.4）。
+      if (event.scopeId === scopeRef.current) {
+        applyTreeRefresh(refreshDirectory(treeRef.current, event.change.path));
+      }
       return;
     }
     const before = activeTab(tabsRef.current);
@@ -694,7 +777,13 @@ export default function App() {
    * アクティブ文書を取り直し、原因を示す（6.4）。あふれでは画像のIDも作り直されている。
    */
   function handleWatcherError(event: WatcherErrorEvent) {
-    if (event.scopeId !== scopeRef.current) return;
+    if (!isKnownScope(event.scopeId)) return;
+    // loose tabのWatcherが送るのは、監視を付け替えられなかったとき（6.4）だけである。
+    // ツリーも画像の再発行も要らず、原因を示す。
+    if (event.scopeId !== scopeRef.current) {
+      setError(event.error.message);
+      return;
+    }
     applyTreeRefresh(refreshAllDirectories(treeRef.current));
     setImageRevision((revision) => revision + 1);
     // 読み直しの失敗（ルートが消えたときの「見つかりません」）で、監視の断念の通知を
@@ -705,7 +794,7 @@ export default function App() {
 
   /** 発行済みの画像が書き換わったときは、表示中の文書の画像を発行し直す（5.4）。 */
   function handleImagesChanged(event: ImagesChangedEvent) {
-    if (event.scopeId !== scopeRef.current) return;
+    if (!isKnownScope(event.scopeId)) return;
     setImageRevision((revision) => revision + 1);
   }
 
@@ -726,10 +815,15 @@ export default function App() {
     }
     // 削除されたタブは終端であり、別の文書へ移れない（6.5）。読み直さず、新しいタブで開く。
     if (active.status === "deleted") {
-      openFromTree(path, false, anchor);
+      openDocument(
+        { scopeId: active.scopeId, rootLabel: active.rootLabel ?? undefined },
+        path,
+        false,
+        anchor,
+      );
       return;
     }
-    const other = findTabByPath(tabsRef.current, path);
+    const other = findTabByPath(tabsRef.current, active.scopeId, path);
     if (other && anchor === null) {
       activate(other.tabId);
       return;
@@ -872,7 +966,9 @@ export default function App() {
     <AboutDialog load={loadLicenses} onClose={() => setAboutOpen(false)} />
   );
 
-  if (!workspace) {
+  // ワークスペースがなくても、loose tab（9.1）があれば文書を表示する。welcome状態は、
+  // ワークスペースもタブもないときだけである（9.2）。
+  if (!workspace && tabs.tabs.length === 0) {
     return (
       <LanguageProvider language={language}>
         <main className="app">
@@ -881,6 +977,7 @@ export default function App() {
           {error && <p role="alert">{error}</p>}
           <RecentFolders folders={recentFolders} onOpen={openRecent} />
         </main>
+        <DragOverlay state={dragState} />
         {aboutDialog}
       </LanguageProvider>
     );
@@ -903,25 +1000,32 @@ export default function App() {
     <LanguageProvider language={language}>
       <SidebarLayout
         savedWidth={ui.sidebarWidth}
-        sidebarVisible={ui.sidebarVisible}
+        // ワークスペースがなければツリーがない。サイドバーは出さない。
+        sidebarVisible={ui.sidebarVisible && workspace !== null}
         onWidthCommit={(sidebarWidth) => saveUi({ sidebarWidth })}
         previewRef={previewRef}
         sidebar={
-          <>
-            <h1>{workspace.label}</h1>
-            <TreeView
-              tree={tree}
-              selectedPath={active?.path ?? null}
-              onToggle={toggleDirectory}
-              onOpen={openFromTree}
-              focusRequest={treeFocus}
-              onFocusRequestSettled={(request) =>
-                setTreeFocus((current) =>
-                  current === request ? null : current,
-                )
-              }
-            />
-          </>
+          workspace && (
+            <>
+              <h1>{workspace.label}</h1>
+              <TreeView
+                tree={tree}
+                // ツリーはワークスペースの文書だけを選択する。loose tabの文書は、同じ相対パスの
+                // ワークスペースの文書とは別物である（6.4）。
+                selectedPath={
+                  active?.scopeId === workspace.scopeId ? active.path : null
+                }
+                onToggle={toggleDirectory}
+                onOpen={openFromTree}
+                focusRequest={treeFocus}
+                onFocusRequestSettled={(request) =>
+                  setTreeFocus((current) =>
+                    current === request ? null : current,
+                  )
+                }
+              />
+            </>
+          )
         }
         previewHeader={
           active && (
@@ -933,9 +1037,10 @@ export default function App() {
                 onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
               />
               <Breadcrumb
-                rootLabel={workspace.label}
+                rootLabel={active.rootLabel ?? workspace?.label ?? ""}
                 path={active.path}
-                onSelect={revealFolder}
+                // loose tabはツリーを持たないため、フォルダーを選んでも見せる先がない（9.1）。
+                onSelect={active.rootLabel === null ? revealFolder : undefined}
               />
             </>
           )
@@ -954,13 +1059,14 @@ export default function App() {
               path={visible.content.path}
               view={visible.view}
               onNavigate={navigate}
-              issueImages={issueImageResources}
+              issueImages={issueImages}
               imageRevision={imageRevision}
               scroller={previewRef}
             />
           </>
         )}
       </SidebarLayout>
+      <DragOverlay state={dragState} />
       {aboutDialog}
     </LanguageProvider>
   );

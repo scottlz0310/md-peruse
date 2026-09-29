@@ -207,8 +207,8 @@ describe("削除されたタブ（6.5）", () => {
   test("同じ文書として探す対象にしない", () => {
     const set = deleted(pinned("a.md", "b.md"), "a.md");
 
-    expect(findTabByPath(set, "a.md")).toBeUndefined();
-    expect(findTabByPath(set, "b.md")?.path).toBe("b.md");
+    expect(findTabByPath(set, "scope", "a.md")).toBeUndefined();
+    expect(findTabByPath(set, "scope", "b.md")?.path).toBe("b.md");
   });
 
   test("固定で開いていたタブが削除されたあとに同じパスを開くと、新しいタブを加える", () => {
@@ -238,5 +238,67 @@ describe("削除されたタブ（6.5）", () => {
       ["a.md", "loaded"],
     ]);
     expect(result.opened).toBeDefined();
+  });
+});
+
+describe("スコープ（6.4、9.1）", () => {
+  /** スコープを指定して固定タブで開く。 */
+  const openIn = (
+    set: TabSet,
+    scopeId: string,
+    path: string,
+    rootLabel?: string,
+  ) =>
+    openTab(set, {
+      path,
+      preview: false,
+      now: 0,
+      fresh: { tabId: `tab-${scopeId}-${path}`, scopeId, rootLabel },
+    });
+
+  test("同じパスでもスコープが違えば別の文書として、別のタブで開く", () => {
+    const first = openIn(EMPTY_TAB_SET, "workspace", "README.md");
+
+    const second = openIn(first.set, "loose", "README.md", "work-notes");
+
+    expect(second.opened).toBeDefined();
+    expect(second.set.tabs.map((tab) => [tab.scopeId, tab.path])).toEqual([
+      ["workspace", "README.md"],
+      ["loose", "README.md"],
+    ]);
+  });
+
+  test("同じスコープの同じ文書は、開き直しても新しいタブを作らない", () => {
+    const first = openIn(EMPTY_TAB_SET, "loose", "a.md", "work-notes");
+    const other = openIn(first.set, "loose", "b.md", "work-notes");
+
+    const again = openIn(other.set, "loose", "a.md", "work-notes");
+
+    expect(again.opened).toBeUndefined();
+    expect(again.set.tabs).toHaveLength(2);
+    expect(again.set.activeTabId).toBe(first.opened?.tabId ?? "");
+  });
+
+  test("探す対象はスコープごとに分かれる", () => {
+    const set = openIn(
+      openIn(EMPTY_TAB_SET, "workspace", "a.md").set,
+      "loose",
+      "b.md",
+      "x",
+    ).set;
+
+    expect(findTabByPath(set, "workspace", "a.md")?.scopeId).toBe("workspace");
+    expect(findTabByPath(set, "loose", "a.md")).toBeUndefined();
+    expect(findTabByPath(set, "workspace", "b.md")).toBeUndefined();
+  });
+
+  test("loose tabは暗黙のルートの表示名を持ち、ワークスペースのタブは持たない", () => {
+    const workspace = openIn(EMPTY_TAB_SET, "workspace", "a.md");
+    const loose = openIn(workspace.set, "loose", "b.md", "work-notes");
+
+    expect(loose.set.tabs.map((tab) => tab.rootLabel)).toEqual([
+      null,
+      "work-notes",
+    ]);
   });
 });

@@ -1,42 +1,89 @@
 //! アプリの実行時状態。
 //!
-//! ワークスペースのルート（6.1）、そのルートを監視するWatcher（6.4）、現在のUI言語（10.5）を
-//! 持つ。画像resource ID（5.4）はワークスペースに属し、ルートと同じ単位で作り直す。
-//! Tauriのmanaged stateとして登録し、commandから参照する。
+//! ワークスペースのルート（6.1）、そのルートを監視するWatcher（6.4）、loose tab（9.1）の
+//! 暗黙のルートとファイル単体のWatcher、現在のUI言語（10.5）を持つ。画像resource ID（5.4）は
+//! スコープに属し、ルートと同じ単位で作り直す。Tauriのmanaged stateとして登録し、commandから
+//! 参照する。
 //!
-//! ワークスペースの切り替えと終了は、Watcher・探索キャッシュ・通常タブ・loose tabの破棄を
-//! 伴う（6.1）。ここが持つのはルートとWatcherであり、探索キャッシュとタブはFrontendが持つ。
+//! スコープは、ワークスペースと、loose tab 1つにつき1つの2種類がある。読込と画像の発行は
+//! スコープのIDで引く。ワークスペースの切り替えと終了は、Watcher・探索キャッシュ・通常タブ・
+//! loose tabの破棄を伴う（6.1）。ここが持つのはルートとWatcherであり、探索キャッシュとタブは
+//! Frontendが持つ。
 
+use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::i18n::{Language, LanguagePreference, os_language_tag, resolve_language};
 use crate::image::resource::ImageResources;
+use crate::ipc::error::ErrorCode;
 use crate::ipc::types::WorkspaceOpenedEvent;
-use crate::path_guard::WorkspaceRoot;
+use crate::path_guard::{WorkspaceRoot, is_valid_name};
 use crate::settings::recent_folder_label;
-use crate::watch_runtime::{ChangeSink, WorkspaceWatcher};
+use crate::watch_runtime::{ChangeSink, LooseWatcher, WorkspaceWatcher, new_scope_id};
 
-/// 開いているワークスペース。
+/// 開いているスコープ。ワークスペースか、loose tabの暗黙のルートである。
 ///
 /// ルートと画像resource IDを1つのロックの内側に置く。発行は「どのルートに対して解決した
 /// パスを、どの対応表へ登録するか」を1回の要求の中で固定する必要があり、別々に取ると
 /// 切り替えの前後をまたいで旧ルートのパスを新しい対応表へ登録しうる。
-struct OpenWorkspace {
+struct OpenScope {
+    /// 監視スコープID。Frontendはこの値でスコープを指す（6.4）。
+    id: String,
     root: WorkspaceRoot,
     /// 監視スレッドとも共有する。世代を進めるのは監視である（5.4）。
     images: Arc<ImageResources>,
 }
 
+/// loose tabのスコープ。所在フォルダーが暗黙のルートになる（9.1）。
+struct LooseScope {
+    scope: OpenScope,
+    /// 監視している文書。暗黙のルートからの相対パスで、ファイル名だけのこともあれば、
+    /// 相対リンクで移った先（`sub/b.md`）のこともある。
+    file: String,
+    /// 監視を付け替えるときに、同じ送出先を使う。
+    sink: Arc<dyn ChangeSink>,
+}
+
+/// 開いているスコープの全体。1つのロックの内側に置く。
+#[derive(Default)]
+struct Scopes {
+    workspace: Option<OpenScope>,
+    loose: Vec<LooseScope>,
+}
+
+impl Scopes {
+    fn get(&self, scope_id: &str) -> Option<&OpenScope> {
+        self.workspace
+            .iter()
+            .chain(self.loose.iter().map(|loose| &loose.scope))
+            .find(|scope| scope.id == scope_id)
+    }
+}
+
+/// loose tabとして開いた文書。Frontendへ渡す表現の元になる。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LooseOpened {
+    pub scope_id: String,
+    /// 暗黙のルートからの相対パス。
+    pub file: String,
+    /// 暗黙のルート（所在フォルダー）の表示名。最近使ったフォルダーと同じく末尾2コンポーネント。
+    pub label: String,
+}
+
 /// commandから参照するアプリの状態。
 pub struct AppState {
-    workspace: Arc<Mutex<Option<OpenWorkspace>>>,
+    scopes: Arc<Mutex<Scopes>>,
     /// 開いているワークスペースを監視するWatcher。
     ///
-    /// ルートと別のロックにするのは、走査と読込が保持する `workspace` のロックを、監視の
+    /// ルートと別のロックにするのは、走査と読込が保持する `scopes` のロックを、監視の
     /// 開始・停止が待たないようにするためである。両者を1つのロックにすると、応答の遅い
     /// ストレージに対する走査の最中はワークスペースを閉じられない。
     watcher: Mutex<Option<WorkspaceWatcher>>,
+    /// loose tabのファイル単体を監視するWatcher。スコープIDで引く。`watcher` と同じ理由で
+    /// `scopes` とは別のロックにする。
+    loose_watchers: Arc<Mutex<Vec<LooseWatcher>>>,
     language: Mutex<Language>,
 }
 
@@ -44,8 +91,9 @@ impl AppState {
     /// 設定値（11.1）からUI言語を決めて状態を作る。
     pub fn new(preference: LanguagePreference) -> Self {
         Self {
-            workspace: Arc::new(Mutex::new(None)),
+            scopes: Arc::new(Mutex::new(Scopes::default())),
             watcher: Mutex::new(None),
+            loose_watchers: Arc::new(Mutex::new(Vec::new())),
             language: Mutex::new(resolve_language(preference, &os_language_tag())),
         }
     }
@@ -69,26 +117,103 @@ impl AppState {
     /// `sink` を引数で受けるのは、送出先が `tauri::AppHandle` に由来し、この型を
     /// 構築する時点では手に入らないためである。後から差し込む形にすると、差し込み忘れが
     /// 「イベントが届かない」という静かな失敗になる。
-    pub fn open_workspace(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> std::io::Result<()> {
+    pub fn open_workspace(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> io::Result<()> {
         let root = WorkspaceRoot::open(path)?;
         // 旧Watcherを停止してから状態を破棄する（6.4）。順序を逆にすると、停止前に届いた
-        // イベントが新しいワークスペースの状態へ適用されうる。
+        // イベントが新しいワークスペースの状態へ適用されうる。loose tabも破棄する（6.1）。
         self.close_workspace();
         // 画像resource IDはワークスペースを開くたびに作り直す。ソルトごと替わるため、
         // 旧ワークスペースのIDは新しい対応表で拒否される（5.4）。
         let images = Arc::new(ImageResources::new());
         let watcher = WorkspaceWatcher::start(root.path(), sink, Arc::clone(&images))
-            .map_err(std::io::Error::other)?;
+            .map_err(io::Error::other)?;
+        let id = watcher.scope_id().to_owned();
         *self.lock_watcher() = Some(watcher);
-        *self.lock_workspace() = Some(OpenWorkspace { root, images });
+        self.lock_scopes().workspace = Some(OpenScope { id, root, images });
         Ok(())
     }
 
-    /// ワークスペースを閉じる。welcome状態へ戻す（6.1）。
+    /// ワークスペースを閉じる。welcome状態へ戻す（6.1）。loose tabも破棄する。
     pub fn close_workspace(&self) {
         // Watcherを先に落とす。`Drop` が停止を指示し、監視スレッドの終了まで待つ（6.4）。
         *self.lock_watcher() = None;
-        *self.lock_workspace() = None;
+        self.lock_loose_watchers().clear();
+        *self.lock_scopes() = Scopes::default();
+    }
+
+    /// ワークスペース外のMarkdownファイルを、loose tabのスコープとして開く（9.1）。
+    ///
+    /// 所在フォルダーを暗黙のルートとし、そのファイル1件を監視する。同じ暗黙のルートで同じ
+    /// 文書を監視しているスコープがあれば、それを返す。同一文書を重複して開かないためである。
+    ///
+    /// 監視の開始に失敗したときは開かない。監視のないタブは、外部の更新に追従しないまま
+    /// 開けているように見える（ワークスペースと同じ理由）。
+    pub fn open_loose(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> io::Result<LooseOpened> {
+        let file_path = fs::canonicalize(path)?;
+        if !file_path.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "loose tabにはファイルを指定する",
+            ));
+        }
+        let folder = file_path
+            .parent()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "所在フォルダーがない"))?;
+        let name = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| is_valid_name(name))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "扱えないファイル名"))?
+            .to_owned();
+        let label = recent_folder_label(&folder.to_string_lossy());
+
+        if let Some(found) = self.lock_scopes().loose.iter().find(|loose| {
+            loose.scope.root.path() == folder && loose.file.eq_ignore_ascii_case(&name)
+        }) {
+            return Ok(LooseOpened {
+                scope_id: found.scope.id.clone(),
+                file: found.file.clone(),
+                label,
+            });
+        }
+
+        let root = WorkspaceRoot::open(folder)?;
+        let id = new_scope_id();
+        let watcher = LooseWatcher::start(root.path(), &name, id.clone(), Arc::clone(&sink))
+            .map_err(io::Error::other)?;
+        self.lock_loose_watchers().push(watcher);
+        self.lock_scopes().loose.push(LooseScope {
+            scope: OpenScope {
+                id: id.clone(),
+                root,
+                images: Arc::new(ImageResources::new()),
+            },
+            file: name.clone(),
+            sink,
+        });
+        Ok(LooseOpened {
+            scope_id: id,
+            file: name,
+            label,
+        })
+    }
+
+    /// loose tabのスコープを閉じ、監視を止める。開いていないスコープなら何もしない。
+    ///
+    /// タブを閉じたときと、上限で退避されたときに、Frontendが求める（6.4）。
+    pub fn close_loose(&self, scope_id: &str) {
+        self.workspace().close_loose(scope_id);
+    }
+
+    /// 絶対パスが開いているワークスペースの中にあれば、そのスコープIDとワークスペース相対パスを
+    /// 返す。ワークスペースを開いていないとき、境界外のとき、実在しないときは `None`。
+    ///
+    /// ドロップされたファイルを、通常タブとloose tabのどちらで開くかの判定に使う（10.4）。
+    pub fn workspace_document(&self, absolute: &Path) -> Option<(String, String)> {
+        let scopes = self.lock_scopes();
+        let workspace = scopes.workspace.as_ref()?;
+        let relative = workspace.root.relativize(absolute)?;
+        Some((workspace.id.clone(), relative))
     }
 
     /// 開いているワークスペースの監視スコープID。閉じていれば `None` を返す。
@@ -106,7 +231,8 @@ impl AppState {
     /// 最近使ったフォルダーと最後のワークスペースへ保存するのはこの値で、Frontendへは渡さない
     /// （7.1）。閉じていれば `None` を返す。
     pub fn workspace_path(&self) -> Option<PathBuf> {
-        self.lock_workspace()
+        self.lock_scopes()
+            .workspace
             .as_ref()
             .map(|open| open.root.path().to_owned())
     }
@@ -124,23 +250,32 @@ impl AppState {
         })
     }
 
-    /// ワークスペースのハンドルを得る。
+    /// スコープのハンドルを得る。
     ///
     /// 走査と読込はブロッキングスレッドで実行するため（design-decisions.md 5.3）、
     /// `State` の借用を越えて持ち出せる形が要る。複製するのはハンドルだけであり、
     /// `WorkspaceRoot` そのものはロックの内側から出さない。
     pub fn workspace(&self) -> WorkspaceHandle {
-        WorkspaceHandle(Arc::clone(&self.workspace))
+        WorkspaceHandle {
+            scopes: Arc::clone(&self.scopes),
+            loose_watchers: Arc::clone(&self.loose_watchers),
+        }
     }
 
-    fn lock_workspace(&self) -> std::sync::MutexGuard<'_, Option<OpenWorkspace>> {
+    fn lock_scopes(&self) -> std::sync::MutexGuard<'_, Scopes> {
         // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
         // 毒される経路自体が生じないため、回復は試みない（12章）。
-        self.workspace.lock().expect("ワークスペースのロックに失敗")
+        self.scopes.lock().expect("スコープのロックに失敗")
     }
 
     fn lock_watcher(&self) -> std::sync::MutexGuard<'_, Option<WorkspaceWatcher>> {
         self.watcher.lock().expect("Watcherのロックに失敗")
+    }
+
+    fn lock_loose_watchers(&self) -> std::sync::MutexGuard<'_, Vec<LooseWatcher>> {
+        self.loose_watchers
+            .lock()
+            .expect("loose tabのWatcherのロックに失敗")
     }
 
     fn lock_language(&self) -> std::sync::MutexGuard<'_, Language> {
@@ -148,12 +283,18 @@ impl AppState {
     }
 }
 
-/// ワークスペースのルートへ、`AppState` の借用を越えて到達するためのハンドル。
+/// スコープのルートへ、`AppState` の借用を越えて到達するためのハンドル。
 ///
 /// `Send + 'static` であることがこの型の要件である。走査と読込はブロッキングスレッドへ
 /// 渡すため（design-decisions.md 5.3）、`State<'_, AppState>` の借用のままでは持ち出せない。
+///
+/// ワークスペースだけを指す `with` と `with_images` に加え、スコープIDで引く `with_scope` と
+/// `with_scope_images`、画像resource IDから全スコープを探す `find_image` を持つ。
 #[derive(Clone)]
-pub struct WorkspaceHandle(Arc<Mutex<Option<OpenWorkspace>>>);
+pub struct WorkspaceHandle {
+    scopes: Arc<Mutex<Scopes>>,
+    loose_watchers: Arc<Mutex<Vec<LooseWatcher>>>,
+}
 
 impl WorkspaceHandle {
     /// 開いているワークスペースのルートに対して処理を行う。開いていなければ `None` を返す。
@@ -170,13 +311,121 @@ impl WorkspaceHandle {
         &self,
         f: impl FnOnce(&WorkspaceRoot, &ImageResources) -> T,
     ) -> Option<T> {
-        // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
-        // 毒される経路自体が生じないため、回復は試みない（12章）。
-        self.0
-            .lock()
-            .expect("ワークスペースのロックに失敗")
+        self.lock()
+            .workspace
             .as_ref()
             .map(|workspace| f(&workspace.root, &workspace.images))
+    }
+
+    /// スコープIDで引いたスコープ（ワークスペースかloose tab）のルートに対して処理を行う。
+    /// 開いていないスコープなら `None` を返す。
+    ///
+    /// 要求へスコープIDを載せるのは、切り替えの前に発行した要求が、切り替え後の別のスコープの
+    /// 同じ相対パスへ当たらないようにするためである（6.4）。
+    pub fn with_scope<T>(&self, scope_id: &str, f: impl FnOnce(&WorkspaceRoot) -> T) -> Option<T> {
+        self.with_scope_images(scope_id, |root, _| f(root))
+    }
+
+    /// `with_scope` に加えて、そのスコープの画像resource IDを渡す。
+    pub fn with_scope_images<T>(
+        &self,
+        scope_id: &str,
+        f: impl FnOnce(&WorkspaceRoot, &ImageResources) -> T,
+    ) -> Option<T> {
+        self.lock()
+            .get(scope_id)
+            .map(|scope| f(&scope.root, &scope.images))
+    }
+
+    /// 画像resource IDが、いずれかのスコープの対応表にあれば、そのスコープのルートと、IDが
+    /// 指すスコープ相対パスに対して処理を行う。どの対応表にも無ければ `None` を返す。
+    ///
+    /// IDはスコープごとのソルトから作るため、別のスコープのIDは対応表に存在しない（5.4）。
+    /// 配信の要求はスコープIDを持たないため、全スコープから探す。
+    pub fn find_image<T>(
+        &self,
+        resource_id: &str,
+        f: impl FnOnce(&WorkspaceRoot, String) -> T,
+    ) -> Option<T> {
+        let scopes = self.lock();
+        let (scope, relative) = scopes
+            .workspace
+            .iter()
+            .chain(scopes.loose.iter().map(|loose| &loose.scope))
+            .find_map(|scope| Some((scope, scope.images.lookup(resource_id)?)))?;
+        Some(f(&scope.root, relative))
+    }
+
+    /// loose tabのスコープを閉じ、監視を止める。開いていないスコープなら何もしない。
+    ///
+    /// `AppState::close_loose` の実体。commandはブロッキングスレッドで閉じるため、
+    /// `AppState` の借用を越えて持ち出せるハンドルから呼べるようにしている。
+    pub fn close_loose(&self, scope_id: &str) {
+        // Watcherを先に落とす。停止は監視スレッドの終了まで待つ。
+        self.loose_watchers
+            .lock()
+            .expect("loose tabのWatcherのロックに失敗")
+            .retain(|watcher| watcher.scope_id() != scope_id);
+        self.lock().loose.retain(|loose| loose.scope.id != scope_id);
+    }
+
+    /// loose tabの監視を、いま読んだ文書へ付け替える。
+    ///
+    /// loose tabの監視は、開いているファイル1件に限る（6.4）。相対リンクで同じ暗黙のルートの
+    /// 別の文書へ移ると、タブの文書が替わるため、読んだ文書に合わせる。同じ文書の読み直しでは
+    /// 何もしない。ワークスペースのスコープと、開いていないスコープでも何もしない。
+    ///
+    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。読込の
+    /// 応答自体は成功しており、失敗を応答へ載せると開けた文書を開けなかったことにするためである。
+    pub fn retarget_loose(&self, scope_id: &str, file: &str) {
+        let (root, sink) = {
+            let scopes = self.lock();
+            match scopes.loose.iter().find(|loose| loose.scope.id == scope_id) {
+                Some(loose) if loose.file != file => {
+                    (loose.scope.root.path().to_owned(), Arc::clone(&loose.sink))
+                }
+                _ => return,
+            }
+        };
+        let mut watchers = self
+            .loose_watchers
+            .lock()
+            .expect("loose tabのWatcherのロックに失敗");
+        // 旧Watcherを止める。停止は監視スレッドの終了まで待つ。
+        watchers.retain(|watcher| watcher.scope_id() != scope_id);
+        // 止めている間にスコープが閉じられていたら、新しいWatcherを残さない。
+        if !self
+            .lock()
+            .loose
+            .iter()
+            .any(|loose| loose.scope.id == scope_id)
+        {
+            return;
+        }
+        match LooseWatcher::start(&root, file, scope_id.to_owned(), Arc::clone(&sink)) {
+            Ok(watcher) => {
+                watchers.push(watcher);
+                drop(watchers);
+                if let Some(loose) = self
+                    .lock()
+                    .loose
+                    .iter_mut()
+                    .find(|loose| loose.scope.id == scope_id)
+                {
+                    loose.file = file.to_owned();
+                }
+            }
+            Err(_) => {
+                drop(watchers);
+                sink.watcher_error(scope_id, ErrorCode::WatcherStopped);
+            }
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Scopes> {
+        // ロックが毒された時点で状態の一貫性は失われている。`panic = "abort"` の下では
+        // 毒される経路自体が生じないため、回復は試みない（12章）。
+        self.scopes.lock().expect("スコープのロックに失敗")
     }
 }
 
@@ -185,7 +434,6 @@ mod tests {
     use super::*;
     use crate::ipc::error::ErrorCode;
     use crate::ipc::types::FileChangeEvent;
-    use std::fs;
 
     /// 送出を捨てる `ChangeSink`。ここで確かめるのはライフサイクルであり、送出の内容は
     /// `watch_runtime` のテストで固定する。
@@ -336,5 +584,302 @@ mod tests {
         let state = AppState::new(LanguagePreference::Ja);
         state.set_language(Language::En);
         assert_eq!(state.language(), Language::En);
+    }
+
+    /// loose tabのファイルを書いて、そのパスを返す。
+    fn write_document(folder: &Path, name: &str) -> PathBuf {
+        fs::create_dir_all(folder).unwrap();
+        let path = folder.join(name);
+        fs::write(&path, b"# doc\n").unwrap();
+        path
+    }
+
+    /// ワークスペースを開いた状態と、ワークスペース外のMarkdownファイル。
+    fn with_workspace_and_outside(name: &str) -> (TempDir, AppState, PathBuf) {
+        let temp = TempDir::new(name);
+        let workspace = temp.path().join("ws");
+        fs::create_dir_all(&workspace).unwrap();
+        let outside = write_document(&temp.path().join("outside"), "note.md");
+        let state = AppState::new(LanguagePreference::System);
+        state.open_workspace(&workspace, sink()).unwrap();
+        (temp, state, outside)
+    }
+
+    /// loose tabは所在フォルダーを暗黙のルートとする。ワークスペースとは別のスコープで、
+    /// スコープIDで読み分けられる（9.1）。
+    #[test]
+    fn a_loose_document_gets_its_own_scope_rooted_at_its_folder() {
+        let (temp, state, outside) = with_workspace_and_outside("loose");
+        let workspace_scope = state.scope_id().unwrap();
+
+        let opened = state.open_loose(&outside, sink()).unwrap();
+
+        assert_ne!(opened.scope_id, workspace_scope);
+        assert_eq!(opened.file, "note.md");
+        // 表示名は所在フォルダーの末尾2コンポーネントで、絶対パスの全体は含まない（7.1）。
+        assert!(opened.label.ends_with("outside"), "{}", opened.label);
+        assert!(!opened.label.contains("Users"), "{}", opened.label);
+        let handle = state.workspace();
+        assert_eq!(
+            handle.with_scope(&opened.scope_id, |root| root.path().to_owned()),
+            Some(fs::canonicalize(temp.path().join("outside")).unwrap())
+        );
+        assert_eq!(
+            handle.with_scope(&workspace_scope, |root| root.path().to_owned()),
+            Some(fs::canonicalize(temp.path().join("ws")).unwrap())
+        );
+        // 開いていないスコープのIDでは引けない。
+        assert_eq!(handle.with_scope("unknown", |_| ()), None);
+    }
+
+    /// 同じ暗黙のルートの同じ文書は、開き直しても同じスコープを返す。同一文書を重複して
+    /// 開かないためである（9.1）。別の文書は別のスコープになる。
+    #[test]
+    fn the_same_document_reuses_its_scope() {
+        let (_temp, state, outside) = with_workspace_and_outside("dedupe");
+        let sibling = write_document(outside.parent().unwrap(), "other.md");
+
+        let first = state.open_loose(&outside, sink()).unwrap();
+        let again = state.open_loose(&outside, sink()).unwrap();
+        let other = state.open_loose(&sibling, sink()).unwrap();
+
+        assert_eq!(again.scope_id, first.scope_id);
+        assert_ne!(other.scope_id, first.scope_id);
+        assert_eq!(state.lock_loose_watchers().len(), 2);
+    }
+
+    #[test]
+    fn folders_and_missing_files_are_not_opened_as_documents() {
+        let (temp, state, _) = with_workspace_and_outside("invalid");
+
+        assert!(
+            state
+                .open_loose(&temp.path().join("outside"), sink())
+                .is_err()
+        );
+        assert!(
+            state
+                .open_loose(&temp.path().join("outside").join("missing.md"), sink())
+                .is_err()
+        );
+        assert_eq!(state.lock_loose_watchers().len(), 0);
+    }
+
+    /// タブを閉じたときにスコープと監視を破棄する。開いていないスコープを閉じても何も起きない。
+    #[test]
+    fn closing_a_loose_scope_releases_it() {
+        let (_temp, state, outside) = with_workspace_and_outside("close-loose");
+        let opened = state.open_loose(&outside, sink()).unwrap();
+
+        state.close_loose("unknown");
+        assert!(
+            state
+                .workspace()
+                .with_scope(&opened.scope_id, |_| ())
+                .is_some()
+        );
+
+        state.close_loose(&opened.scope_id);
+
+        assert_eq!(state.workspace().with_scope(&opened.scope_id, |_| ()), None);
+        assert_eq!(state.lock_loose_watchers().len(), 0);
+        // ワークスペースには触れない。
+        assert!(state.scope_id().is_some());
+    }
+
+    /// ワークスペースを切り替える、または閉じると、loose tabも破棄する（6.1）。
+    #[test]
+    fn switching_or_closing_the_workspace_discards_loose_scopes() {
+        let (temp, state, outside) = with_workspace_and_outside("discard");
+        let first = state.open_loose(&outside, sink()).unwrap();
+        state
+            .open_workspace(&temp.path().join("outside"), sink())
+            .unwrap();
+        assert_eq!(state.workspace().with_scope(&first.scope_id, |_| ()), None);
+        assert_eq!(state.lock_loose_watchers().len(), 0);
+
+        let second = state.open_loose(&outside, sink()).unwrap();
+        state.close_workspace();
+        assert_eq!(state.workspace().with_scope(&second.scope_id, |_| ()), None);
+        assert_eq!(state.lock_loose_watchers().len(), 0);
+    }
+
+    /// ドロップされたファイルがワークスペースの中にあるかの判定。中ならワークスペース相対パスを
+    /// 返し、通常タブで開く。外、ワークスペースが無い、実在しないときは返さない（10.4）。
+    #[test]
+    fn a_document_inside_the_workspace_is_recognized() {
+        let temp = TempDir::new("inside");
+        let workspace = temp.path().join("ws");
+        let inside = write_document(&workspace.join("docs"), "a.md");
+        let outside = write_document(&temp.path().join("elsewhere"), "b.md");
+        let state = AppState::new(LanguagePreference::System);
+        assert_eq!(state.workspace_document(&inside), None);
+
+        state.open_workspace(&workspace, sink()).unwrap();
+        let scope = state.scope_id().unwrap();
+
+        assert_eq!(
+            state.workspace_document(&inside),
+            Some((scope, "docs/a.md".to_owned()))
+        );
+        assert_eq!(state.workspace_document(&outside), None);
+        assert_eq!(
+            state.workspace_document(&workspace.join("missing.md")),
+            None
+        );
+    }
+
+    /// 画像resource IDは、それを発行したスコープのルートで解決する。別のスコープのIDや未知のIDは
+    /// どの対応表にも無い（5.4）。
+    #[test]
+    fn image_ids_resolve_within_the_scope_that_issued_them() {
+        let (temp, state, outside) = with_workspace_and_outside("image-scopes");
+        let opened = state.open_loose(&outside, sink()).unwrap();
+        let handle = state.workspace();
+        let loose_id = handle
+            .with_scope_images(&opened.scope_id, |_, images| images.issue("a.png"))
+            .unwrap();
+        let workspace_id = handle
+            .with_images(|_, images| images.issue("a.png"))
+            .unwrap();
+
+        assert_ne!(loose_id, workspace_id);
+        assert_eq!(
+            handle.find_image(&loose_id, |root, relative| (
+                root.path().to_owned(),
+                relative
+            )),
+            Some((
+                fs::canonicalize(temp.path().join("outside")).unwrap(),
+                "a.png".to_owned()
+            ))
+        );
+        assert_eq!(
+            handle.find_image(&workspace_id, |root, relative| (
+                root.path().to_owned(),
+                relative
+            )),
+            Some((
+                fs::canonicalize(temp.path().join("ws")).unwrap(),
+                "a.png".to_owned()
+            ))
+        );
+        assert_eq!(handle.find_image("unknown", |_, _| ()), None);
+
+        // スコープを閉じると、そのスコープのIDは引けなくなる。
+        state.close_loose(&opened.scope_id);
+        assert_eq!(handle.find_image(&loose_id, |_, _| ()), None);
+    }
+
+    /// 監視を付け替えても、スコープと画像resource IDは保たれる。ワークスペースと
+    /// 開いていないスコープに対しては何もしない。
+    #[test]
+    fn retargeting_keeps_the_scope() {
+        let (_temp, state, outside) = with_workspace_and_outside("retarget");
+        let opened = state.open_loose(&outside, sink()).unwrap();
+        let handle = state.workspace();
+        let id = handle
+            .with_scope_images(&opened.scope_id, |_, images| images.issue("a.png"))
+            .unwrap();
+        let workspace_scope = state.scope_id().unwrap();
+        write_document(&outside.parent().unwrap().join("sub"), "b.md");
+
+        // 同じ文書、別の文書、ワークスペース、開いていないスコープ。
+        handle.retarget_loose(&opened.scope_id, "note.md");
+        handle.retarget_loose(&opened.scope_id, "sub/b.md");
+        handle.retarget_loose(&workspace_scope, "sub/b.md");
+        handle.retarget_loose("unknown", "sub/b.md");
+
+        assert_eq!(state.lock_loose_watchers().len(), 1);
+        assert_eq!(
+            state.lock_loose_watchers()[0].scope_id(),
+            opened.scope_id.as_str()
+        );
+        assert!(handle.find_image(&id, |_, _| ()).is_some());
+    }
+
+    /// 付け替えると、以後は付け替え先の文書の変更を、同じスコープIDで送る。元の文書の変更は
+    /// 送らない（監視は開いているファイル1件に限る。6.4）。
+    #[test]
+    fn retargeting_moves_the_watch_to_the_new_document() {
+        struct RecordingSink(Mutex<Vec<(String, String)>>);
+        impl ChangeSink for RecordingSink {
+            fn file_change(&self, event: FileChangeEvent) {
+                if let crate::ipc::types::FileChange::FileModified { path } = event.change {
+                    self.0.lock().unwrap().push((event.scope_id, path));
+                }
+            }
+            fn watcher_error(&self, _scope_id: &str, _code: ErrorCode) {}
+            fn images_changed(&self, _scope_id: &str) {}
+        }
+        let (_temp, state, outside) = with_workspace_and_outside("retarget-events");
+        let folder = outside.parent().unwrap().to_owned();
+        let sub = write_document(&folder.join("sub"), "b.md");
+        let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+        let opened = state
+            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .unwrap();
+        let wait_for = |expected: (String, String)| {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            while std::time::Instant::now() < deadline {
+                if recording.0.lock().unwrap().contains(&expected) {
+                    return true;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            false
+        };
+
+        state
+            .workspace()
+            .retarget_loose(&opened.scope_id, "sub/b.md");
+        fs::write(&outside, b"# rewritten original\n").unwrap();
+        fs::write(&sub, b"# rewritten target\n").unwrap();
+
+        assert!(
+            wait_for((opened.scope_id.clone(), "sub/b.md".to_owned())),
+            "移った先の変更が届かない"
+        );
+        // 元の文書の変更は、監視を外したため届かない。
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        assert!(
+            recording
+                .0
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|(_, path)| path == "sub/b.md"),
+            "{:?}",
+            recording.0.lock().unwrap()
+        );
+    }
+
+    /// 付け替えに失敗したときは、そのスコープの送出先へ監視が止まったことを知らせる。
+    /// 読込の応答は成功しているため、失敗を応答へ載せない。
+    #[test]
+    fn a_failed_retarget_reports_that_watching_stopped() {
+        struct RecordingSink(Mutex<Vec<(String, ErrorCode)>>);
+        impl ChangeSink for RecordingSink {
+            fn file_change(&self, _event: FileChangeEvent) {}
+            fn watcher_error(&self, scope_id: &str, code: ErrorCode) {
+                self.0.lock().unwrap().push((scope_id.to_owned(), code));
+            }
+            fn images_changed(&self, _scope_id: &str) {}
+        }
+        let (_temp, state, outside) = with_workspace_and_outside("retarget-failure");
+        let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
+        let opened = state
+            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .unwrap();
+
+        // 下位のフォルダーが無いと、そのフォルダーを監視できない。
+        state
+            .workspace()
+            .retarget_loose(&opened.scope_id, "missing/b.md");
+
+        assert_eq!(
+            *recording.0.lock().unwrap(),
+            vec![(opened.scope_id, ErrorCode::WatcherStopped)]
+        );
     }
 }

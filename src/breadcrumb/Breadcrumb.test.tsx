@@ -63,6 +63,20 @@ describe("Breadcrumb", () => {
   });
 });
 
+describe("Breadcrumb: ツリーを持たないloose tab（9.1）", () => {
+  test("onSelect を渡さないと、フォルダーは選べない文字として出す", () => {
+    render(<Breadcrumb rootLabel="work\notes" path="sub/a.md" />);
+
+    const nav = screen.getByRole("navigation", { name: "パンくずリスト" });
+    expect(screen.queryAllByRole("button")).toHaveLength(0);
+    expect(nav.textContent).toContain("work\\notes");
+    expect(nav.textContent).toContain("sub");
+    expect(nav.querySelector('[aria-current="page"]')?.textContent).toBe(
+      "a.md",
+    );
+  });
+});
+
 describe("Breadcrumb: 幅に収まらないときは末尾へスクロールする（10.1.1）", () => {
   const SCROLL_WIDTH = 1234;
   let written: number[];

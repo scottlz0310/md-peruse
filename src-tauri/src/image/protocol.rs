@@ -89,14 +89,11 @@ pub fn serve(workspace: &WorkspaceHandle, method: &Method, path: &str) -> Respon
         return response;
     }
     let resource_id = path.strip_prefix('/').unwrap_or(path);
-    let opened = workspace
-        .with_images(|root, images| {
-            let relative = images.lookup(resource_id)?;
-            Some(root.open_file(&relative))
-        })
-        .flatten();
-    // 対応表に無いID（旧ワークスペースのID、世代の古いID、推測したID）と、ワークスペースを
-    // 開いていない場合。どちらも「そのリソースは無い」ことと区別しない。
+    // 配信の要求はスコープIDを持たないため、ワークスペースとloose tabの全スコープの対応表から
+    // 探す。IDはスコープごとのソルトから作るため、別のスコープのIDには当たらない（5.4）。
+    let opened = workspace.find_image(resource_id, |root, relative| root.open_file(&relative));
+    // 対応表に無いID（旧ワークスペースのID、閉じたloose tabのID、世代の古いID、推測したID）と、
+    // スコープを開いていない場合。どちらも「そのリソースは無い」ことと区別しない。
     let Some(opened) = opened else {
         return empty(StatusCode::NOT_FOUND);
     };
