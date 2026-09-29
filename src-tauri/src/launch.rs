@@ -15,6 +15,11 @@
 //! それまでに届いたファイルは、届いた順に保留する。保留は最初のプロセスの起動の直後から
 //! 効かせる必要がある。プラグインは起動処理より先に2つ目のプロセスの引数を受け取りうるため、
 //! この状態は `tauri::Builder` の段階で登録し、他の状態に触れずに保留できるようにする。
+//!
+//! 保留から取り出してから開き終えるまでは、受け取りごとに1つずつ行う。複数のスレッド
+//! （復元、Frontendの準備、2つ目のプロセス）が同時に開くと、先に取り出したファイルの
+//! ストレージの応答が遅いとき、後のファイルが先に開き、最後にアクティブになるタブが
+//! 届いた順と食い違う。
 
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
@@ -47,10 +52,14 @@ impl Pending {
 /// 関連付け起動で渡されたファイルの保留。
 ///
 /// 開いてよくなったファイルは、この型の各操作の戻り値として渡す。開くこと自体はここでは
-/// 行わない。開くのはファイルシステムとFrontendへの通知を伴うため、呼び出し側が
+/// 行わない。開くのはファイルシステムとFrontendへの通知を伴うため、`deliver` が、保留の
 /// ロックの外で行う。
 #[derive(Default)]
-pub struct LaunchQueue(Mutex<Pending>);
+pub struct LaunchQueue {
+    pending: Mutex<Pending>,
+    /// 取り出してから開き終えるまでを、受け取りごとに1つずつ行うための錠。
+    order: Mutex<()>,
+}
 
 impl LaunchQueue {
     pub fn new() -> Self {
@@ -59,7 +68,21 @@ impl LaunchQueue {
 
     fn lock(&self) -> MutexGuard<'_, Pending> {
         // `panic = "abort"` の下では毒される経路が生じない（12章）。
-        self.0.lock().expect("起動ファイルの保留のロックに失敗")
+        self.pending
+            .lock()
+            .expect("起動ファイルの保留のロックに失敗")
+    }
+
+    /// 保留から取り出す処理と、取り出したファイルを開く処理を、届いた順に1つずつ行う。
+    ///
+    /// 取り出してから開き終えるまでを、別の受け取りと重ねない。重ねると、先に取り出した
+    /// ファイルのストレージの応答が遅いとき、後から取り出したファイルが先に開き、最後に
+    /// アクティブになるタブが届いた順と食い違う（9.2）。錠は取り出しの前に取る。取り出して
+    /// から取ると、その間に別の受け取りが追い越せる。
+    fn deliver(&self, take: impl FnOnce(&Self) -> Vec<String>, open: impl FnOnce(&[String])) {
+        let _in_order = self.order.lock().expect("起動ファイルの順序のロックに失敗");
+        let openable = take(self);
+        open(&openable);
     }
 
     /// ファイルを保留の末尾へ加え、いま開いてよいものを返す。
@@ -127,8 +150,8 @@ pub fn second_instance<R: Runtime>(app: &AppHandle<R>, argv: Vec<String>, cwd: S
 ///
 /// 復元と同じスレッドから、復元の直後に呼ぶ。
 pub fn restored<R: Runtime>(app: &AppHandle<R>) {
-    let openable = app.state::<LaunchQueue>().mark_restored();
-    open(app, &openable);
+    app.state::<LaunchQueue>()
+        .deliver(LaunchQueue::mark_restored, |files| open(app, files));
 }
 
 /// Frontendの準備が済んだことを知らせる。
@@ -136,13 +159,14 @@ pub fn restored<R: Runtime>(app: &AppHandle<R>) {
 /// Frontendが `open-document` を購読し、開いているワークスペースを問い合わせ終えたあとに
 /// 呼ぶ（`frontend_ready_command`）。
 pub fn frontend_ready<R: Runtime>(app: &AppHandle<R>) {
-    let openable = app.state::<LaunchQueue>().mark_frontend_ready();
-    open(app, &openable);
+    app.state::<LaunchQueue>()
+        .deliver(LaunchQueue::mark_frontend_ready, |files| open(app, files));
 }
 
 fn receive<R: Runtime>(app: &AppHandle<R>, argv: &[String], base: &Path) {
-    let openable = app.state::<LaunchQueue>().push(requested_files(argv, base));
-    open(app, &openable);
+    let files = requested_files(argv, base);
+    app.state::<LaunchQueue>()
+        .deliver(|queue| queue.push(files), |files| open(app, files));
 }
 
 /// ファイルを開く。開けなかったものの理由は、1つのダイアログへまとめて示す。
@@ -297,6 +321,60 @@ mod tests {
                 .collect();
             assert_eq!(returned, expected, "{name}");
         }
+    }
+
+    /// 先に取り出したファイルを開く処理が遅くても、そのあとに届いた2つ目の起動が追い越さない。
+    /// 取り出してから開き終えるまでを直列にしないと、後のファイルが先に開き、最後にアクティブに
+    /// なるタブが届いた順と食い違う（9.2）。
+    #[test]
+    fn a_slow_opening_is_not_overtaken_by_a_later_launch() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let queue = Arc::new(LaunchQueue::new());
+        // 起動引数のファイルを保留し、復元を済ませておく。Frontendの準備が済むと、取り出せる。
+        assert!(queue.push(strings(&["a"])).is_empty());
+        assert!(queue.mark_restored().is_empty());
+        let opened = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+
+        let first = {
+            let (queue, opened) = (Arc::clone(&queue), Arc::clone(&opened));
+            thread::spawn(move || {
+                queue.deliver(LaunchQueue::mark_frontend_ready, |files| {
+                    started_tx.send(()).unwrap();
+                    // ストレージの応答が遅い。
+                    release_rx.recv().unwrap();
+                    opened.lock().unwrap().push(files.to_vec());
+                });
+            })
+        };
+        started_rx.recv().unwrap();
+
+        // 先のファイルを開いている間に、2つ目のプロセスの起動が届く。
+        let second = {
+            let (queue, opened) = (Arc::clone(&queue), Arc::clone(&opened));
+            thread::spawn(move || {
+                queue.deliver(
+                    |queue| queue.push(strings(&["b"])),
+                    |files| opened.lock().unwrap().push(files.to_vec()),
+                );
+            })
+        };
+        thread::sleep(Duration::from_millis(100));
+        assert!(
+            opened.lock().unwrap().is_empty(),
+            "先のファイルより先に開いた"
+        );
+
+        release_tx.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        assert_eq!(
+            *opened.lock().unwrap(),
+            vec![strings(&["a"]), strings(&["b"])]
+        );
     }
 
     struct TempDir(PathBuf);
