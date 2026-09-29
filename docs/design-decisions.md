@@ -1038,7 +1038,7 @@ highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として�
 - `suppressErrorRendering` を有効にする。既定では構文エラーの図をMermaidが文書の末尾へ描画した（実測）。理由は自前の要素で示す。
 - 生成SVGのsanitizeはDOMPurifyのSVGプロファイル（`svg`、`svgFilters`）に、`foreignObject` の禁止と `href` / `xlink:href` の禁止を加える。テーマの `style` 要素は残す（5.5の `style-src-elem`）。生成された `style` 要素のセレクタはすべて図のIDで始まり、図の外へ効くものはなかった（実測）。
 - `style` 属性は、SVGの表示属性として正当なプロパティで、値が色・長さ・数値の列か色の関数表記（`rgb()`、`hsl()` など）のものだけを属性へ移す（5.5）。`url(` を含む値は移さない。svg要素の `max-width`（px）は `width` 属性へ移し、表示幅への収まりはCSSの `max-width: 100%` で行う。
-- テーマは `prefers-color-scheme` から `default` / `dark` を選び、`forced-colors` が有効なときは `neutral` にする。どちらのメディアクエリが変わっても描画し直す。
+- テーマは `prefers-color-scheme` から `default` / `dark` を選び、`forced-colors` が有効なときは `neutral` にする。どちらのメディアクエリが変わっても描画し直す。`neutral` は明るい背景向けのため、`forced-colors` の図は白い下地に載せる（10.6）。
 - `prefers-reduced-motion: reduce` のときは、エッジのアニメーションを `App.css` の規則（`.markdown-body .mermaid-diagram svg *` の `animation: none !important`）で止める。図の定義の `animate: true` や `animation: fast` / `slow` は、Mermaidが図の `style` 要素へ `animation: dash ... infinite`（`@keyframes dash`）として出力する。この `style` 要素はsanitizeもCSP（5.5の `style-src-elem`）も通すため、何もしなければOSの設定によらず動き続ける（Chromiumで実測。WebView2でも同じ）。Mermaid 12.0.0のCSSが `animation` を使うのはこの `slow` と `fast` の2つだけで、SMILのアニメーション要素は出さない。止めても `stroke-dasharray` は残るので、動く線であることは破線の模様で分かる。メディアクエリは実行中に追従するため、`forced-colors` と違って再描画は要らない。
 - 描画のタイムアウトは打ち切って理由を示すが、Mermaidの描画そのものは止められない。打ち切った描画が終わるまで同時描画の枠は空けない。空けると、止まらない描画が積み重なる。
 - 描画を待つ間と、描画できなかった図、1文書の上限を超えた図は、定義をコードブロックとして残し、描画できなかった図と上限を超えた図はブロックの直後に理由を示す（12章）。
@@ -1058,7 +1058,7 @@ highlight.js 11 は `tsx`、`jsx`、`toml`、`html` を単独の文法として�
 
 描画時間はDOMのレイアウトとフォント計測に依存するため、実機での測定はPhase 4で行う。3秒は中断の閾値であり、目標値ではない。
 
-`forced-colors` が有効なときは、Mermaidのテーマを高コントラスト向けへ切り替え、色ではなく形状と境界線で区別する。
+`forced-colors` が有効なときは、Mermaidのテーマを高コントラスト向けへ切り替え、色ではなく形状と境界線で区別する。黒い背景では `neutral` の線と文字が背景に沈むため、図を白い下地に載せる（10.6）。
 
 ### 8.5 数式
 
@@ -1233,7 +1233,7 @@ WebViewのHistory APIには載せない。`history` はWebView単位に1本し�
 - ツリーは矢印、`Enter`、`Home`、`End` で操作できるようにする。左右キーで展開と折りたたみを行う。
 - タブは `Ctrl+Tab`、`Ctrl+W`、左右移動に対応する。
 - `tree`、`treeitem`、`tablist`、`tab`、`tabpanel` などのARIAを設定する。
-- Windowsハイコントラスト、`forced-colors`、`prefers-reduced-motion` に対応する。自前のUIにはアニメーションを置いていない。動きを足すときは `prefers-reduced-motion: reduce` を尊重する。Mermaidの図のエッジのアニメーションだけは図の定義で有効になるため、止める（8.4）。
+- Windowsハイコントラスト、`forced-colors`、`prefers-reduced-motion` に対応する。自前のUIにはアニメーションを置いていない。動きを足すときは `prefers-reduced-motion: reduce` を尊重する。Mermaidの図のエッジのアニメーションだけは図の定義で有効になるため、止める（8.4）。`forced-colors` の扱いは10.6とする。
 - 本文の見出し、リスト、コードブロックの意味構造を保持する。
 - 製品UIからsave、print、view source、devtoolsを除外する。
 
@@ -1430,6 +1430,20 @@ OSの表示言語は `GetUserDefaultLocaleName` で取得する（`ja-JP` を返
 UI文字列を外部のi18nライブラリへ載せない。対象は2言語であり、複数形や語順の入れ替えを要する文言も持たない。読み込み時に辞書を選ぶだけで足り、ライブラリの導入は依存とCSPの検討を増やすほうが大きい。
 
 MSIXマニフェストの `<Resource Language>` は `ja-JP` と `en-US` の両方を宣言したまま保つ（13.1）。宣言と実体が揃う。
+
+### 10.6 forced-colors（ハイコントラスト）
+
+`forced-colors: active` では、WebView2が `color`、`background-color`、`border-color`、`outline-color` などをシステムカラーへ置き換える。次の3点をこの前提で扱う。
+
+- **背景色の変化に頼る表示は消える。** 選択は輪郭（タブは2 pxの `Highlight`）か `Highlight` / `HighlightText` の塗り（ツリー）で、ホバーは1 pxの `CanvasText` の輪郭（ツリーの行、タブの閉じるボタン、パンくず）で示す。フォーカスは既存の2 pxの輪郭がそのまま見える。
+- **選択のツリー行は `forced-color-adjust: none` にする。** 既定のままだと、Chromiumが文字の下へCanvas色の下敷きを敷き、`HighlightText`（黒）の文字が黒い下敷きに沈んで読めなくなる（実測）。
+- **SVG（Mermaid）の塗りと線は置き換えられない。** `neutral` テーマは明るい背景向けのため、黒い背景では線と、ノードの外に描く文字が背景に沈む（コントラスト比は1.66〜3.66。実測）。そこで図を白い下地に載せ、`forced-color-adjust: none` にする。どのハイコントラストのテーマでも、黒字に白地で読める。黒いテーマでは図だけが白いブロックになるが、画像が元の色のまま表示されるのと同じ扱いである。`Canvas` の明暗で `dark` と `neutral` を切り替える案は、黄地や緑地などの変形テーマで `dark` の色が合う保証がなく、実際のOSのハイコントラストでの検証を要し、8.4の「色ではなく形状と境界線で区別する」方針からも外れるため採らない。
+
+点検は、WebView2を `--remote-debugging-port` 付き（`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS`）で起動し、CDPの `Emulation.setEmulatedMedia` で `forced-colors: active` にして行った。OSの設定を変えずに、実機のWebView2のレンダラーで確認できる。パレットはWindowsの「ハイコントラスト黒」相当（`Highlight` は `#1AEBFF`、リンクは黄）である。
+
+問題がなかったものは、検索バーと現在位置のハイライト（8.6）、コードのトークン（太字と斜体。8.3）、数式、リスト、チェックボックス、区切り線、脚注、リンク、スクロールバー、フォーカスの輪郭（パンくず、タブ、ペイン境界、ツリー）である。
+
+未確認は、実際のOSのハイコントラスト（黒以外のテーマ、タイトルバーとネイティブメニューの見た目）である。エミュレーションはWebViewの内側だけを対象にする。
 
 ## 11. アプリ設定と診断
 
