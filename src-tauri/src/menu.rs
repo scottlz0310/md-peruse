@@ -11,7 +11,8 @@ use tauri::menu::{
 use tauri::{Manager, Runtime};
 use ts_rs::TS;
 
-use crate::i18n::Language;
+use crate::i18n::{Language, LanguagePreference};
+use crate::language;
 use crate::settings::ThemePreference;
 use crate::theme;
 
@@ -122,7 +123,7 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 12] = [
+pub const IMPLEMENTED: [MenuCommand; 15] = [
     MenuCommand::OpenFolder,
     MenuCommand::CloseWorkspace,
     MenuCommand::CloseTab,
@@ -132,6 +133,9 @@ pub const IMPLEMENTED: [MenuCommand; 12] = [
     MenuCommand::UseSystemTheme,
     MenuCommand::UseLightTheme,
     MenuCommand::UseDarkTheme,
+    MenuCommand::UseSystemLanguage,
+    MenuCommand::UseJapanese,
+    MenuCommand::UseEnglish,
     MenuCommand::IncreaseFontSize,
     MenuCommand::DecreaseFontSize,
     MenuCommand::ResetFontSize,
@@ -161,6 +165,12 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::UseLightTheme, Language::En) => "&Light",
         (MenuCommand::UseDarkTheme, Language::Ja) => "ダーク(&D)",
         (MenuCommand::UseDarkTheme, Language::En) => "&Dark",
+        (MenuCommand::UseSystemLanguage, Language::Ja) => "システム(&S)",
+        (MenuCommand::UseSystemLanguage, Language::En) => "&System",
+        // 言語名は、現在のUI言語によらずその言語で書く。読めない言語のUIになったときも、
+        // 自分の言語の項目を見つけて戻せるようにするためである。
+        (MenuCommand::UseJapanese, _) => "日本語(&J)",
+        (MenuCommand::UseEnglish, _) => "English(&E)",
         (MenuCommand::IncreaseFontSize, Language::Ja) => "文字を大きく(&I)",
         (MenuCommand::IncreaseFontSize, Language::En) => "&Increase Font Size",
         (MenuCommand::DecreaseFontSize, Language::Ja) => "文字を小さく(&D)",
@@ -192,7 +202,15 @@ fn theme_menu_label(language: Language) -> &'static str {
     }
 }
 
-/// メニューを組み立てる。`theme` は保存済みのテーマで、その項目にチェックを付ける。
+fn language_menu_label(language: Language) -> &'static str {
+    match language {
+        Language::Ja => "言語(&L)",
+        Language::En => "&Language",
+    }
+}
+
+/// メニューを組み立てる。`theme` と `language_preference` は保存済みの選択で、その項目に
+/// チェックを付ける。`language` は表示に使う実際の言語である。
 ///
 /// 終了は `PredefinedMenuItem::quit` を使わず、自前の項目にする。コマンドの識別子を
 /// 1つの経路（`MenuCommand::from_id`）で扱い、メニューの選択をすべて同じ場所で処理する
@@ -201,6 +219,7 @@ pub fn build<R: Runtime, M: Manager<R>>(
     manager: &M,
     language: Language,
     theme: ThemePreference,
+    language_preference: LanguagePreference,
 ) -> tauri::Result<Menu<R>> {
     let item = |command: MenuCommand| {
         MenuItem::with_id(
@@ -241,6 +260,23 @@ pub fn build<R: Runtime, M: Manager<R>>(
         .iter()
         .map(|item| item as &dyn IsMenuItem<R>)
         .collect();
+    let language_choices = language::CHOICES
+        .iter()
+        .map(|&(command, preference)| {
+            CheckMenuItem::with_id(
+                manager,
+                command.id(),
+                label(command, language),
+                true,
+                preference == language_preference,
+                None::<&str>,
+            )
+        })
+        .collect::<tauri::Result<Vec<_>>>()?;
+    let language_items: Vec<&dyn IsMenuItem<R>> = language_choices
+        .iter()
+        .map(|item| item as &dyn IsMenuItem<R>)
+        .collect();
     let view = Submenu::with_items(
         manager,
         view_menu_label(language),
@@ -250,6 +286,12 @@ pub fn build<R: Runtime, M: Manager<R>>(
             &item(MenuCommand::ReloadDocument)?,
             &PredefinedMenuItem::separator(manager)?,
             &Submenu::with_items(manager, theme_menu_label(language), true, &theme_items)?,
+            &Submenu::with_items(
+                manager,
+                language_menu_label(language),
+                true,
+                &language_items,
+            )?,
             &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::IncreaseFontSize)?,
             &item(MenuCommand::DecreaseFontSize)?,
@@ -266,15 +308,15 @@ pub fn build<R: Runtime, M: Manager<R>>(
 /// 選ばれるたびに3つとも付け直す。
 pub fn check_theme<R: Runtime>(menu: &Menu<R>, theme: ThemePreference) -> tauri::Result<()> {
     for (command, preference) in theme::CHOICES {
-        if let Some(item) = theme_item(menu, command) {
+        if let Some(item) = check_item(menu, command) {
             item.set_checked(preference == theme)?;
         }
     }
     Ok(())
 }
 
-/// テーマの項目を引く。
-pub fn theme_item<R: Runtime>(menu: &Menu<R>, command: MenuCommand) -> Option<CheckMenuItem<R>> {
+/// チェック付きの項目（テーマ、言語）を引く。
+pub fn check_item<R: Runtime>(menu: &Menu<R>, command: MenuCommand) -> Option<CheckMenuItem<R>> {
     find(menu.items().ok()?, &command.id())?
         .as_check_menuitem()
         .cloned()
@@ -320,8 +362,13 @@ mod tests {
     #[test]
     fn the_menu_contains_only_implemented_commands() {
         let app = tauri::test::mock_app();
-        let menu = build(app.handle(), Language::Ja, ThemePreference::System)
-            .expect("メニューを組み立てられない");
+        let menu = build(
+            app.handle(),
+            Language::Ja,
+            ThemePreference::System,
+            LanguagePreference::System,
+        )
+        .expect("メニューを組み立てられない");
         let contains = |command: MenuCommand| {
             find(
                 menu.items().expect("メニューの項目を取れない"),
@@ -341,17 +388,50 @@ mod tests {
     fn the_saved_theme_is_checked() {
         for (_, saved) in theme::CHOICES {
             let app = tauri::test::mock_app();
-            let menu =
-                build(app.handle(), Language::Ja, saved).expect("メニューを組み立てられない");
+            let menu = build(
+                app.handle(),
+                Language::Ja,
+                saved,
+                LanguagePreference::System,
+            )
+            .expect("メニューを組み立てられない");
 
             for (command, preference) in theme::CHOICES {
-                let item = theme_item(&menu, command).expect("テーマの項目が無い");
+                let item = check_item(&menu, command).expect("テーマの項目が無い");
                 assert_eq!(
                     item.is_checked().unwrap(),
                     preference == saved,
                     "保存値 {saved:?} の {command:?}"
                 );
             }
+        }
+    }
+
+    /// 保存済みの言語の選択の項目だけにチェックが付いた状態で組み立てる。
+    #[test]
+    fn the_saved_language_preference_is_checked() {
+        for (_, saved) in language::CHOICES {
+            let app = tauri::test::mock_app();
+            let menu = build(app.handle(), Language::Ja, ThemePreference::System, saved)
+                .expect("メニューを組み立てられない");
+
+            for (command, preference) in language::CHOICES {
+                let item = check_item(&menu, command).expect("言語の項目が無い");
+                assert_eq!(
+                    item.is_checked().unwrap(),
+                    preference == saved,
+                    "保存値 {saved:?} の {command:?}"
+                );
+            }
+        }
+    }
+
+    /// 言語の名前は、現在のUI言語によらず、その言語で書く。
+    #[test]
+    fn language_names_are_written_in_their_own_language() {
+        for ui in [Language::Ja, Language::En] {
+            assert_eq!(label(MenuCommand::UseJapanese, ui), "日本語(&J)");
+            assert_eq!(label(MenuCommand::UseEnglish, ui), "English(&E)");
         }
     }
 

@@ -12,6 +12,7 @@ import {
   updateUiSettings,
 } from "./ipc/commands";
 import {
+  onLanguageChanged,
   onMenuCommand,
   onWorkspaceClosed,
   onWorkspaceOpened,
@@ -177,6 +178,22 @@ export default function App() {
 
   // メニューとアクセラレータで届く、Frontendが処理するコマンド（10.1）。
   useTauriEvent(() => onMenuCommand((command) => handleCommand(command)));
+
+  // メニューから言語を切り替えたとき（10.5）。保存とメニューの組み直しはRust側が済ませている。
+  // 文言は `effectiveLanguage` から引くため、ここで値を差し替えれば画面が切り替わる。
+  useTauriEvent(() =>
+    onLanguageChanged((changed) => {
+      const current = uiRef.current;
+      if (current === null) return;
+      const next = {
+        ...current,
+        language: changed.preference,
+        effectiveLanguage: changed.language,
+      };
+      uiRef.current = next;
+      setUi(next);
+    }),
+  );
 
   const title = windowTitle(
     workspace?.label ?? null,

@@ -3,6 +3,7 @@ pub mod file_kind;
 pub mod i18n;
 pub mod image;
 pub mod ipc;
+pub mod language;
 pub mod limits;
 pub mod menu;
 pub mod menu_command;
@@ -69,11 +70,17 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
         Box::new(move |_| open_folder::show_error(&handle, &[ErrorCode::SettingsSaveFailed])),
     );
     let saved_theme = store.settings().theme;
-    app.manage(AppState::new(store.settings().language));
+    let saved_language = store.settings().language;
+    app.manage(AppState::new(saved_language));
     app.manage(store);
 
     let language = app.state::<AppState>().language();
-    app.set_menu(menu::build(app.handle(), language, saved_theme)?)?;
+    app.set_menu(menu::build(
+        app.handle(),
+        language,
+        saved_theme,
+        saved_language,
+    )?)?;
 
     let config = app
         .config()

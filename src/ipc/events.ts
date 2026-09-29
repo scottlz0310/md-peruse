@@ -1,4 +1,5 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { LanguageChangedEvent } from "../types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "../types/generated/MenuCommand";
 import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
 
@@ -35,4 +36,18 @@ export function onMenuCommand(
   handler: (command: MenuCommand) => void,
 ): Promise<UnlistenFn> {
   return listen<MenuCommand>("menu-command", (event) => handler(event.payload));
+}
+
+/**
+ * UIの表示言語が切り替わったことを受け取る（design-decisions.md 10.5）。
+ *
+ * メニューからの切り替えをRust側が処理し、設定の保存とメニューの組み直しを済ませてから
+ * 送る。OSの表示言語は監視しないため、メニューから選んだとき以外には届かない。
+ */
+export function onLanguageChanged(
+  handler: (event: LanguageChangedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<LanguageChangedEvent>("language-changed", (event) =>
+    handler(event.payload),
+  );
 }
