@@ -24,6 +24,19 @@ export type Messages = {
   closeTab: (title: string) => string;
   treeLabel: string;
   treeLoading: string;
+  /** 「md-peruse について」のダイアログ（バージョンとサードパーティライセンス。11.3）。 */
+  about: {
+    title: string;
+    version: (version: string) => string;
+    loading: string;
+    loadFailed: (detail: string) => string;
+    thirdPartyHeading: (count: number) => string;
+    filterLabel: string;
+    filterResult: (shown: number, total: number) => string;
+    noMatches: string;
+    sourceCode: string;
+    close: string;
+  };
   find: {
     inputLabel: string;
     previous: string;
@@ -65,6 +78,18 @@ const ja: Messages = {
   closeTab: (title) => `${title} を閉じる`,
   treeLabel: "ファイル",
   treeLoading: "読み込み中…",
+  about: {
+    title: "md-peruse について",
+    version: (version) => `バージョン ${version}`,
+    loading: "読み込み中…",
+    loadFailed: (detail) => `ライセンス一覧を読み込めません（${detail}）。`,
+    thirdPartyHeading: (count) => `サードパーティのライセンス（${count}件）`,
+    filterLabel: "名前で絞り込む",
+    filterResult: (shown, total) => `${shown} / ${total} 件`,
+    noMatches: "一致する項目はありません。",
+    sourceCode: "ソースコード",
+    close: "閉じる",
+  },
   find: {
     inputLabel: "文書内を検索",
     previous: "前の一致",
@@ -107,6 +132,18 @@ const en: Messages = {
   closeTab: (title) => `Close ${title}`,
   treeLabel: "Files",
   treeLoading: "Loading...",
+  about: {
+    title: "About md-peruse",
+    version: (version) => `Version ${version}`,
+    loading: "Loading...",
+    loadFailed: (detail) => `Cannot load the license list (${detail}).`,
+    thirdPartyHeading: (count) => `Third-party licenses (${count})`,
+    filterLabel: "Filter by name",
+    filterResult: (shown, total) => `${shown} of ${total}`,
+    noMatches: "No matching items.",
+    sourceCode: "Source code",
+    close: "Close",
+  },
   find: {
     inputLabel: "Find in document",
     previous: "Previous match",

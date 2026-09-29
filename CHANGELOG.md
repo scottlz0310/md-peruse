@@ -14,6 +14,10 @@
 ## [Unreleased]
 
 ### Added
+- ヘルプメニューに「md-peruse について」を加えた（[design-decisions.md](./docs/design-decisions.md) 10.1、11.3）
+  - バージョン、md-peruse自身のライセンス、同梱するサードパーティ（JavaScriptの依存とRustのcrate、約490件）のライセンスを、ダイアログで表示する。名前で絞り込め、本文は行を開いたときに表示する。ワークスペースを開いていなくても開ける
+  - EPL-2.0の依存（`elkjs`）は、ソースコードの入手先を示す
+  - ライセンス一覧は、リリースのビルド（`tauri build`）が生成してから同梱する。生成物の置き場所を `src/generated/` から `public/` へ移した。`bun run build` 単体は生成しないため、開発中に一覧を見るには `bun run generate:licenses` を実行する
 - 画面内の文言を、日本語と英語で持つようにした（[design-decisions.md](./docs/design-decisions.md) 10.5）
   - 案内、各部の名前（読み上げに使われる）、検索バー、リンクを開けなかった理由、コード・数式・図が描画できなかった理由を、起動時のUI言語（OSの表示言語か、設定に保存した選択）で表示する。`<html lang>` も合わせる
 - 表示メニューに「言語」（システム / 日本語 / English）を加えた（[design-decisions.md](./docs/design-decisions.md) 10.1、10.5）。選ぶと、ネイティブメニューの項目名とWebView内の文言がその場で切り替わり、選択は次回の起動に引き継ぐ。「システム」はWindowsの表示言語に従い、日本語以外は英語になる。言語の名前は、現在の言語によらずその言語で書く

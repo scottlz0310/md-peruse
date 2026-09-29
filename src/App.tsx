@@ -19,6 +19,8 @@ import {
 } from "./ipc/events";
 import { setWindowTitle } from "./ipc/window";
 import { SidebarLayout } from "./layout/SidebarLayout";
+import { AboutDialog } from "./licenses/AboutDialog";
+import { loadLicenses } from "./licenses/licenses";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
 import { MarkdownDocument } from "./preview/MarkdownDocument";
@@ -138,6 +140,8 @@ export default function App() {
     changedLanguage?.language ?? ui?.effectiveLanguage ?? DEFAULT_LANGUAGE;
   const messages = MESSAGES[language];
   const [startupError, setStartupError] = useState<string | null>(null);
+  // 「md-peruse について」のダイアログ。ワークスペースを開いていなくても開ける。
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
   // パンくずで選んだフォルダー。ツリーが処理し終えたら片付ける。残すと、サイドバーを
@@ -232,6 +236,9 @@ export default function App() {
         return;
       case "resetFontSize":
         saveFontScale(DEFAULT_FONT_SCALE);
+        return;
+      case "about":
+        setAboutOpen(true);
         return;
     }
   }
@@ -657,13 +664,20 @@ export default function App() {
   }
   if (ui === null) return null;
 
+  const aboutDialog = aboutOpen && (
+    <AboutDialog load={loadLicenses} onClose={() => setAboutOpen(false)} />
+  );
+
   if (!workspace) {
     return (
-      <main className="app">
-        <h1>md-peruse</h1>
-        <p>{messages.welcome}</p>
-        {error && <p role="alert">{error}</p>}
-      </main>
+      <LanguageProvider language={language}>
+        <main className="app">
+          <h1>md-peruse</h1>
+          <p>{messages.welcome}</p>
+          {error && <p role="alert">{error}</p>}
+        </main>
+        {aboutDialog}
+      </LanguageProvider>
     );
   }
 
@@ -733,6 +747,7 @@ export default function App() {
           </>
         )}
       </SidebarLayout>
+      {aboutDialog}
     </LanguageProvider>
   );
 }

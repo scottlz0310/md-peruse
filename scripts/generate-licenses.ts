@@ -3,6 +3,7 @@
 // JavaScript側は package.json の dependencies から推移閉包を辿り、node_modules の
 // メタデータとライセンス本文を収集する。Rust側は cargo-about の出力を取り込む。
 // 生成物はリポジトリへコミットせず、lockfileから都度生成する（design-decisions.md 11.3）。
+// リリースのビルド（`tauri build`）が生成してから同梱し、アプリ内のダイアログが読む。
 // CIは生成の実行を検査し、条文を取得できないパッケージがあれば失敗する。
 
 import { spawnSync } from "node:child_process";
@@ -17,14 +18,11 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { LicensePackage, LicensesFile } from "../src/licenses/licenses";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const outputPath = join(
-  repositoryRoot,
-  "src",
-  "generated",
-  "third-party-licenses.json",
-);
+// Viteが `public/` をビルドの出力へそのまま複写する。Frontendは `LICENSES_URL` で読む。
+const outputPath = join(repositoryRoot, "public", "third-party-licenses.json");
 
 // 上流が条文を同梱していないパッケージのために、手動配置した本文を置く場所。
 const overridesRoot = join(repositoryRoot, "licenses", "overrides");
@@ -64,6 +62,15 @@ function readManifest(path: string): PackageManifest {
 // 上流が package.json でライセンスを宣言していないパッケージのために、同梱の条文から
 // 確かめたSPDX識別子を手動で置くファイル。ライセンス本文のファイル名パターンに合わない名前にする。
 const licenseIdOverrideFile = "SPDX-ID";
+
+// EPL-2.0のように、オブジェクト形式での配布でもソースコードの入手方法の案内を求める依存の
+// ために、上流のURLを手動で置くファイル。ライセンス本文のファイル名パターンに合わない名前にする。
+const sourceUrlOverrideFile = "SOURCE-URL";
+
+function readSourceUrl(name: string): string | undefined {
+  const path = join(overridesRoot, name, sourceUrlOverrideFile);
+  return existsSync(path) ? readFileSync(path, "utf-8").trim() : undefined;
+}
 
 function resolveLicense(name: string, manifest: PackageManifest): string {
   if (manifest.license) {
@@ -228,52 +235,63 @@ function collectRustPackages(): CollectedPackage[] {
   return packages;
 }
 
-type EmittedPackage = {
-  name: string;
-  version: string;
-  license: string;
-  // licenseTexts のインデックス。同じ本文を複数のパッケージが共有するため、
-  // 本文を分離しないと生成物が数MBに達する。
-  texts: { label: string; index: number }[];
-};
-
-function emit(packages: CollectedPackage[], texts: string[]): EmittedPackage[] {
-  return packages
-    .map((pkg) => ({
-      name: pkg.name,
-      version: pkg.version,
-      license: pkg.license,
-      texts: pkg.sources.map((source) => {
-        let index = texts.indexOf(source.text);
-        if (index === -1) {
-          index = texts.push(source.text) - 1;
-        }
-        return { label: source.label, index };
-      }),
-    }))
-    .sort(
-      (a, b) =>
-        a.name.localeCompare(b.name) || a.version.localeCompare(b.version),
-    );
+// md-peruse自身。バージョンの正本は package.json（Cargo.toml、tauri.conf.json とCIで同期する）。
+function collectApplication(): CollectedPackage {
+  const manifest = readManifest(join(repositoryRoot, "package.json"));
+  if (manifest.name === undefined || manifest.version === undefined) {
+    throw new Error("package.json に name と version がありません");
+  }
+  return {
+    name: manifest.name,
+    version: manifest.version,
+    license: resolveLicense(manifest.name, manifest),
+    sources: [
+      {
+        label: "LICENSE",
+        text: readFileSync(join(repositoryRoot, "LICENSE"), "utf-8").trimEnd(),
+      },
+    ],
+  };
 }
 
+// 本文は texts へ集め、パッケージからはインデックスで参照する。同じ本文を複数の
+// パッケージが共有するため、本文を分離しないと生成物が数MBに達する。
+function emit(pkg: CollectedPackage, texts: string[]): LicensePackage {
+  const sourceUrl = readSourceUrl(pkg.name);
+  return {
+    name: pkg.name,
+    version: pkg.version,
+    license: pkg.license,
+    ...(sourceUrl === undefined ? {} : { sourceUrl }),
+    texts: pkg.sources.map((source) => {
+      let index = texts.indexOf(source.text);
+      if (index === -1) {
+        index = texts.push(source.text) - 1;
+      }
+      return { label: source.label, index };
+    }),
+  };
+}
+
+const byName = (a: LicensePackage, b: LicensePackage) =>
+  a.name.localeCompare(b.name) || a.version.localeCompare(b.version);
+
 const licenseTexts: string[] = [];
-const javascript = emit(
-  collectJavaScriptPackages().sort((a, b) => a.name.localeCompare(b.name)),
-  licenseTexts,
+const application = emit(collectApplication(), licenseTexts);
+const javascript = collectJavaScriptPackages().map((pkg) =>
+  emit(pkg, licenseTexts),
 );
-const rust = emit(
-  collectRustPackages().sort((a, b) => a.name.localeCompare(b.name)),
+const rust = collectRustPackages().map((pkg) => emit(pkg, licenseTexts));
+
+const file: LicensesFile = {
+  application,
   licenseTexts,
-);
+  packages: [...javascript, ...rust].sort(byName),
+};
 
 // 生成物はコミットしないため、出力先ディレクトリはcheckout直後に存在しない。
 mkdirSync(dirname(outputPath), { recursive: true });
-writeFileSync(
-  outputPath,
-  `${JSON.stringify({ licenseTexts, javascript, rust }, null, 2)}\n`,
-  "utf-8",
-);
+writeFileSync(outputPath, `${JSON.stringify(file)}\n`, "utf-8");
 console.log(
   `${outputPath} を生成しました（JavaScript ${javascript.length} 件、Rust ${rust.length} 件、ライセンス本文 ${licenseTexts.length} 件）`,
 );

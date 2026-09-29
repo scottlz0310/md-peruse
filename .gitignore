@@ -53,4 +53,4 @@ lcov.info
 devcert.pfx
 
 # ライセンス一覧はlockfileから都度生成する（design-decisions.md 11.3）
-src/generated/
+public/third-party-licenses.json

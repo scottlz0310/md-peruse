@@ -154,7 +154,7 @@ mod tests {
             .into_iter()
             .map(|item| item.as_submenu().unwrap().text().unwrap())
             .collect();
-        assert_eq!(titles, ["&File", "&View"]);
+        assert_eq!(titles, ["&File", "&View", "&Help"]);
     }
 
     /// `system` はその時点のOSの表示言語で決め直す。英語以外は英語へ倒れる。
