@@ -24,6 +24,8 @@ export type Messages = {
   closeTab: (title: string) => string;
   treeLabel: string;
   treeLoading: string;
+  /** ワークスペースを開いていないときの案内に並べる、最近使ったフォルダーの見出し。 */
+  recentFoldersHeading: string;
   /** 「md-peruse について」のダイアログ（バージョンとサードパーティライセンス。11.3）。 */
   about: {
     title: string;
@@ -78,6 +80,7 @@ const ja: Messages = {
   closeTab: (title) => `${title} を閉じる`,
   treeLabel: "ファイル",
   treeLoading: "読み込み中…",
+  recentFoldersHeading: "最近使ったフォルダー",
   about: {
     title: "md-peruse について",
     version: (version) => `バージョン ${version}`,
@@ -132,6 +135,7 @@ const en: Messages = {
   closeTab: (title) => `Close ${title}`,
   treeLabel: "Files",
   treeLoading: "Loading...",
+  recentFoldersHeading: "Recent folders",
   about: {
     title: "About md-peruse",
     version: (version) => `Version ${version}`,

@@ -14,8 +14,8 @@
 
 use std::io;
 
-use tauri::State;
 use tauri::async_runtime::spawn_blocking;
+use tauri::{AppHandle, Manager, State};
 
 use crate::i18n::Language;
 use crate::image::issue::issue;
@@ -23,9 +23,12 @@ use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{
     FileContent, ImageResource, ImageResourceRequest, ReadRequest, ScanRequest, ScanResult,
+    WorkspaceOpenedEvent,
 };
+use crate::open_folder;
 use crate::path_guard::{PathRejection, ResolveError};
 use crate::read::{ReadError, is_sharing_violation, read_file};
+use crate::recent::{self, RecentFolders};
 use crate::scan::scan_directory;
 use crate::settings::{UiSettings, UiSettingsUpdate};
 use crate::settings_store::SettingsStore;
@@ -214,8 +217,41 @@ pub async fn issue_image_resources_command(
 pub fn get_ui_settings_command(
     state: State<'_, AppState>,
     settings: State<'_, SettingsStore>,
+    recents: State<'_, RecentFolders>,
 ) -> UiSettings {
-    settings.ui_settings(state.language())
+    settings.ui_settings(state.language(), recents.views())
+}
+
+/// 開いているワークスペースを返す。開いていなければ `None` を返す（9.2、11.1）。
+///
+/// 起動時に、Rustが最後のワークスペースを開き直す。その `workspace-opened` がWebViewの購読より
+/// 先に送られると、Frontendは開いていることを知れない。Frontendは購読してからこのcommandで
+/// 問い合わせ、購読後の変化はeventで受ける。WebViewを読み込み直したときも、Rust側に残る
+/// ワークスペースを取り戻せる。
+///
+/// 開閉と同じロックを待つため、応答の遅いストレージを開いている最中はここも待つ。
+/// ブロッキングスレッドで実行する。
+#[tauri::command]
+pub async fn get_workspace_command(app: AppHandle) -> Option<WorkspaceOpenedEvent> {
+    spawn_blocking(move || open_folder::current_workspace(&app))
+        .await
+        .expect("ワークスペースの問い合わせタスクの実行に失敗")
+}
+
+/// 最近使ったフォルダーの項目をワークスペースとして開く（9.2、11.1）。
+///
+/// 成功は `workspace-opened` で知らせる（フォルダー選択と同じ経路）。IDは一覧を作り直すたびに
+/// 振り直すため、未知のIDは `RecentFolderNotFound` で拒否する。フォルダー自体が見つからない
+/// ときは `WorkspaceNotFound` とし、その項目を一覧から取り除く（`crate::recent::open`）。
+///
+/// フォルダーを開くときのI/Oを伴うため、ブロッキングスレッドで実行する。
+#[tauri::command]
+pub async fn open_recent_folder_command(app: AppHandle, id: String) -> Result<(), IpcError> {
+    let language = app.state::<AppState>().language();
+    spawn_blocking(move || recent::open(&app, &id))
+        .await
+        .expect("最近使ったフォルダーを開くタスクの実行に失敗")
+        .map_err(|code| ipc_error(code, language, None))
 }
 
 /// Frontendで変わった設定を保存する（design-decisions.md 11.1）。
@@ -630,6 +666,9 @@ mod tests {
             let (store, _) =
                 SettingsStore::open(temp.path().to_owned(), Box::new(|error| panic!("{error}")));
             app.manage(store);
+            let recents = RecentFolders::new();
+            recents.sync(&["C:\\Users\\dev\\docs".to_owned()]);
+            app.manage(recents);
 
             update_ui_settings_command(
                 app.state::<SettingsStore>(),
@@ -638,10 +677,18 @@ mod tests {
                     ..UiSettingsUpdate::default()
                 },
             );
-            let ui = get_ui_settings_command(app.state::<AppState>(), app.state::<SettingsStore>());
+            let ui = get_ui_settings_command(
+                app.state::<AppState>(),
+                app.state::<SettingsStore>(),
+                app.state::<RecentFolders>(),
+            );
 
             assert!(!ui.sidebar_visible);
             assert_eq!(ui.effective_language, Language::En);
+            // 最近使ったフォルダーは、絶対パスを含まないIDと表示名で渡す。
+            assert_eq!(ui.recent_folders.len(), 1);
+            assert_eq!(ui.recent_folders[0].label, "dev\\docs");
+            assert!(!ui.recent_folders[0].id.contains("Users"));
             app.state::<SettingsStore>().flush();
         }
 

@@ -1,6 +1,7 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { LanguageChangedEvent } from "../types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "../types/generated/MenuCommand";
+import type { RecentFoldersChangedEvent } from "../types/generated/RecentFoldersChangedEvent";
 import type { WorkspaceOpenedEvent } from "../types/generated/WorkspaceOpenedEvent";
 
 /**
@@ -48,6 +49,20 @@ export function onLanguageChanged(
   handler: (event: LanguageChangedEvent) => void,
 ): Promise<UnlistenFn> {
   return listen<LanguageChangedEvent>("language-changed", (event) =>
+    handler(event.payload),
+  );
+}
+
+/**
+ * 最近使ったフォルダーの一覧が変わったことを受け取る（design-decisions.md 11.1）。
+ *
+ * 一覧は新しいものが先頭で、IDは作り直すたびに振り直される。受け取った一覧で手元の一覧を
+ * 丸ごと置き換える。
+ */
+export function onRecentFoldersChanged(
+  handler: (event: RecentFoldersChangedEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<RecentFoldersChangedEvent>("recent-folders-changed", (event) =>
     handler(event.payload),
   );
 }

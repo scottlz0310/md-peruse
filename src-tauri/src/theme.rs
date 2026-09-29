@@ -94,6 +94,7 @@ mod tests {
                 Language::Ja,
                 ThemePreference::System,
                 LanguagePreference::System,
+                &[],
             )
             .expect("メニューを組み立てられない");
             app.set_menu(built).expect("メニューを設定できない");

@@ -21,7 +21,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::i18n::{Language, LanguagePreference};
 use crate::settings::{
-    SCHEMA_VERSION, SETTINGS_FILE_NAME, Settings, ThemePreference, UiSettings, UiSettingsUpdate,
+    RecentFolderView, SCHEMA_VERSION, SETTINGS_FILE_NAME, Settings, ThemePreference, UiSettings,
+    UiSettingsUpdate, WindowPlacement, push_recent_folder, remove_recent_folder,
 };
 
 /// 変更から書込みまで待つ時間。
@@ -97,8 +98,14 @@ impl SettingsStore {
 
     /// Frontendへ渡す投影を作る。
     ///
-    /// 最近使ったフォルダーは、不透明なIDの対応表を実装するまで空で返す（11.1）。
-    pub fn ui_settings(&self, effective_language: Language) -> UiSettings {
+    /// 最近使ったフォルダーは、不透明なIDを振った一覧（`crate::recent::RecentFolders::views`）
+    /// を受け取る。IDの対応表は設定ではなく実行時の状態であり、ここでは持たない。設定に
+    /// ある絶対パスは、この投影へ入らない（11.1）。
+    pub fn ui_settings(
+        &self,
+        effective_language: Language,
+        recent_folders: Vec<RecentFolderView>,
+    ) -> UiSettings {
         let settings = self.lock();
         UiSettings {
             language: settings.language,
@@ -106,7 +113,7 @@ impl SettingsStore {
             sidebar_width: settings.sidebar_width,
             sidebar_visible: settings.sidebar_visible,
             font_scale_percent: settings.font_scale_percent,
-            recent_folders: Vec::new(),
+            recent_folders,
         }
     }
 
@@ -133,6 +140,40 @@ impl SettingsStore {
     /// UI言語の選択を反映し、書込みを予約する。値が変わらなければ書かない。
     pub fn set_language(&self, language: LanguagePreference) {
         self.modify(|settings| settings.language = language);
+    }
+
+    /// ワークスペースを開いたことを反映する。最近使ったフォルダーの先頭へ移し、最後の
+    /// ワークスペースにする。
+    ///
+    /// `path` は正規化済みの絶対パス（`WorkspaceRoot::path`）であること（`push_recent_folder`）。
+    pub fn record_opened_workspace(&self, path: &str) {
+        self.modify(|settings| {
+            settings.recent_folders = push_recent_folder(&settings.recent_folders, path);
+            settings.last_workspace = Some(path.to_owned());
+        });
+    }
+
+    /// 開けなかったフォルダーを、最近使ったフォルダーと最後のワークスペースから取り除く。
+    pub fn forget_workspace(&self, path: &str) {
+        self.modify(|settings| {
+            settings.recent_folders = remove_recent_folder(&settings.recent_folders, path);
+            if settings.last_workspace.as_deref() == Some(path) {
+                settings.last_workspace = None;
+            }
+        });
+    }
+
+    /// ワークスペースを閉じたことを反映する。次の起動では開き直さない（9.2）。
+    ///
+    /// 利用者が閉じる操作をしたのは、そのワークスペースを続けて開く意図がないためである。
+    /// 最近使ったフォルダーには残す。
+    pub fn clear_last_workspace(&self) {
+        self.modify(|settings| settings.last_workspace = None);
+    }
+
+    /// ウィンドウの位置とサイズを反映し、書込みを予約する。値が変わらなければ書かない。
+    pub fn set_window(&self, placement: WindowPlacement) {
+        self.modify(|settings| settings.window = Some(placement));
     }
 
     fn modify(&self, change: impl FnOnce(&mut Settings)) {
@@ -578,23 +619,109 @@ mod tests {
         assert_eq!(errors.lock().unwrap().len(), 1);
     }
 
-    /// 投影は絶対パスを含まず、実際の表示言語を添える（11.1）。
+    /// 投影は設定にある絶対パスを含まず、実際の表示言語と、渡された一覧を添える（11.1）。
     #[test]
     fn the_projection_carries_ui_values_only() {
         let dir = TempDir::new("projection");
         fs::write(
             dir.settings_file(),
-            br#"{"schemaVersion":1,"language":"ja","sidebarWidth":350,"recentFolders":["C:\\secret\\docs"],"lastWorkspace":"C:\\secret\\docs"}"#,
+            br#"{"schemaVersion":1,"language":"ja","sidebarWidth":350,"recentFolders":["C:\\Users\\hidden\\docs"],"lastWorkspace":"C:\\Users\\hidden\\docs"}"#,
         )
         .unwrap();
         let (store, _) = open(&dir, WRITE_DEBOUNCE);
+        let view = RecentFolderView {
+            id: "recent-0-0".to_owned(),
+            label: "hidden\\docs".to_owned(),
+        };
 
-        let ui = store.ui_settings(Language::Ja);
+        let ui = store.ui_settings(Language::Ja, vec![view.clone()]);
         assert_eq!(ui.language, LanguagePreference::Ja);
         assert_eq!(ui.effective_language, Language::Ja);
         assert_eq!(ui.sidebar_width, 350);
-        assert!(ui.recent_folders.is_empty());
+        assert_eq!(ui.recent_folders, vec![view]);
         let json = serde_json::to_string(&ui).unwrap();
-        assert!(!json.contains("secret"), "{json}");
+        assert!(!json.contains("Users"), "{json}");
+        assert!(!json.contains("C:"), "{json}");
+    }
+
+    /// 開いたワークスペースは、最近使ったフォルダーの先頭と最後のワークスペースになる。
+    #[test]
+    fn an_opened_workspace_is_recorded() {
+        let store = SettingsStore::without_saving(Settings {
+            recent_folders: vec!["C:\\a".to_owned(), "C:\\b".to_owned()],
+            ..Settings::default()
+        });
+
+        store.record_opened_workspace("C:\\b");
+
+        let settings = store.settings();
+        assert_eq!(settings.recent_folders, ["C:\\b", "C:\\a"]);
+        assert_eq!(settings.last_workspace.as_deref(), Some("C:\\b"));
+    }
+
+    /// 開けなかったフォルダーは、最近使ったフォルダーからも最後のワークスペースからも外す。
+    /// 別のフォルダーが最後のワークスペースなら、それは変えない。
+    #[test]
+    fn a_forgotten_workspace_is_removed_everywhere() {
+        let cases = [
+            ("C:\\a", None, vec!["C:\\b"]),
+            ("C:\\b", Some("C:\\a"), vec!["C:\\a"]),
+            ("C:\\x", Some("C:\\a"), vec!["C:\\a", "C:\\b"]),
+        ];
+        for (forgotten, expected_last, expected_recent) in cases {
+            let store = SettingsStore::without_saving(Settings {
+                recent_folders: vec!["C:\\a".to_owned(), "C:\\b".to_owned()],
+                last_workspace: Some("C:\\a".to_owned()),
+                ..Settings::default()
+            });
+
+            store.forget_workspace(forgotten);
+
+            let settings = store.settings();
+            assert_eq!(
+                settings.last_workspace.as_deref(),
+                expected_last,
+                "{forgotten}"
+            );
+            assert_eq!(settings.recent_folders, expected_recent, "{forgotten}");
+        }
+    }
+
+    /// 閉じたワークスペースは、次の起動で開き直さない。最近使ったフォルダーには残す。
+    #[test]
+    fn a_closed_workspace_is_not_restored_but_stays_recent() {
+        let store = SettingsStore::without_saving(Settings {
+            recent_folders: vec!["C:\\a".to_owned()],
+            last_workspace: Some("C:\\a".to_owned()),
+            ..Settings::default()
+        });
+
+        store.clear_last_workspace();
+
+        let settings = store.settings();
+        assert_eq!(settings.last_workspace, None);
+        assert_eq!(settings.recent_folders, ["C:\\a"]);
+    }
+
+    /// ウィンドウの配置は保存され、再起動後も読み戻せる。
+    #[test]
+    fn the_window_placement_survives_a_restart() {
+        let dir = TempDir::new("placement");
+        let placement = WindowPlacement {
+            x: -1200,
+            y: 40,
+            width: 1100,
+            height: 700,
+            maximized: true,
+        };
+        let (store, _) = open(&dir, WRITE_DEBOUNCE);
+        store.set_window(placement);
+        store.flush();
+        drop(store);
+
+        let (reopened, outcome) = open(&dir, WRITE_DEBOUNCE);
+
+        assert_eq!(outcome, LoadOutcome::Loaded);
+        assert_eq!(reopened.settings().window, Some(placement));
     }
 }

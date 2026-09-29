@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter, Runtime};
 use crate::language;
 use crate::menu::MenuCommand;
 use crate::open_folder;
+use crate::recent;
 use crate::theme;
 
 /// Frontendが処理するメニューコマンドを運ぶTauri eventの名前。
@@ -17,8 +18,14 @@ pub const MENU_COMMAND_EVENT: &str = "menu-command";
 
 /// メニューの選択を処理する。
 pub fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
+    let id = event.id().as_ref();
+    // 最近使ったフォルダーの項目は、項目ごとにIDが違う。コマンドの識別子としては引けない。
+    if let Some(recent_id) = id.strip_prefix(recent::MENU_ITEM_PREFIX) {
+        recent::open_from_menu(app, recent_id);
+        return;
+    }
     // アプリが作っていない項目は、選ばれることがない。
-    if let Some(command) = MenuCommand::from_id(event.id().as_ref()) {
+    if let Some(command) = MenuCommand::from_id(id) {
         handle_command(app, command);
     }
 }
@@ -46,8 +53,8 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
         | MenuCommand::DecreaseFontSize
         | MenuCommand::ResetFontSize
         | MenuCommand::About => forward(app, command),
-        // 載せていないコマンドは、選ばれることがない。
-        _ => {}
+        // サブメニューそのものは選ばれない。その項目は `handle_menu_event` が別に扱う。
+        MenuCommand::OpenRecentFolder => {}
     }
 }
 
@@ -62,6 +69,8 @@ fn forward<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
 mod tests {
     use super::*;
     use crate::i18n::LanguagePreference;
+    use crate::settings::Settings;
+    use crate::settings_store::SettingsStore;
     use crate::state::AppState;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
@@ -99,6 +108,8 @@ mod tests {
         for command in [MenuCommand::CloseWorkspace, MenuCommand::OpenRecentFolder] {
             let app = tauri::test::mock_app();
             app.manage(AppState::new(LanguagePreference::System));
+            // ワークスペースを閉じる処理が、最後のワークスペースを消すために使う。
+            app.manage(SettingsStore::without_saving(Settings::default()));
             let received = Arc::new(AtomicUsize::new(0));
             let seen = Arc::clone(&received);
             app.listen(MENU_COMMAND_EVENT, move |_| {
