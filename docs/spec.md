@@ -19,7 +19,7 @@
 | プロダクト名 | md-peruse |
 | 目的 | AI駆動開発で更新される設計書、仕様書、タスクリストの観測とレビューに特化した、軽量で応答性の高い閲覧専用Markdownビューワーを提供する |
 | コアバリュー | 完全Read-only、アイドル時の低負荷、高速な起動、MermaidやGFMなどのリッチ表現の確実な可視化 |
-| 対象プラットフォーム | Windows 11（x64、ARM64） |
+| 対象プラットフォーム | Windows 11（x64のみ。ARM64は対応外） |
 
 編集機能、常駐プロセス、バックグラウンドインデックスは実装対象外とする。
 
@@ -217,7 +217,7 @@ Frontendからローカルファイルシステムへ直接アクセスさせず
 | --- | --- |
 | パッケージ形式 | MSIX |
 | 配信先 | Microsoft Store |
-| 対応アーキテクチャ | x64、ARM64 |
+| 対応アーキテクチャ | x64 |
 | 製品署名 | Microsoft Storeによる署名を利用する |
 | 開発用署名 | ローカルインストールとWACK検証に限り自己署名証明書を使用する |
 | 更新 | Tauri Updaterを導入せず、Microsoft Storeの更新機構へ一本化する |
@@ -228,16 +228,15 @@ Frontendからローカルファイルシステムへ直接アクセスさせず
 - MSIXのPackage Versionは `MAJOR.MINOR.PATCH.0` とする。第4要素はStoreが予約するため常に0とする。
 - Storeへ提出するたびにバージョンを単調増加させる。
 - `Package.appxmanifest`、`tauri.conf.json`、`Cargo.toml`、`package.json` のバージョンをCIで同期し、不一致をビルド失敗として扱う。
-- x64版とARM64版は同一バージョンで生成する。
 
 ### 7.3 ビルドと提出の流れ
 
 ```text
-Tauriでx64 / ARM64をビルド
+Tauriでx64をビルド
     ↓
 実行ファイルとFrontendリソースをステージング
     ↓
-winapp CLIでアーキテクチャ別MSIXを生成
+winapp CLIでMSIXを生成
     ↓
 ローカルインストールとWACKで検証
     ↓
@@ -251,7 +250,7 @@ Tauri CLIはMSIXを直接生成しないため、MSIX生成を独立したパッ
 ## 8. CI/CD方針
 
 - GitHub ActionsでFrontendとRustの品質チェック、テスト、Releaseビルドを実行する。
-- Windows上でx64とARM64の成果物を個別に生成する。ARM64はネイティブARM64ランナーの利用可否を確認し、利用できない場合はクロスコンパイルとする。
+- Windows上でx64の成果物を生成する。
 - winapp CLIでMSIXを生成し、生成物をCI artifactとして保存する。
 - WACKをStore提出前の品質ゲートとする。
 - テストカバレッジをCodecovで可視化する。

@@ -340,6 +340,13 @@
 - MSIXのタイルへ `Wide310x150Logo` と `Square310x310Logo` を追加し、`BackgroundColor` をアイコンの実測色へ変更。横長タイルはパッケージ工程で原本から直接生成する
 - MSIX環境での動作をスパイクで実測し、設計判断を確定（[design-decisions.md](./docs/design-decisions.md) 5.4、5.5、6.4、11.1、13.4）
 
+### Removed
+
+- ARM64を対応対象から外した（[design-decisions.md](./docs/design-decisions.md) 3章）。ARM64実機を用意できず、インストール、起動、WACKを確認できないため、ARM64版はビルドも配布もしない。ARM64のWindowsでx64版が動くかは検証しておらず、保証しない
+  - `scripts/build-msix.ps1` の `-Architecture` オプション、マニフェストのテンプレートの `ProcessorArchitecture` の置換、`about.toml` の `aarch64-pc-windows-msvc` ターゲット、バグ報告テンプレートの「ARM64」の選択肢を削除した。MSIXの生成はx64だけになる
+  - `spec.md`、`dev-flow.md`、`design-decisions.md`、`README.md`、`tasks.md` の、ARM64を対象とする記述と「x64版とARM64版を同一バージョンで生成する」「ARM64実機で提出前に確認する」という前提を改めた。Phase 1で完了済みの項目は、当時の結果を残したうえで、対応外としたことを併記した
+  - ARM64実機での検証（[#8](https://github.com/scottlz0310/md-peruse/issues/8)）は廃案とした
+
 ### Fixed
 
 - RenovateによるTauri CLI更新後、CIの検査で不一致になっていたWindows向けアイコンを更新した

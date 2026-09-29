@@ -27,7 +27,7 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 
 ## 対象環境
 
-- Windows 11（x64 / ARM64）
+- Windows 11（x64。ARM64は対応外）
 - Microsoft Edge WebView2 Runtime
 - 配布形式: MSIX（Microsoft Store）
 
@@ -120,22 +120,14 @@ winget install --id Microsoft.WinAppCli --version 0.6.1 --exact
 
 `scripts/build-msix.ps1` は実行前に `winapp --version` を照合し、`$requiredWinappVersion`（現在は 0.6.1）と一致しなければ失敗する。マニフェスト検証、PRI生成、署名の挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。
 
-ARM64版をビルドする場合はRustのターゲットを追加する。
-
-```sh
-rustup target add aarch64-pc-windows-msvc
-```
-
-`scripts/build-msix.ps1` がReleaseビルドからパッケージレイアウトを組み立て、MSIXを生成する。
+`scripts/build-msix.ps1` がx64のReleaseビルドからパッケージレイアウトを組み立て、MSIXを生成する。
 
 ```powershell
-./scripts/build-msix.ps1 -Architecture x64 -Sign
-./scripts/build-msix.ps1 -Architecture arm64 -Sign
+./scripts/build-msix.ps1 -Sign
 ```
 
 | オプション | 内容 |
 | --- | --- |
-| `-Architecture` | `x64` または `arm64`。ARM64はx64ホストからのクロスコンパイルで生成する |
 | `-SkipBuild` | Releaseビルドを省略し、既存の成果物からパッケージだけを作り直す |
 | `-Sign` | 開発用自己署名証明書で署名する。証明書がなければ生成する |
 
@@ -146,7 +138,7 @@ winapp cert install .\devcert.pfx
 Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
 ```
 
-`Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`ProcessorArchitecture` と `Version` をビルド時に置換する。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
+`Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`Version` をビルド時に置換する。`ProcessorArchitecture` は `x64` に固定している。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
 
 ### アイコン
 

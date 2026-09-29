@@ -50,10 +50,11 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 | --- | --- |
 | OS | Windows 11 |
 | 最小OSビルド | 22000 |
-| CPU | x64、ARM64 |
+| CPU | x64 |
 | WebView | Evergreen WebView2 Runtime |
-| 非対応 | x86、Windows 10、EOL済みWindows |
+| 非対応 | x86、ARM64、Windows 10、EOL済みWindows |
 
+- ARM64は対応外とし、バイナリも配布しない（2026-09-29に決定）。ARM64実機を用意できず、インストール、起動、WACK（パッケージをインストールして実行するため、ホストと同じアーキテクチャを要する）を実機で確認できない。確認していない成果物は提出も配布もしない。Phase 1ではx64ホストからのクロスコンパイル（`aarch64-pc-windows-msvc`）でARM64版の `tauri build` とMSIX生成が成功したが、これは実機での動作の裏付けにならない。ARM64のWindowsでx64版が動くか（エミュレーション、Storeでの提供可否を含む）は検証しておらず、保証しない。ARM64実機での検証（[#8](https://github.com/scottlz0310/md-peruse/issues/8)）は、対応外とすることに伴い廃案とした。将来ARM64実機を用意できた場合は、対応の追加として改めて判断する。
 - Fixed Version WebView2 Runtimeは同梱しない。
 - WebView2の初期化に失敗した場合、原因と公式修復先をネイティブ側から表示する。
 - アプリ自身がWebView2 Runtimeをダウンロードまたはインストールしない。
@@ -94,8 +95,8 @@ Read-onlyはユーザーのMarkdownと関連リソースを書き換えないこ
 
 - 選定理由: install、test、runを単一ツールで完結でき、ローカルとCIの工程が短い。
 - 却下理由: pnpmはユーザー標準で整合コストが低いが、test runnerを別途要する。npmは速度面で劣る。
-- 引き受けるリスク: ユーザー標準（pnpm）からの逸脱。共有Renovateプリセットがpnpm前提のルールを含む場合の不整合。Windows ARM64サポートの確認が必要。
-- 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する（下記）。Phase 1でARM64上の動作を確認する。
+- 引き受けるリスク: ユーザー標準（pnpm）からの逸脱。共有Renovateプリセットがpnpm前提のルールを含む場合の不整合。
+- 緩和策: Bun向けの調整を共有Renovateプリセット側へ集約し、リポジトリローカルの `renovate.json` を最小限に保つ。Bun本体の更新を通常のJavaScript依存更新から分離する（下記）。
 
 Bunのバージョンは `.bun-version` で固定する。Renovateの `bun-version` マネージャが対象とするのは `.bun-version` であり、`package.json` の `packageManager` はBunの更新元にならない（CorepackがBunを扱わないため、共有プリセット `presets/languages/nodejs` も同じ理由で `.bun-version` の使用を求めている）。CIの `setup-bun` も `bun-version-file: .bun-version` で同じ値を読む。
 
@@ -1645,8 +1646,8 @@ Store向けカスタムイベント（11.4）の送信失敗は、本章の対�
 
 ## 13. パッケージングとStore
 
-- Tauri CLIのRelease出力をx64とARM64で生成する。
-- winapp CLIでアーキテクチャ別MSIXを生成する。
+- Tauri CLIのRelease出力をx64で生成する。
+- winapp CLIでx64のMSIXを生成する。
 - `Package.appxmanifest`、Identity、Publisher、Version、Assetsをリポジトリで管理する。
 - Tauri実行ファイルをpackaged classic app、`mediumIL` として登録し、必要な `runFullTrust` を宣言する。
 - `broadFileSystemAccess` は宣言せず、ユーザー権限と明示的に選択されたワークスペース境界でアクセスする。
@@ -1685,7 +1686,7 @@ Phase 1のスパイクで次を確定した。
 | 関連付け | `windows.fileTypeAssociation` で `.md` と `.markdown` |
 | winapp CLI | 0.6.1（WinGet `Microsoft.WinAppCli`） |
 
-マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `ProcessorArchitecture` と `Version` を置換して生成する。アーキテクチャごとに別のマニフェストを保守しない。
+マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `Version` を置換して生成する。`ProcessorArchitecture` は `x64` に固定する（ARM64は対応外。3章）。
 
 visual assetの原本は2点とし、いずれも手作業でのリサイズは行わない。
 
@@ -1714,7 +1715,7 @@ visual assetの原本は2点とし、いずれも手作業でのリサイズは�
 
 ### 13.2 ビルド時依存の境界
 
-ARM64はx64ホストからのクロスコンパイル（`aarch64-pc-windows-msvc`）で生成する。ネイティブARM64ランナーは使用しない。x64とARM64の両方で `tauri build` が成功し、生成したMSIXのサイズはそれぞれ約1.4MBである。
+MSIXはx64のReleaseビルドから生成する。ARM64は対応外とした（3章）。Phase 1ではx64ホストからのクロスコンパイル（`aarch64-pc-windows-msvc`）でARM64版のMSIXも生成できることを確認したが、実機で検証できないため以後は扱わない。x64の `tauri build` は成功し、生成したMSIXのサイズは約1.4MBである。
 
 MSIXの生成にNode.jsは不要である。Bun、Rustツールチェーン、winapp CLI、Windows SDKだけで完結する。winapp CLIは内部でWindows SDKの `makeappx` と `signtool` を呼び出す。
 
@@ -1747,7 +1748,7 @@ FAILした「ブロック済みの実行可能ファイル」は `OPTIONAL="TRUE
 | `cmd`、`cmd.exe`、`\cmd.exe` への参照 | Rust標準ライブラリに含まれる文字列（`library/std` のパス、およびbatch file実行用の `cmd.exe /e:ON /v:OFF /d /c` テンプレート）。アプリからcmdを起動する経路はない |
 | `basH`、`DNX`、`CdB` への参照 | 大文字小文字が混在しており、バイナリ中のバイト列への誤検出 |
 
-いずれもアプリのコードが外部プロセスを起動するものではない。Store提出を妨げる失敗はないと判断するが、審査で指摘された場合に備えて上記の内訳を記録する。ARM64版のWACKは、パッケージをインストールして実行する都合上ホストと同じアーキテクチャを要するため、Phase 5の提出前検証で実施する。
+いずれもアプリのコードが外部プロセスを起動するものではない。Store提出を妨げる失敗はないと判断するが、審査で指摘された場合に備えて上記の内訳を記録する。
 
 ### 13.4 MSIX環境での動作検証（x64）
 
@@ -1842,7 +1843,6 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 
 未確認の事項は次のとおり。
 
-- ARM64での成立。framework packageはARM64版も配布されているが、ARM64実機がないためPhase 5の提出前検証で確認する（[#8](https://github.com/scottlz0310/md-peruse/issues/8)と同じ扱い）。
 - Store提出時にframework packageの依存をStoreが解決するか。ローカル検証では `Add-AppxPackage` で事前に導入した。
 - Partner CenterのUsage reportへイベントが実際に反映されること。Store公開後にしか確認できないため、段階4で行う。
 - SDKがpackaged classic appを公式サポートすると明記した文書はない。動作は実測できたが、将来のSDK更新で崩れうる前提として扱い、段階2では送信経路が失われても機能へ影響しない設計とする。
@@ -1907,12 +1907,12 @@ Watcherの写像・畳み込み・窓の時間規則（6.4）も注入の対象�
 
 ### 14.4 パッケージと実機
 
-- x64とARM64のReleaseビルドを検証する。
+- x64のReleaseビルドを検証する。
 - MSIX manifest、Identity、Publisher、Version、Capabilitiesを静的検査する。
 - 自己署名MSIXをインストールし、起動、関連付け、Package Identityを確認する。
 - WACKをStore提出前に実行する。
 - Storeへ提出するMSIXがCIで検証したartifactと一致することを確認する。
-- x64実機を必須とし、ARM64実機または同等環境でスモークテストする。
+- x64実機でスモークテストする。
 - [spec.md](./spec.md)の性能目標をインストール済みパッケージに対して測定する。
 
 ### 14.5 FrontendのDOMテスト構成と退避条件
@@ -1957,7 +1957,7 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 | 項目 | 結論 | 参照 |
 | --- | --- | --- |
 | Tauri、Rust、Bun、React、Vite、winapp CLIの初期バージョン | winapp CLI 0.6.1 を含め確定 | 4.10 |
-| ARM64のビルド方式 | x64ホストからのクロスコンパイル | 13.2 |
+| ARM64への対応 | 対応外とし、バイナリも配布しない。Phase 1で確認したx64ホストからのクロスコンパイルによるビルドも以後は行わない（2026-09-29に改めた。当初はクロスコンパイルで生成し、実機での検証はPhase 5の提出前に行う方針だった） | 3、13.2 |
 | BunのみでMSIXビルドを完結できるか | Node.jsは不要 | 13.2 |
 | `runFullTrust` だけを使用するMSIXでフォルダー選択、監視、関連付け起動が動作すること | いずれも動作する。関連付け起動の引数は `argv[1]` | 13.4 |
 | MSIXでのアプリ設定保存先が期待どおりに解決されること | パッケージ領域へリダイレクトされ、アンインストールで併せて削除される | 11.1、13.4 |
@@ -1985,9 +1985,7 @@ Phase 1のスパイク、Phase 2の基盤整備、Phase 3の詳細設計で解�
 | Store向けカスタムイベントの送信経路（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階1） | packaged classic appから `StoreServicesCustomEventLogger` を呼べる。Engagement と VCLibs の `PackageDependency` が必要で、CSPとcapabilityへは影響しない | 13.5 |
 | Store向けカスタムイベントの要件（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階2） | 5種類のイベント名を固定し、いずれも1セッションにつき1回だけ送る。送るのはイベント名だけで、失敗は無視する | 11.4 |
 
-未解決の項目は次のとおり。
-
-- ARM64のMSIXインストール、起動、WACK結果（Phase 5の提出前検証で実施する）
+未解決の項目はない。
 
 ### P1: 初期版仕様確定前
 
