@@ -19,8 +19,8 @@
     "prepare": "lefthook install"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-opener": "^2.5.5",
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-opener": "^2.6.0",
     "dompurify": "^3.4.16",
     "github-slugger": "^2.0.0",
     "hast-util-from-html-isomorphic": "^2.0.0",
@@ -47,7 +47,7 @@
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",
     "@happy-dom/global-registrator": "^20.14.5",
-    "@tauri-apps/cli": "^2.11.5",
+    "@tauri-apps/cli": "^2.12.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/bun": "^1.4.2",
