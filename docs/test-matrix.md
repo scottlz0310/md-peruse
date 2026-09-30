@@ -101,7 +101,7 @@
 
 ## Phase 4 の完了条件との対応
 
-[dev-flow.md](./dev-flow.md) 第6章の完了条件ごとに、確認の在りかを示す。
+[dev-flow.md](./dev-flow.md) 第6章の完了条件（12件）ごとに、確認の在りかを示す。
 
 | 完了条件 | 確認 |
 | --- | --- |
@@ -115,6 +115,8 @@
 | Raw HTML、危険な URL scheme、境界外画像が遮断され、セキュリティ回帰テストが通る | 「セキュリティ回帰との突き合わせ」 |
 | `forced-colors` 有効時に Mermaid 図とコードブロックが判読できる | 実機の WebView2 を CDP で `forced-colors: active` にして確認（design-decisions.md 10.6）。実 OS のハイコントラストは未確認（下に示す） |
 | spec.md の性能目標を満たす | 描画に関わる3指標（文書切り替え、変更反映、ツリー展開）は、Release の実機で満たす（design-decisions.md 13.6。判定は中央値）。起動とメモリは、MSIX が条件のため Phase 5 |
+| Store 向けカスタムイベントが、定義どおりの条件でのみ送信され、送信失敗がファイル・フォルダー操作へ波及しない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3） | Rust: `telemetry`（イベントは5種で名前が安定、1セッションに各1回、Store 署名のときだけ送る、送信の失敗は無視して再送しない、送らないイベントは送信済みとして記録しない）、`telemetry::store_logger`（偽の COM オブジェクトでの vtable、`HSTRING`、各段の失敗）、`open_folder`（利用者が開いたときだけ数え、復元は数えない、開けなかったときは数えない）。Frontend: `App`「文書の表示結果の通知（11.4）」（描画できたことは1回だけ、失敗は成功と別に1回だけ、失敗の表示だけでは成功を知らせない）、`MarkdownDocument`「描画が完了するたびに知らせる（11.4）」。実機: 開発用に署名した MSIX で、署名種別の判定が送信の口へ届かないこと、判定だけを外すと `RoInitialize`、`GetDefault()`、`Log()` が成功することを確認（tasks.md 4-2「Store向けカスタムイベントの実送信」「…送信を `Package.Current.SignatureKind` が `Store` のときだけに限る判定」）。**`Store` 署名での実送信は、Store 公開後にしか確認できない**（Phase 5、[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） |
+| 起動中に2つ目の `.md` を関連付けから開く経路が E2E 回帰項目として固定され、既存ウィンドウへのタブ追加でセッション単位のイベントが重複送信されない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3） | Rust: `launch`（2つ目の起動は、準備が済んでいれば直ちに開く、セッションのイベントを送らない、相対パスは2つ目のプロセスの作業ディレクトリで解決する）。Frontend: `App`「起動後に2つ目の起動で届く指示は、既存のウィンドウのタブとして開く」、`App`「描画できたことは、何度文書を表示しても1回だけ知らせる」。実機（`tauri dev`）: 最小化したウィンドウへの2つ目のプロセス（絶対パス、相対パス、引数なし）を確認（tasks.md 4-2「関連付け起動と単一インスタンス」）。MSIX 内での確認は Phase 5 |
 
 ## 確認できていない項目
 
