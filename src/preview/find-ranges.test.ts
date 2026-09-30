@@ -45,6 +45,18 @@ describe("collectFindRanges", () => {
       "node",
       ["node"],
     ],
+    [
+      "脚注セクションの隠し見出しを対象にしない",
+      '<p>Footnotes</p><section data-footnotes><h2 id="footnote-label">Footnotes</h2><ol><li>脚注</li></ol></section>',
+      "footnotes",
+      ["Footnotes"],
+    ],
+    [
+      "脚注の本文は対象にする",
+      '<section data-footnotes><h2 id="footnote-label">Footnotes</h2><ol><li>脚注の本文</li></ol></section>',
+      "本文",
+      ["本文"],
+    ],
     ["重なる一致は数えない", "<p>aaaa</p>", "aa", ["aa", "aa"]],
     ["空の検索語は何も返さない", "<p>abc</p>", "", []],
   ])("%s", (_, html, query, expected) => {

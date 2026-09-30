@@ -293,6 +293,8 @@ body {
   border-radius: 4px;
   white-space: nowrap;
   cursor: pointer;
+  /* ダブルクリックは固定タブで開く操作であり、ラベルの語を選択させない。 */
+  user-select: none;
 }
 
 .tree-row:hover {
@@ -705,4 +707,22 @@ body {
   .drag-overlay[data-state="rejected"] {
     border-color: GrayText;
   }
+}
+
+/*
+ * 脚注セクションの見出しは、remark-gfm が `sr-only` を付けて出す、スクリーンリーダー向けの
+ * 見出しである。sanitize が `class` を落とす（8.2）ため、構造で選んで視覚的にだけ隠す。
+ * `display: none` にはしない。アクセシビリティツリーから外れ、見出しへの移動ができなくなる。
+ * 詳細度の高い規則をほかの `h2` の規則より前に置くと lint が警告するため、末尾に置く。
+ */
+.markdown-body section[data-footnotes] > h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
