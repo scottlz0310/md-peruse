@@ -53,6 +53,7 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | [docs/design-decisions.md](./docs/design-decisions.md) | 設計判断と未決事項の**正本** | 設計判断を下したとき、未決事項の状態が変わったときに更新する |
 | [docs/dev-flow.md](./docs/dev-flow.md) | 実装順序、フェーズごとの作業と完了条件の**正本** | フェーズの構成、着手順、完了条件が変わったときに更新する |
 | [docs/test-matrix.md](./docs/test-matrix.md) | `spec.md` の要件と、それを確かめるテスト・実機確認の対応。Phase 4 の完了条件との対応も示す | 要件、またはそれを確認するテストが変わったときに更新する |
+| [scripts/README.md](./scripts/README.md) | 開発・保守の道具（性能測定、実機の確認）の使い方。CIへは載せない | 道具を足したとき、使い方が変わったときに更新する |
 | [docs/uimock.html](./docs/uimock.html) | 画面構成の視覚参考（要件は定義しない） | 参考資料のため随時 |
 | [tasks.md](./tasks.md) | 進捗とタスクの**正本** | タスクの着手・完了ごとに更新する |
 | [CHANGELOG.md](./CHANGELOG.md) | 利用者から見た変更履歴 | リリースに影響する変更ごとに更新する |
