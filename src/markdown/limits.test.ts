@@ -240,6 +240,11 @@ describe("plainDocumentReason", () => {
     ["字下げした引用の中のリスト", "  >   - a\n", true],
     ["同じ行に連なるマーカー", "- - a\n", true],
     ["番号付きとハイフンの連なり", "1. - a\n", true],
+    // マーカーの後に引用の `>` が挟まり、さらにマーカーが連なる。
+    ["リストの中の引用の中のリスト", "- > - a\n", true],
+    ["番号付きリストの中の引用の中のリスト", "1. > 1. a\n", true],
+    ["引用とマーカーの交互の連なり", "> - > - > - a\n", true],
+    ["引用の後に、マーカーではない文字", "- > a\n", true],
     ["マーカーの後に空白がない", "-a\n", false],
     ["強調（アスタリスク2つ）", "**a**\n", false],
     ["小数（番号ではない）", "1.5 a\n", false],
@@ -257,6 +262,14 @@ describe("plainDocumentReason", () => {
     const text = lines(unit, overLimit + 1);
     expect(text.length).toBeLessThanOrEqual(DOCUMENT_LIMITS.richMaxChars);
     expect(plainDocumentReason(text)).toBe(counted ? "tooManyListItems" : null);
+  });
+
+  test("引用を挟んで連なるマーカーも、1つずつ数える", () => {
+    // \`- > - a\\n\\n\` は9文字で、項目は2つ。1行1項目として数えると、2万行（18万文字、項目2万、
+    // 積 3.6×10⁹）は上限内になる。1つずつ数えると、項目4万、積 7.2×10⁹ で上限を超える。
+    expect(plainDocumentReason(lines("- > - a\n\n", 20_000))).toBe(
+      "tooManyListItems",
+    );
   });
 
   test("同じ行に連なるマーカーは、1つずつ数える", () => {
