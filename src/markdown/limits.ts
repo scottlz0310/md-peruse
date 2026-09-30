@@ -123,8 +123,8 @@ export const DOCUMENT_LIMITS = {
    */
   richMaxListItemChars: 5_000_000_000,
   /**
-   * 空行で区切られた1つのブロック（段落、表、リスト）の文字数の上限。フェンスコードの中は
-   * 数えない。`micromark` は、1つの段落の中の隣り合う `data` イベントの結合（`resolveData`）で、
+   * 空行で区切られた1つのブロック（段落、表、リスト）の文字数の上限。行の種類は見分けず、
+   * フェンスコードの中も数える（{@link hasLongBlock}）。`micromark` は、1つの段落の中の隣り合う `data` イベントの結合（`resolveData`）で、
    * ループの中で `splice` を使うため、記法が密な巨大な段落は二乗で伸びる。強調の入れ子の
    * 連続は、59万文字の1段落で73秒、10万文字で2.3秒、5万文字で0.28秒だった（実測）。10万文字
    * までに抑えると、1つのブロックの最悪が約2.3秒になる。
@@ -163,98 +163,38 @@ export function plainDocumentReason(text: string): PlainDocumentReason | null {
 const SPACE = 0x20;
 const TAB = 0x09;
 const QUOTE = 0x3e; // >、引用の接頭辞
-const BACKTICK = 0x60;
-const TILDE = 0x7e;
 
 /**
  * 空行で区切られたブロックのうち、`limit` 文字を超えるものがあるかを返す。
  *
- * ブロックは、空行（空白とタブだけの行を含む）で区切られた、連続する行である。フェンスコード
- * （3つ以上の `` ` `` または `~` で始まる行から、同じ文字の3つ以上の連なりの行まで。閉じなければ
- * 文書の末尾まで。バッククォートの開始の行は、後ろにバッククォートを含まないものに限る）の中の
- * 行は、ブロックの長さに数えない。コードブロックは、記法の解析に
- * かからないためである。フェンスの開始の行は、直前のブロックを区切る。
+ * ブロックは、空行（空白とタブだけの行を含む）で区切られた、連続する行である。行の種類は
+ * 見分けない。フェンスコードの中も数える。フェンスコードの中は記法の解析にかからないが、
+ * ある行がフェンスかどうかは、パーサーの状態（front matter、数式ブロック、HTMLブロック、
+ * 引用やリストの中）に依存し、この判定では再現しきれない。フェンスを取り違えて数え落とすと、
+ * 長い段落が上限を回避する（レビューで、開始の行と閉じる行について続けて指摘された）。
+ * 数えすぎる側は、空行のない10万文字を超えるコードブロックを含む文書が、書式なしになる
+ * だけで壊れない。
  *
  * 文字列を1回走査し、文字数に比例する。`limit` を超えた時点で打ち切る。
  */
 function hasLongBlock(text: string, limit: number): boolean {
   const length = text.length;
   let lineStart = 0;
-  // 現在のブロックの開始位置。空行とフェンスの中では -1。
+  // 現在のブロックの開始位置。空行では -1。
   let blockStart = -1;
-  // 開いているフェンスの文字。開いていなければ 0。
-  let fence = 0;
   while (lineStart < length) {
     const newline = text.indexOf("\n", lineStart);
     const lineEnd = newline === -1 ? length : newline;
-
-    // 行頭の空白は3つまで許される（4つ以上は字下げコード）。
-    let position = lineStart;
-    while (
-      position < lineEnd &&
-      position - lineStart < 3 &&
-      text.charCodeAt(position) === SPACE
-    ) {
-      position += 1;
-    }
-    const code = text.charCodeAt(position);
-    const run =
-      code === BACKTICK || code === TILDE
-        ? runLength(text, position, lineEnd, code)
-        : 0;
-
-    if (fence !== 0) {
-      // 閉じる行は、開始の文字数以上の連なりだけの行だが、ここでは3つ以上の連なりで閉じる。
-      // 早く閉じるほうは、後続の行をブロックとして数える側であり、書式なしへ倒れるだけで壊れない。
-      if (code === fence && run >= 3) fence = 0;
-    } else if (run >= 3 && opensFence(text, position, run, lineEnd, code)) {
-      fence = code;
-      blockStart = -1;
-    } else if (isBlank(text, lineStart, lineEnd)) {
+    if (isBlank(text, lineStart, lineEnd)) {
       blockStart = -1;
     } else {
       if (blockStart === -1) blockStart = lineStart;
       if (lineEnd - blockStart > limit) return true;
     }
-
     if (newline === -1) break;
     lineStart = newline + 1;
   }
   return false;
-}
-
-/**
- * 3つ以上の連なり（長さ `run`）で始まる行が、フェンスの開始かを返す。
- *
- * バッククォートのフェンスは、連なりの後ろの文字列（情報文字列）にバッククォートを含められない。
- * 含むと、フェンスではなく段落（インラインコード）になる（CommonMark）。開始と取り違えると、
- * 後続の長い段落を数えずに通し、上限を回避される。チルダのフェンスには、この制限がない。
- * 行末（`lineEnd`）までしか読まない。
- */
-function opensFence(
-  text: string,
-  position: number,
-  run: number,
-  lineEnd: number,
-  code: number,
-): boolean {
-  if (code !== BACKTICK) return true;
-  for (let index = position + run; index < lineEnd; index += 1) {
-    if (text.charCodeAt(index) === BACKTICK) return false;
-  }
-  return true;
-}
-
-/** `position` から、同じ文字 `code` が連なる長さを返す。行末（`lineEnd`）までしか読まない。 */
-function runLength(
-  text: string,
-  position: number,
-  lineEnd: number,
-  code: number,
-): number {
-  let end = position;
-  while (end < lineEnd && text.charCodeAt(end) === code) end += 1;
-  return end - position;
 }
 
 /** 行が、空白とタブだけ（または空）かを返す。 */

@@ -337,76 +337,58 @@ describe("plainDocumentReason: 空行で区切られたブロックの長さ", (
   );
 
   test.each([
-    // 説明, 開始, 終了
-    ["バッククォートのフェンス", "```ts", "```"],
-    ["チルダのフェンス", "~~~", "~~~"],
-    ["4つのバッククォートのフェンス", "````", "````"],
-    ["字下げしたフェンス", "   ```", "   ```"],
-  ])(
-    "フェンスコードの中は、ブロックの長さに数えない: %s",
-    (_name, open, close) => {
-      // 空行を含まない長いコード。解析にかからないため、書式ありで描画してよい。
-      const text = `${open}\n${block(limit * 3)}\n${close}\n`;
-      expect(plainDocumentReason(text)).toBeNull();
-    },
-  );
-
-  test("閉じないフェンスは、文書の末尾までをコードとして扱う", () => {
-    expect(plainDocumentReason(`\`\`\`\n${block(limit * 3)}\n`)).toBeNull();
-  });
-
-  test("フェンスの前後の段落は、それぞれ別のブロックである", () => {
-    // フェンスの開始の行が、直前のブロックを区切る。前後が上限内なら、合わせて上限を超えても通る。
-    const text = `${block(limit * 0.6)}\n\`\`\`\ncode\n\`\`\`\n${block(limit * 0.6)}\n`;
-    expect(plainDocumentReason(text)).toBeNull();
-  });
-
-  test("フェンスの外の長いブロックは、フェンスの後でも数える", () => {
-    const text = `\`\`\`\ncode\n\`\`\`\n${block(limit + 1)}\n`;
+    // 説明, 本文
+    [
+      "バッククォートのフェンスの中も数える",
+      `\`\`\`ts\n${block(limit + 1)}\n\`\`\`\n`,
+    ],
+    ["チルダのフェンスの中も数える", `~~~\n${block(limit + 1)}\n~~~\n`],
+    ["閉じないフェンスの中も数える", `\`\`\`\n${block(limit + 1)}\n`],
+  ])("フェンスコードの中も、ブロックの長さに数える: %s", (_name, text) => {
+    // フェンスを見分けると、パーサーの状態（front matter、数式、HTMLブロック、引用、リスト）と
+    // ずれて、長い段落を数え落とす。空行のない長いコードブロックは、書式なしになる。
     expect(plainDocumentReason(text)).toBe("tooLongBlock");
   });
 
+  test("フェンスの中の空行は、ブロックを区切る", () => {
+    // 空行を含むコードは、空行で区切られた短いブロックとして数える。
+    const code = `${block(limit * 0.6)}\n\n${block(limit * 0.6)}`;
+    expect(plainDocumentReason(`\`\`\`\n${code}\n\`\`\`\n`)).toBeNull();
+  });
+
   test.each([
-    // 説明, 開始の行
-    ["情報文字列にバッククォートを含む", "```a`b"],
-    ["4つの連なりで、情報文字列にバッククォートを含む", "```` a`b"],
-    ["情報文字列がバッククォートだけ", "``` `"],
-    ["インラインコードが続く", "```ts `x`"],
+    // 説明, 本文
+    [
+      "4つのバッククォートのフェンスの中に、3つの行がある（レビュー指摘）",
+      `\`\`\`\`\n\`\`\`\ncode\n\`\`\`\`\n${block(limit + 1)}\n`,
+    ],
+    [
+      "情報文字列にバッククォートを含む開始の行（レビュー指摘）",
+      `\`\`\`a\`b\n${"*a".repeat(55_000)}\n`,
+    ],
+    [
+      "front matter の中に、閉じないフェンスに見える行がある",
+      `---\nnote: |\n  \`\`\`\n---\n\n${block(limit + 1)}\n`,
+    ],
+    [
+      "数式ブロックの中に、閉じないフェンスに見える行がある",
+      `$$\n\`\`\`\n$$\n\n${block(limit + 1)}\n`,
+    ],
+    [
+      "HTMLコメントの中に、閉じないフェンスに見える行がある",
+      `<!--\n\`\`\`\n-->\n\n${block(limit + 1)}\n`,
+    ],
   ])(
-    "バッククォートのフェンスの開始の行に、後ろにバッククォートがあれば、フェンスではない（レビュー指摘）: %s",
-    (_name, open) => {
-      // CommonMarkでは段落（インラインコード）になる。フェンスと取り違えると、後続の長い段落を
-      // 数えずに通す。レビュー指摘の再現は、`*a` を5.5万回並べた1行（11万文字）。
-      expect(plainDocumentReason(`${open}\n${"*a".repeat(55_000)}\n`)).toBe(
-        "tooLongBlock",
-      );
-      expect(plainDocumentReason(`${open}\n${block(limit + 1)}\n`)).toBe(
-        "tooLongBlock",
-      );
+    "フェンスに見える行があっても、後続の長いブロックを数え落とさない: %s",
+    (_name, text) => {
+      expect(plainDocumentReason(text)).toBe("tooLongBlock");
     },
   );
 
-  test.each([
-    // 説明, 開始の行, 終了の行
-    [
-      "情報文字列にバッククォートがないバッククォートのフェンス",
-      '```ts title="a"',
-      "```",
-    ],
-    [
-      "チルダのフェンスは、情報文字列にバッククォートを含められる",
-      "~~~ a`b",
-      "~~~",
-    ],
-  ])("%s は、フェンスとして数えない", (_name, open, close) => {
-    const text = `${open}\n${block(limit * 3)}\n${close}\n`;
-    expect(plainDocumentReason(text)).toBeNull();
-  });
-
-  test("バッククォートが3つ未満の行は、フェンスではない", () => {
-    // 2つの連なりはインラインコードの記法であり、ブロックを区切らない。
-    const text = `\`\`a\n${block(limit)}\n`;
-    expect(plainDocumentReason(text)).toBe("tooLongBlock");
+  test("引用の中の長いブロックも数える", () => {
+    expect(plainDocumentReason(`> ${"a".repeat(limit + 1)}\n`)).toBe(
+      "tooLongBlock",
+    );
   });
 
   test.each([
