@@ -211,9 +211,13 @@ describe("stepMatchIndex", () => {
 });
 
 describe("FIND_EXCLUDED_SELECTORS", () => {
-  test("KaTeXの出力とSVGを除外する", () => {
+  test("KaTeXの出力とSVGと脚注の隠し見出しを除外する", () => {
     // KaTeXはMathMLのテキストとannotation要素のLaTeXを二重に持ち、Mermaidの図はSVGとして
-    // 出力される（design-decisions.md 8.6）。
-    expect([...FIND_EXCLUDED_SELECTORS]).toEqual([".katex", "svg"]);
+    // 出力される。脚注セクションの見出しは視覚的に隠している（design-decisions.md 8.6）。
+    expect([...FIND_EXCLUDED_SELECTORS]).toEqual([
+      ".katex",
+      "svg",
+      "section[data-footnotes] > h2",
+    ]);
   });
 });

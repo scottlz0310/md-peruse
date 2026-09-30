@@ -258,6 +258,19 @@ describe("見出しアンカー", () => {
     const [label] = collect(tree, "h2");
     expect(label?.properties?.id).toBe("footnote-label");
   });
+
+  test("脚注の見出しは data-footnotes を持つ section の直下にある", async () => {
+    // App.css が `section[data-footnotes] > h2` で視覚的に隠し、文書内検索も同じセレクタで
+    // 除外する（design-decisions.md 8.6）。構造か属性が変わると、隠れずに画面へ出る。
+    const tree = await render("本文[^1]\n\n[^1]: 脚注\n");
+    const [section] = collect(tree, "section");
+    expect(section?.properties?.dataFootnotes).toBe(true);
+    const headings = section?.children.filter(
+      (child): child is Element =>
+        child.type === "element" && child.tagName === "h2",
+    );
+    expect(headings).toHaveLength(1);
+  });
 });
 
 describe("YAML front matter", () => {
