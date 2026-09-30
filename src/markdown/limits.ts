@@ -171,7 +171,8 @@ const TILDE = 0x7e;
  *
  * ブロックは、空行（空白とタブだけの行を含む）で区切られた、連続する行である。フェンスコード
  * （3つ以上の `` ` `` または `~` で始まる行から、同じ文字の3つ以上の連なりの行まで。閉じなければ
- * 文書の末尾まで）の中の行は、ブロックの長さに数えない。コードブロックは、記法の解析に
+ * 文書の末尾まで。バッククォートの開始の行は、後ろにバッククォートを含まないものに限る）の中の
+ * 行は、ブロックの長さに数えない。コードブロックは、記法の解析に
  * かからないためである。フェンスの開始の行は、直前のブロックを区切る。
  *
  * 文字列を1回走査し、文字数に比例する。`limit` を超えた時点で打ち切る。
@@ -203,8 +204,10 @@ function hasLongBlock(text: string, limit: number): boolean {
         : 0;
 
     if (fence !== 0) {
+      // 閉じる行は、開始の文字数以上の連なりだけの行だが、ここでは3つ以上の連なりで閉じる。
+      // 早く閉じるほうは、後続の行をブロックとして数える側であり、書式なしへ倒れるだけで壊れない。
       if (code === fence && run >= 3) fence = 0;
-    } else if (run >= 3) {
+    } else if (run >= 3 && opensFence(text, position, run, lineEnd, code)) {
       fence = code;
       blockStart = -1;
     } else if (isBlank(text, lineStart, lineEnd)) {
@@ -218,6 +221,28 @@ function hasLongBlock(text: string, limit: number): boolean {
     lineStart = newline + 1;
   }
   return false;
+}
+
+/**
+ * 3つ以上の連なり（長さ `run`）で始まる行が、フェンスの開始かを返す。
+ *
+ * バッククォートのフェンスは、連なりの後ろの文字列（情報文字列）にバッククォートを含められない。
+ * 含むと、フェンスではなく段落（インラインコード）になる（CommonMark）。開始と取り違えると、
+ * 後続の長い段落を数えずに通し、上限を回避される。チルダのフェンスには、この制限がない。
+ * 行末（`lineEnd`）までしか読まない。
+ */
+function opensFence(
+  text: string,
+  position: number,
+  run: number,
+  lineEnd: number,
+  code: number,
+): boolean {
+  if (code !== BACKTICK) return true;
+  for (let index = position + run; index < lineEnd; index += 1) {
+    if (text.charCodeAt(index) === BACKTICK) return false;
+  }
+  return true;
 }
 
 /** `position` から、同じ文字 `code` が連なる長さを返す。行末（`lineEnd`）までしか読まない。 */

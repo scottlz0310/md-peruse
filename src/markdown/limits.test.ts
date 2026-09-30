@@ -366,6 +366,43 @@ describe("plainDocumentReason: 空行で区切られたブロックの長さ", (
     expect(plainDocumentReason(text)).toBe("tooLongBlock");
   });
 
+  test.each([
+    // 説明, 開始の行
+    ["情報文字列にバッククォートを含む", "```a`b"],
+    ["4つの連なりで、情報文字列にバッククォートを含む", "```` a`b"],
+    ["情報文字列がバッククォートだけ", "``` `"],
+    ["インラインコードが続く", "```ts `x`"],
+  ])(
+    "バッククォートのフェンスの開始の行に、後ろにバッククォートがあれば、フェンスではない（レビュー指摘）: %s",
+    (_name, open) => {
+      // CommonMarkでは段落（インラインコード）になる。フェンスと取り違えると、後続の長い段落を
+      // 数えずに通す。レビュー指摘の再現は、`*a` を5.5万回並べた1行（11万文字）。
+      expect(plainDocumentReason(`${open}\n${"*a".repeat(55_000)}\n`)).toBe(
+        "tooLongBlock",
+      );
+      expect(plainDocumentReason(`${open}\n${block(limit + 1)}\n`)).toBe(
+        "tooLongBlock",
+      );
+    },
+  );
+
+  test.each([
+    // 説明, 開始の行, 終了の行
+    [
+      "情報文字列にバッククォートがないバッククォートのフェンス",
+      '```ts title="a"',
+      "```",
+    ],
+    [
+      "チルダのフェンスは、情報文字列にバッククォートを含められる",
+      "~~~ a`b",
+      "~~~",
+    ],
+  ])("%s は、フェンスとして数えない", (_name, open, close) => {
+    const text = `${open}\n${block(limit * 3)}\n${close}\n`;
+    expect(plainDocumentReason(text)).toBeNull();
+  });
+
   test("バッククォートが3つ未満の行は、フェンスではない", () => {
     // 2つの連なりはインラインコードの記法であり、ブロックを区切らない。
     const text = `\`\`a\n${block(limit)}\n`;
