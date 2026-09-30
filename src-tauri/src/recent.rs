@@ -207,6 +207,10 @@ mod tests {
             recent_folders,
             ..Settings::default()
         }));
+        app.manage(crate::telemetry::Telemetry::new(
+            Box::new(crate::telemetry::NullLogger),
+            None,
+        ));
         app
     }
 

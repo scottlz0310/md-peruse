@@ -45,30 +45,94 @@ const noImages = async (): Promise<ImageResource[]> => [];
 
 function mount(
   text: string,
-  options: { path?: string; view?: ViewTarget } = {},
+  options: {
+    path?: string;
+    view?: ViewTarget;
+    issueImages?: (
+      documentPath: string,
+      references: string[],
+    ) => Promise<ImageResource[]>;
+  } = {},
 ) {
   const navigated: LinkTarget[] = [];
+  // 描画の結果の通知（Store向けカスタムイベントの発火点。11.4）。
+  const rendered: string[] = [];
+  const failures: unknown[] = [];
   const props = {
     path: options.path ?? "docs/guide.md",
     onNavigate: (target: LinkTarget) => navigated.push(target),
-    issueImages: noImages,
+    issueImages: options.issueImages ?? noImages,
     imageRevision: 0,
     scroller,
+    onRendered: () => rendered.push("ok"),
+    onRenderFailed: (error: unknown) => failures.push(error),
   };
   const initialView = options.view ?? TOP;
-  const rendered = render(
+  const mounted = render(
     <MarkdownDocument text={text} view={initialView} {...props} />,
   );
   return {
     navigated,
+    rendered,
+    failures,
     rerender: (next: string, view: ViewTarget = initialView) =>
-      rendered.rerender(
-        <MarkdownDocument text={next} view={view} {...props} />,
-      ),
+      mounted.rerender(<MarkdownDocument text={next} view={view} {...props} />),
   };
 }
 
+/** 本文の描画パイプラインを失敗させる画像の発行。同期の例外は、パイプラインの例外になる。 */
+const throwingIssuer = (): Promise<ImageResource[]> => {
+  throw new Error("画像の発行に失敗した");
+};
+
 describe("MarkdownDocument", () => {
+  test("描画が完了するたびに知らせる（11.4）", async () => {
+    const { rendered, failures, rerender } = mount("# 一つ目\n");
+    await waitFor(() => expect(rendered).toHaveLength(1));
+
+    rerender("# 二つ目\n");
+
+    await waitFor(() => expect(rendered).toHaveLength(2));
+    expect(failures).toEqual([]);
+  });
+
+  test("本文全体を描画できないときは、失敗を知らせ、前の本文を残さない（11.4）", async () => {
+    // 画像の発行がパイプラインの例外になる本文。数式・図・画像の位置だけの失敗ではなく、
+    // 本文全体の失敗である。
+    const { rendered, failures, rerender } = mount("# 前の文書\n", {
+      issueImages: (_path, references) =>
+        references.length > 0 ? throwingIssuer() : noImages(),
+    });
+    await waitFor(() => expect(rendered).toHaveLength(1));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "前の文書",
+    );
+
+    rerender("![図](a.png)\n");
+
+    await waitFor(() => expect(failures).toHaveLength(1));
+    expect((failures[0] as Error).message).toBe("画像の発行に失敗した");
+    // 別の文書の内容を、いまの文書として見せない。
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(rendered).toHaveLength(1);
+  });
+
+  test("差し替えられた本文の描画の失敗は捨てる", async () => {
+    const { rendered, failures, rerender } = mount("![図](bad.png)\n", {
+      issueImages: (_path, references) =>
+        references.includes("bad.png") ? throwingIssuer() : noImages(),
+    });
+
+    // 失敗が届く前に、別の本文へ差し替える。
+    rerender("# 次の文書\n");
+
+    await waitFor(() => expect(rendered).toHaveLength(1));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "次の文書",
+    );
+    expect(failures).toEqual([]);
+  });
+
   test("本文を描画する", async () => {
     mount("# 見出し\n\n本文\n");
 
@@ -257,6 +321,8 @@ describe("MarkdownDocument", () => {
         issueImages={issueImages}
         imageRevision={0}
         scroller={scroller}
+        onRendered={() => {}}
+        onRenderFailed={() => {}}
       />,
     );
 
@@ -287,6 +353,8 @@ describe("MarkdownDocument", () => {
         issueImages={issueImages}
         imageRevision={imageRevision}
         scroller={scroller}
+        onRendered={() => {}}
+        onRenderFailed={() => {}}
       />
     );
     const { rerender } = render(element(0));

@@ -22,8 +22,8 @@ use crate::image::issue::issue;
 use crate::ipc::error::{ErrorCode, IpcError};
 use crate::ipc::message::ipc_error;
 use crate::ipc::types::{
-    FileContent, ImageResource, ImageResourceRequest, LooseWatchRequest, ReadRequest, ScanRequest,
-    ScanResult, WorkspaceOpenedEvent,
+    FileContent, ImageResource, ImageResourceRequest, LooseWatchRequest, OpenMdResult, ReadRequest,
+    ScanRequest, ScanResult, WorkspaceOpenedEvent,
 };
 use crate::launch;
 use crate::open_folder;
@@ -34,6 +34,7 @@ use crate::scan::scan_directory;
 use crate::settings::{UiSettings, UiSettingsUpdate};
 use crate::settings_store::SettingsStore;
 use crate::state::AppState;
+use crate::telemetry::{Telemetry, TelemetryEvent};
 
 /// ディレクトリ1階層を走査する。
 ///
@@ -313,6 +314,24 @@ pub async fn frontend_ready_command(app: AppHandle) {
         .expect("起動ファイルを開くタスクの実行に失敗");
 }
 
+/// 文書を表示した結果を知らせる（design-decisions.md 11.4）。
+///
+/// Store向けカスタムイベント `open_md_ok` と `open_md_fail` の発火点である。描画の完了は
+/// Frontendだけが知るため、Frontendが知らせる。記録するだけで、送信の成否は返さない。
+/// 記録は待たない（ロックはセッションの記録を1回読み書きする間だけ）ため、同期のcommandとする。
+#[tauri::command]
+pub fn report_open_result_command(telemetry: State<'_, Telemetry>, result: OpenMdResult) {
+    telemetry.record(open_result_event(result));
+}
+
+/// 結果を対応するイベントへ写す。
+fn open_result_event(result: OpenMdResult) -> TelemetryEvent {
+    match result {
+        OpenMdResult::Ok => TelemetryEvent::OpenMdOk,
+        OpenMdResult::Fail => TelemetryEvent::OpenMdFail,
+    }
+}
+
 /// 最近使ったフォルダーの項目をワークスペースとして開く（9.2、11.1）。
 ///
 /// 成功は `workspace-opened` で知らせる（フォルダー選択と同じ経路）。IDは一覧を作り直すたびに
@@ -341,6 +360,19 @@ pub fn update_ui_settings_command(settings: State<'_, SettingsStore>, update: Ui
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Frontendが知らせる結果は、成功と失敗の2値に限り、それぞれ対応するイベントへ写る。
+    /// イベント名そのものは受け取らない（5.5）。
+    #[test]
+    fn open_results_map_to_their_events() {
+        let cases = [
+            (OpenMdResult::Ok, TelemetryEvent::OpenMdOk),
+            (OpenMdResult::Fail, TelemetryEvent::OpenMdFail),
+        ];
+        for (result, expected) in cases {
+            assert_eq!(open_result_event(result), expected, "{result:?}");
+        }
+    }
 
     #[test]
     fn directory_errors_map_to_directory_codes() {

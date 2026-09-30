@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { FileContent } from "../types/generated/FileContent";
 import type { ImageResource } from "../types/generated/ImageResource";
+import type { OpenMdResult } from "../types/generated/OpenMdResult";
 import type { ScanResult } from "../types/generated/ScanResult";
 import type { UiSettings } from "../types/generated/UiSettings";
 import type { UiSettingsUpdate } from "../types/generated/UiSettingsUpdate";
@@ -108,6 +109,18 @@ export function getWorkspace(): Promise<WorkspaceOpenedEvent | null> {
  */
 export function notifyFrontendReady(): Promise<void> {
   return invoke<void>("frontend_ready_command");
+}
+
+/**
+ * 文書を表示した結果を知らせる（design-decisions.md 11.4）。
+ *
+ * Store向けカスタムイベント `open_md_ok` と `open_md_fail` の発火点である。`"fail"` は、文書全体を
+ * 描画できず失敗を表示したときに限る。数式・図・画像の位置だけの失敗は含めない。
+ * イベント名そのものは渡さない。送るかどうか、1セッションに1回だけにすることは、Rust側が
+ * 決める。
+ */
+export function reportOpenResult(result: OpenMdResult): Promise<void> {
+  return invoke<void>("report_open_result_command", { result });
 }
 
 /**

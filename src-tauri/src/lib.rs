@@ -32,6 +32,7 @@ use recent::RecentFolders;
 use settings_store::{LoadOutcome, SettingsStore};
 use state::AppState;
 use std::thread;
+use telemetry::Telemetry;
 
 use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 
@@ -40,6 +41,7 @@ pub fn run() {
     let argv: Vec<String> = std::env::args_os()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
+    let launched_by_association = launch::launched_by_association(&argv);
     let app = image::protocol::register(tauri::Builder::default())
         // 関連付け起動の受け口。他のプラグインより先に登録する（プラグインの要件）。2つ目の
         // プロセスは引数を渡して終了し、ここへ届く（design-decisions.md 9.2）。
@@ -56,8 +58,8 @@ pub fn run() {
         // 呼べない（design-decisions.md 5.5）。
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(menu_command::handle_menu_event)
-        .setup(|app| {
-            setup(app)?;
+        .setup(move |app| {
+            setup(app, launched_by_association)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -68,6 +70,7 @@ pub fn run() {
             ipc::commands::issue_image_resources_command,
             ipc::commands::open_recent_folder_command,
             ipc::commands::read_file_command,
+            ipc::commands::report_open_result_command,
             ipc::commands::scan_directory_command,
             ipc::commands::update_ui_settings_command,
             ipc::commands::watch_loose_document_command
@@ -93,7 +96,7 @@ pub fn run() {
 ///
 /// 最後のワークスペースは、ウィンドウを作ったあとに別のスレッドで開き直す。応答の遅い
 /// ストレージで、ウィンドウの表示を待たせないためである（9.2）。
-fn setup(app: &mut tauri::App) -> tauri::Result<()> {
+fn setup(app: &mut tauri::App, launched_by_association: bool) -> tauri::Result<()> {
     let handle = app.handle().clone();
     let (store, outcome) = SettingsStore::open(
         app.path().app_config_dir()?,
@@ -109,6 +112,10 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     app.manage(AppState::new(settings.language));
     app.manage(recents);
     app.manage(store);
+    // Store向けカスタムイベントのうち、プロセスの起動で記録するもの（11.4）。
+    app.manage(Telemetry::for_this_process());
+    app.state::<Telemetry>()
+        .record_process_start(launched_by_association);
 
     let language = app.state::<AppState>().language();
     app.set_menu(menu::build(
