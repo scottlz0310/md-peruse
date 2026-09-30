@@ -19,6 +19,7 @@ pub mod scan;
 pub mod settings;
 pub mod settings_store;
 pub mod startup;
+pub mod startup_failure;
 pub mod state;
 pub mod telemetry;
 pub mod theme;
@@ -137,14 +138,20 @@ fn setup(app: &mut tauri::App, launched_by_association: bool) -> tauri::Result<(
     let restored = window_placement::placement_to_restore(app.handle(), settings.window);
     // 作った後にテーマを切り替えると、起動直後に別の配色が一瞬見える。配置も同じで、
     // 復元するときは非表示で作り、配置してから表示する。
+    //
+    // WebView2 Runtimeの欠落や初期化の失敗は、ウィンドウを作るとき、またはそのWebViewを扱う
+    // ときに分かる。`setup` の失敗はTauriがpanicにして、ウィンドウも文言も無いまま異常終了する
+    // ため、返さずに、原因を示して終了する（spec.md 4.4、design-decisions.md 12章）。
     let window = WebviewWindowBuilder::from_config(app.handle(), &config)?
         .theme(theme::window_theme(settings.theme))
         .visible(restored.is_none())
-        .build()?;
+        .build()
+        .unwrap_or_else(|error| startup_failure::exit_after_report(language, &error));
     if let Some(placement) = restored {
         window_placement::apply(&window, placement)?;
     }
-    webview_keys::attach(&window)?;
+    webview_keys::attach(&window)
+        .unwrap_or_else(|error| startup_failure::exit_after_report(language, &error));
     window_placement::track(&window);
     drag_drop::track(&window);
 

@@ -9,11 +9,12 @@
 //! `F12` の開発者ツールなど）も無効にする。製品UIにない操作だからである（10章）。無効にしても
 //! キーはページへ届くため、WebView内で処理する `Ctrl+F` や `Alt+←` は影響を受けない（実測）。
 
-use tauri::{Manager, Runtime, WebviewWindow};
+use std::sync::mpsc::{self, TryRecvError};
+use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use webview2_com::AcceleratorKeyPressedEventHandler;
 use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
-    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, ICoreWebView2Settings3,
+    COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, ICoreWebView2Controller, ICoreWebView2Settings3,
 };
 use webview2_com_core::Interface;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -124,79 +125,143 @@ fn parse(accelerator: &str) -> Option<Chord> {
     Some(chord)
 }
 
+/// `attach` の失敗。WebView2の設定を始められなかった、または設定の呼び出しが失敗した。
+///
+/// 起動を止める失敗であり、呼び出し側が原因を示して終了する（`startup_failure`）。
+#[derive(Debug)]
+pub struct AttachError(String);
+
+impl AttachError {
+    fn new(context: &str, cause: &dyn std::fmt::Display) -> Self {
+        Self(format!("{context}: {cause}"))
+    }
+}
+
+impl std::fmt::Display for AttachError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for AttachError {}
+
+/// UIスレッドで実行した設定の結果を、`attach` へ取り出す。
+///
+/// `with_webview` の閉包は、メインスレッド（起動処理の中）から呼ぶと、その場で実行される。
+/// 実行されないまま戻ったときは、設定が済んでいないため、失敗として扱う。
+fn settled(received: Result<Result<(), AttachError>, TryRecvError>) -> Result<(), AttachError> {
+    match received {
+        Ok(result) => result,
+        Err(TryRecvError::Empty | TryRecvError::Disconnected) => Err(AttachError::new(
+            "WebView2の設定が、呼び出しの中で実行されなかった",
+            &"閉包が実行されていない",
+        )),
+    }
+}
+
 /// メインウィンドウのWebViewへキー入力の転送を組み込み、ブラウザーアクセラレータキーを無効にする。
 ///
 /// 失敗するのはWebView2のランタイムが `ICoreWebView2Settings3`（2021年のランタイム）より古い
 /// 場合などであり、そのまま起動するとメニューのキーが効かない状態で動き続けるため、起動を止める。
-pub fn attach<R: Runtime>(window: &WebviewWindow<R>) -> tauri::Result<()> {
+/// COMの呼び出しの失敗は、panicにせず、`Result` で返す。`panic = "abort"` のReleaseでは、
+/// panicすると原因を示せない。
+pub fn attach<R: Runtime>(window: &WebviewWindow<R>) -> Result<(), AttachError> {
     let app = window.app_handle().clone();
-    let hwnd = window.hwnd()?.0 as isize;
-    window.with_webview(move |webview| {
-        let controller = webview.controller();
-        // SAFETY: WebView2のCOM呼び出しはWebViewを作ったUIスレッドで行う必要があり、
-        // `with_webview` の閉包はそのスレッドで呼ばれる。
-        unsafe {
-            controller
-                .CoreWebView2()
-                .and_then(|core| core.Settings())
-                .and_then(|settings| settings.cast::<ICoreWebView2Settings3>())
-                .and_then(|settings| settings.SetAreBrowserAcceleratorKeysEnabled(false))
-                .expect("WebView2のブラウザーアクセラレータキーを無効にできない");
+    let hwnd = window
+        .hwnd()
+        .map_err(|error| AttachError::new("ウィンドウのhandleを取得できない", &error))?
+        .0 as isize;
+    let (sender, receiver) = mpsc::channel();
+    window
+        .with_webview(move |webview| {
+            // SAFETY: WebView2のCOM呼び出しはWebViewを作ったUIスレッドで行う必要があり、
+            // `with_webview` の閉包はそのスレッドで呼ばれる。
+            let result = unsafe { configure(&webview.controller(), app, hwnd) };
+            // 受け手が先に去っていても、設定は済んでいる。
+            let _ = sender.send(result);
+        })
+        .map_err(|error| AttachError::new("WebView2の設定を始められない", &error))?;
+    settled(receiver.try_recv())
+}
 
-            let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
-                let Some(args) = args else {
-                    return Ok(());
-                };
-                let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
-                args.KeyEventKind(&mut kind)?;
-                let system = kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
-                if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && !system {
-                    return Ok(());
+/// WebView2のcontrollerへ、ブラウザーアクセラレータキーの無効化とキー入力の通知を組み込む。
+///
+/// # Safety
+///
+/// WebViewを作ったUIスレッドで呼ぶ。
+unsafe fn configure<R: Runtime>(
+    controller: &ICoreWebView2Controller,
+    app: AppHandle<R>,
+    hwnd: isize,
+) -> Result<(), AttachError> {
+    // SAFETY: 呼び出し側が、UIスレッドで呼ぶことを保証する。
+    unsafe {
+        controller
+            .CoreWebView2()
+            .and_then(|core| core.Settings())
+            .and_then(|settings| settings.cast::<ICoreWebView2Settings3>())
+            .and_then(|settings| settings.SetAreBrowserAcceleratorKeysEnabled(false))
+            .map_err(|error| {
+                AttachError::new(
+                    "WebView2のブラウザーアクセラレータキーを無効にできない",
+                    &error,
+                )
+            })?;
+
+        let handler = AcceleratorKeyPressedEventHandler::create(Box::new(move |_, args| {
+            let Some(args) = args else {
+                return Ok(());
+            };
+            let mut kind = COREWEBVIEW2_KEY_EVENT_KIND::default();
+            args.KeyEventKind(&mut kind)?;
+            let system = kind == COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN;
+            if kind != COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN && !system {
+                return Ok(());
+            }
+            let mut virtual_key = 0u32;
+            args.VirtualKey(&mut virtual_key)?;
+            // イベントはキーのメッセージを処理しているUIスレッドで届くため、
+            // `GetKeyState` はこの押下の時点の修飾キーを返す。
+            let pressed = |key: u16| GetKeyState(i32::from(key)) < 0;
+            let key = KeyPress {
+                system,
+                virtual_key: virtual_key as u16,
+                ctrl: pressed(VK_CONTROL.0),
+                shift: pressed(VK_SHIFT.0),
+                alt: pressed(VK_MENU.0),
+            };
+            match route(key) {
+                KeyRoute::Command(command) => {
+                    args.SetHandled(true)?;
+                    crate::menu_command::handle_command(&app, command);
                 }
-                let mut virtual_key = 0u32;
-                args.VirtualKey(&mut virtual_key)?;
-                // イベントはキーのメッセージを処理しているUIスレッドで届くため、
-                // `GetKeyState` はこの押下の時点の修飾キーを返す。
-                let pressed = |key: u16| GetKeyState(i32::from(key)) < 0;
-                let key = KeyPress {
-                    system,
-                    virtual_key: virtual_key as u16,
-                    ctrl: pressed(VK_CONTROL.0),
-                    shift: pressed(VK_SHIFT.0),
-                    alt: pressed(VK_MENU.0),
-                };
-                match route(key) {
-                    KeyRoute::Command(command) => {
-                        args.SetHandled(true)?;
-                        crate::menu_command::handle_command(&app, command);
-                    }
-                    KeyRoute::MenuAccessKey(character) => {
-                        args.SetHandled(true)?;
-                        // ホストのウィンドウが `Alt+文字` を受け取ったときと同じ経路で、
-                        // 該当するメニューを開く（該当しなければOSが警告音を鳴らす）。
-                        // WebView2のcrateと `windows` の版が異なるため、エラーはHRESULTで渡す。
-                        PostMessageW(
-                            Some(HWND(hwnd as _)),
-                            WM_SYSCOMMAND,
-                            WPARAM(SC_KEYMENU as usize),
-                            LPARAM(character as isize),
-                        )
-                        .map_err(|error| {
-                            webview2_com_core::Error::from_hresult(webview2_com_core::HRESULT(
-                                error.code().0,
-                            ))
-                        })?;
-                    }
-                    KeyRoute::Page => {}
+                KeyRoute::MenuAccessKey(character) => {
+                    args.SetHandled(true)?;
+                    // ホストのウィンドウが `Alt+文字` を受け取ったときと同じ経路で、
+                    // 該当するメニューを開く（該当しなければOSが警告音を鳴らす）。
+                    // WebView2のcrateと `windows` の版が異なるため、エラーはHRESULTで渡す。
+                    PostMessageW(
+                        Some(HWND(hwnd as _)),
+                        WM_SYSCOMMAND,
+                        WPARAM(SC_KEYMENU as usize),
+                        LPARAM(character as isize),
+                    )
+                    .map_err(|error| {
+                        webview2_com_core::Error::from_hresult(webview2_com_core::HRESULT(
+                            error.code().0,
+                        ))
+                    })?;
                 }
-                Ok(())
-            }));
-            let mut token = 0i64;
-            controller
-                .add_AcceleratorKeyPressed(&handler, &mut token)
-                .expect("WebView2のキー入力の通知を登録できない");
-        }
-    })
+                KeyRoute::Page => {}
+            }
+            Ok(())
+        }));
+        let mut token = 0i64;
+        controller
+            .add_AcceleratorKeyPressed(&handler, &mut token)
+            .map_err(|error| AttachError::new("WebView2のキー入力の通知を登録できない", &error))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -365,6 +430,20 @@ mod tests {
                 "{notation}"
             );
             assert_eq!(chord.alt, modifiers.contains(Modifiers::ALT), "{notation}");
+        }
+    }
+
+    #[test]
+    fn a_configuration_that_ran_reports_its_result() {
+        assert!(settled(Ok(Ok(()))).is_ok());
+        let error = settled(Ok(Err(AttachError::new("設定", &"失敗")))).unwrap_err();
+        assert_eq!(error.to_string(), "設定: 失敗");
+    }
+
+    #[test]
+    fn a_configuration_that_did_not_run_is_a_failure() {
+        for received in [Err(TryRecvError::Empty), Err(TryRecvError::Disconnected)] {
+            assert!(settled(received).is_err());
         }
     }
 }
