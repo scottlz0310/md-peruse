@@ -9,7 +9,7 @@
 | [`devtools/`](#devtools実機の確認) | 実機での確認（ハイコントラスト、WebView2 の失敗、キーボード操作の照合） |
 
 どの道具も、利用者の設定ファイルを退避し、終了後にバイト単位で戻して、ハッシュで確かめる。アプリの Release
-（`bun run tauri build --no-bundle`。cargo のために、vcvars を通した PowerShell で実行する）と、Windows が前提である。
+（`bun run tauri build --no-bundle`。cargo のために、vcvars を通した PowerShell で実行する）と、Windows が前提である。`.ps1` は、PowerShell 7（`pwsh`）で実行する（文字コードが UTF-8 で BOM なしのため、Windows PowerShell 5.1 では日本語の文字列を読み違える）。
 
 ## perf（性能測定）
 
