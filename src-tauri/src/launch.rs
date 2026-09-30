@@ -12,6 +12,12 @@
 //! - Frontendが購読と起動時の問い合わせを終えたこと。`open-document` はWebViewが購読する前に
 //!   送ると誰にも届かない。
 //!
+//! 復元の完了を待つのは、ファイルが待ち始めてから `RESTORE_WAIT_LIMIT` までである。復元先が
+//! 応答しない共有のとき、ローカルのファイルまで、共有が失敗を返すまで（実測で約21秒）表示
+//! されないためである。上限を超えたら復元を取りやめ、ファイルを先に開く。取りやめた復元は、
+//! フォルダーを開けても据えない（据えると開いたタブが消える）。最後のワークスペースの記録は
+//! 残し、次の起動でもう一度試す。
+//!
 //! それまでに届いたファイルは、届いた順に保留する。保留は最初のプロセスの起動の直後から
 //! 効かせる必要がある。プラグインは起動処理より先に2つ目のプロセスの引数を受け取りうるため、
 //! この状態は `tauri::Builder` の段階で登録し、他の状態に触れずに保留できるようにする。
@@ -31,6 +37,7 @@
 use std::path::Path;
 use std::sync::{Mutex, MutexGuard};
 use std::thread;
+use std::time::Duration;
 
 use tauri::{AppHandle, Manager, Runtime};
 
@@ -38,17 +45,43 @@ use crate::open_document::open_documents;
 use crate::open_folder::{MAIN_WINDOW, show_error};
 use crate::startup::files_to_open;
 
+/// ファイルが復元を待ち始めてから、復元を取りやめるまでの上限（9.2）。
+///
+/// ローカルやLANの復元は数十msで済む。応答しない共有は、失敗を返すまで約21秒かかる（実測）。
+/// 応答に3〜10秒かかる共有は、ファイルを渡された起動では復元されない。ファイルは開き、
+/// フォルダーは「最近使ったフォルダー」から開き直せる。
+pub const RESTORE_WAIT_LIMIT: Duration = Duration::from_secs(3);
+
+/// 最後のワークスペースの復元の進み具合。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+enum Restore {
+    /// 済んでいない。まだ取りやめられる。
+    #[default]
+    Running,
+    /// ワークスペースを据える段階に入った。取りやめない（据えるのは短い）。
+    Committing,
+    /// 済んだ。開いた場合、開けなかった場合、開くものがなかった場合を含む。
+    Done,
+    /// 待ちが上限を超えたため取りやめた。復元が後から済んでも、据えない。
+    GivenUp,
+}
+
 #[derive(Default)]
 struct Pending {
-    restored: bool,
+    restore: Restore,
     frontend_ready: bool,
     files: Vec<String>,
 }
 
 impl Pending {
+    /// ファイルを開くうえで、復元を待たなくてよいか。済んだか、取りやめたかのどちらか。
+    fn restored(&self) -> bool {
+        matches!(self.restore, Restore::Done | Restore::GivenUp)
+    }
+
     /// 開いてよい状態なら、保留を空にして返す。
     fn take_openable(&mut self) -> Vec<String> {
-        if self.restored && self.frontend_ready {
+        if self.restored() && self.frontend_ready {
             std::mem::take(&mut self.files)
         } else {
             Vec::new()
@@ -115,9 +148,42 @@ impl LaunchQueue {
     }
 
     /// 最後のワークスペースの復元が済んだことを記録し、いま開いてよいものを返す。
+    ///
+    /// 取りやめた復元が後から済んでも、取りやめたままにする。
     fn mark_restored(&self) -> Vec<String> {
         let mut pending = self.lock();
-        pending.restored = true;
+        if pending.restore != Restore::GivenUp {
+            pending.restore = Restore::Done;
+        }
+        pending.take_openable()
+    }
+
+    /// 復元が、ワークスペースを据える段階へ進んでよいかを決める。取りやめ済みなら `false`。
+    ///
+    /// 進んでよいと答えたあとは、取りやめない。据える途中で取りやめると、据えたワークスペースが
+    /// 取りやめ後に開いたタブを破棄する。
+    fn begin_commit(&self) -> bool {
+        let mut pending = self.lock();
+        if pending.restore == Restore::Running {
+            pending.restore = Restore::Committing;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// ファイルが復元を待っているか。
+    fn waits_for_restore(&self) -> bool {
+        let pending = self.lock();
+        pending.restore == Restore::Running && !pending.files.is_empty()
+    }
+
+    /// ファイルが復元を待っていれば復元を取りやめ、いま開いてよいものを返す。
+    fn give_up_restore(&self) -> Vec<String> {
+        let mut pending = self.lock();
+        if pending.restore == Restore::Running && !pending.files.is_empty() {
+            pending.restore = Restore::GivenUp;
+        }
         pending.take_openable()
     }
 
@@ -167,6 +233,7 @@ pub fn second_instance<R: Runtime>(app: &AppHandle<R>, argv: Vec<String>, cwd: S
     focus_main_window(app);
     app.state::<LaunchQueue>()
         .enqueue(requested_files(&argv, Path::new(&cwd)));
+    limit_restore_wait(app, RESTORE_WAIT_LIMIT);
     let app = app.clone();
     thread::spawn(move || open_queued(&app));
 }
@@ -177,6 +244,31 @@ pub fn second_instance<R: Runtime>(app: &AppHandle<R>, argv: Vec<String>, cwd: S
 pub fn restored<R: Runtime>(app: &AppHandle<R>) {
     app.state::<LaunchQueue>()
         .deliver(LaunchQueue::mark_restored, |files| open(app, files));
+}
+
+/// 復元が、ワークスペースを据える段階へ進んでよいかを尋ねる。取りやめ済みなら `false`。
+///
+/// 復元が据える直前に一度だけ呼ぶ（`open_folder::restore_last_workspace`）。
+pub fn restore_may_commit<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.state::<LaunchQueue>().begin_commit()
+}
+
+/// 復元を待つファイルがあれば、`limit` の後に、復元を取りやめてそのファイルを開く。
+///
+/// `limit` の時点で復元が済んでいれば、何もしない。ファイルが待ち始めたとき（新規起動の
+/// 引数を保留へ入れたあと、2つ目のプロセスの引数を受けたあと）に呼ぶ。待つファイルが
+/// なければ、時間を計らない。ファイルを渡されない通常の起動では、遅いストレージも完了まで
+/// 待って復元する。
+pub fn limit_restore_wait<R: Runtime>(app: &AppHandle<R>, limit: Duration) {
+    if !app.state::<LaunchQueue>().waits_for_restore() {
+        return;
+    }
+    let app = app.clone();
+    thread::spawn(move || {
+        thread::sleep(limit);
+        app.state::<LaunchQueue>()
+            .deliver(LaunchQueue::give_up_restore, |files| open(&app, files));
+    });
 }
 
 /// Frontendの準備が済んだことを知らせる。
@@ -430,6 +522,96 @@ mod tests {
         assert_eq!(opened.lock().unwrap().concat(), strings(&["a", "b"]));
     }
 
+    /// 上限は、ファイルが復元を待っているときだけ復元を取りやめる。取りやめても、開くのは
+    /// Frontendの準備が済んでからで、取りやめた復元は、あとから済んでも据えない。
+    #[test]
+    fn the_limit_gives_up_the_restore_only_while_files_wait() {
+        #[derive(Clone, Copy)]
+        enum Step {
+            Push(&'static [&'static str]),
+            GiveUp,
+            Restored,
+            Ready,
+        }
+        use Step::{GiveUp, Push, Ready, Restored};
+        // 名前、順に起こす出来事、出来事ごとに返るファイル、最後の復元の状態。
+        type Case = (&'static str, Vec<Step>, Vec<Vec<&'static str>>, Restore);
+
+        let cases: [Case; 6] = [
+            (
+                "準備が済んでいれば、上限でファイルを返す",
+                vec![Ready, Push(&["a"]), GiveUp],
+                vec![vec![], vec![], vec!["a"]],
+                Restore::GivenUp,
+            ),
+            (
+                "準備の前の上限は、取りやめだけで、準備で返す",
+                vec![Push(&["a"]), GiveUp, Ready],
+                vec![vec![], vec![], vec!["a"]],
+                Restore::GivenUp,
+            ),
+            (
+                "取りやめた復元があとから済んでも、取りやめたまま",
+                vec![Push(&["a"]), GiveUp, Restored, Ready],
+                vec![vec![], vec![], vec![], vec!["a"]],
+                Restore::GivenUp,
+            ),
+            (
+                "待つファイルがなければ取りやめない",
+                vec![GiveUp, Push(&["a"])],
+                vec![vec![], vec![]],
+                Restore::Running,
+            ),
+            (
+                "復元が済んだあとの上限は何もしない",
+                vec![Push(&["a"]), Restored, GiveUp, Ready],
+                vec![vec![], vec![], vec![], vec!["a"]],
+                Restore::Done,
+            ),
+            (
+                "取りやめたあとに届いたファイルは、すぐ返す",
+                vec![Ready, Push(&["a"]), GiveUp, Push(&["b"])],
+                vec![vec![], vec![], vec!["a"], vec!["b"]],
+                Restore::GivenUp,
+            ),
+        ];
+        for (name, steps, expected, final_state) in cases {
+            let queue = LaunchQueue::new();
+            let returned: Vec<Vec<String>> = steps
+                .into_iter()
+                .map(|step| match step {
+                    Push(files) => {
+                        queue.enqueue(strings(files));
+                        queue.take()
+                    }
+                    GiveUp => queue.give_up_restore(),
+                    Restored => queue.mark_restored(),
+                    Ready => queue.mark_frontend_ready(),
+                })
+                .collect();
+            let expected: Vec<Vec<String>> = expected
+                .iter()
+                .map(|files| strings(files.as_slice()))
+                .collect();
+            assert_eq!(returned, expected, "{name}");
+            assert_eq!(queue.lock().restore, final_state, "{name}");
+        }
+    }
+
+    /// ワークスペースを据える段階に入った復元は、取りやめない。取りやめると、据えた
+    /// ワークスペースが、取りやめ後に開いたタブを破棄する。
+    #[test]
+    fn a_restore_that_started_to_install_is_not_given_up() {
+        let queue = LaunchQueue::new();
+        queue.enqueue(strings(&["a"]));
+        assert!(queue.mark_frontend_ready().is_empty());
+
+        assert!(queue.begin_commit(), "取りやめていないのに据えられない");
+        assert!(queue.give_up_restore().is_empty());
+        assert!(!queue.waits_for_restore(), "据える段階のものを待ちと数えた");
+        assert_eq!(queue.mark_restored(), strings(&["a"]));
+    }
+
     struct TempDir(PathBuf);
 
     impl TempDir {
@@ -532,6 +714,91 @@ mod tests {
         restored(app.handle());
 
         assert_eq!(paths(&events), ["a.md"]);
+    }
+
+    /// 条件が満たされるまで待つ。上限のタイマーは別のスレッドで動く。
+    fn wait_until(what: &str, mut condition: impl FnMut() -> bool) {
+        use std::time::{Duration, Instant};
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !condition() {
+            assert!(Instant::now() < deadline, "待ちきれなかった: {what}");
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// 復元が上限を超えて続くとき、待っているファイルを先に開き、復元は取りやめる。取りやめた
+    /// 復元は、あとから済んでも、ファイルを二度開かず、ワークスペースを据えることも許さない（9.2）。
+    #[test]
+    fn a_waiting_file_opens_when_the_restore_exceeds_the_limit() {
+        use std::time::Duration;
+
+        let temp = TempDir::new("limit-exceeded");
+        let a = temp.write("a.md");
+        let app = app_started_with(&[&a]);
+        let events = collect(&app);
+        frontend_ready(app.handle());
+
+        limit_restore_wait(app.handle(), Duration::from_millis(50));
+
+        wait_until("上限のあとにファイルが開く", || {
+            !paths(&events).is_empty()
+        });
+        assert_eq!(paths(&events), ["a.md"]);
+        assert!(
+            !restore_may_commit(app.handle()),
+            "取りやめた復元が据えようとした"
+        );
+        restored(app.handle());
+        assert_eq!(paths(&events), ["a.md"], "二度開いた");
+    }
+
+    /// 上限より先に復元が済めば、上限は何もしない。ファイルは復元のあとに一度だけ開く。
+    #[test]
+    fn the_limit_does_nothing_when_the_restore_finishes_first() {
+        use std::time::Duration;
+
+        let temp = TempDir::new("limit-not-needed");
+        let a = temp.write("a.md");
+        let app = app_started_with(&[&a]);
+        let events = collect(&app);
+        limit_restore_wait(app.handle(), Duration::from_millis(100));
+
+        assert!(
+            restore_may_commit(app.handle()),
+            "取りやめていないのに据えられない"
+        );
+        restored(app.handle());
+        frontend_ready(app.handle());
+        assert_eq!(paths(&events), ["a.md"]);
+        // 上限の時刻を過ぎても、二度開かない。
+        thread::sleep(Duration::from_millis(300));
+
+        assert_eq!(paths(&events), ["a.md"], "上限のあとに二度開いた");
+    }
+
+    /// 上限は、ファイルが待ち始めてから数える。待つファイルがない通常の起動では時間を計らず、
+    /// 復元は遅いストレージも完了まで待つ。起動から数えると、上限の直前に届いたファイルが
+    /// ほとんど待たずに復元を取りやめる。
+    #[test]
+    fn the_limit_counts_from_when_a_file_starts_to_wait() {
+        use std::time::Duration;
+
+        let temp = TempDir::new("limit-counts-from-wait");
+        let a = temp.write("a.md");
+        let app = app();
+
+        limit_restore_wait(app.handle(), Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
+        app.state::<LaunchQueue>()
+            .enqueue(vec![a.to_string_lossy().into_owned()]);
+        // 起動から数えた上限の時刻を過ぎるまで待つ。
+        thread::sleep(Duration::from_millis(150));
+
+        assert!(
+            restore_may_commit(app.handle()),
+            "待ち始めたばかりのファイルのために取りやめた"
+        );
     }
 
     /// 起動中に届いた2つ目の起動は、準備が済んでいれば既存のインスタンスのタブとして、

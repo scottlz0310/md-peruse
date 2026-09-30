@@ -20,6 +20,7 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use crate::ipc::error::ErrorCode;
 use crate::ipc::message::message;
 use crate::ipc::types::WorkspaceOpenedEvent;
+use crate::path_guard::WorkspaceRoot;
 use crate::recent;
 use crate::settings_store::SettingsStore;
 use crate::state::AppState;
@@ -97,21 +98,63 @@ pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), Erro
 ///
 /// 応答の遅いストレージでも起動を待たせないよう、呼び出し側は別のスレッドで呼ぶ。
 ///
-/// 最後のワークスペースの読み取りと、開くかどうかの判断は、開閉と同じロックの内側で行う。
-/// ロックの外で読むと、読んだあとに利用者が「ワークスペースを閉じる」を終えても、古いパスを
-/// 開き直してしまう。閉じる操作は、ロックの内側で最後のワークスペースを消す（`close`）。
-/// 復元が終わる前に利用者が別のフォルダーを開いていたときも、それを上書きしない。
-pub fn restore_last_workspace<R: Runtime>(app: &AppHandle<R>) {
-    let _lifecycle = lock_lifecycle();
-    let Some(path) = app.state::<SettingsStore>().settings().last_workspace else {
+/// 2段階で行う。遅いのはフォルダーを開く（解決する）段階であり、開閉のロックの外で行う。
+/// ロックを持ったまま待つと、ロックを待つ `get_workspace_command` が返らず、Frontendの準備が
+/// 済まないため、関連付けで渡されたファイルも開けない（9.2）。開くかどうかの判断と、開いた
+/// ワークスペースを据える段階は、ロックの内側で行う。
+///
+/// 判断は、ロックの内側で読み直して行う。フォルダーを開いている間に利用者が「ワークスペースを
+/// 閉じる」を終えていても、古いパスを開き直さない。閉じる操作は、ロックの内側で最後の
+/// ワークスペースを消す（`close`）。フォルダーを開いている間に利用者が別のフォルダーを
+/// 開いていたときも、それを上書きしない。ファイルだけをドロップして開いたloose tabも同じで、
+/// 据える切り替えはloose tabとその監視を破棄するため（6.1）、開いたものがあれば据えない。
+///
+/// `may_commit` は、ワークスペースを据える直前に一度だけ呼ぶ。`false` は、待ちが上限を
+/// 超えて取りやめたことを表し、開けたフォルダーは据えない（`crate::launch`）。最後のワークスペース
+/// の記録は残し、次の起動でもう一度試す。開けなかったときは、取りやめたかどうかや、利用者が
+/// 何かを開いたかどうかによらず外す。
+pub fn restore_last_workspace<R: Runtime>(app: &AppHandle<R>, may_commit: impl FnOnce() -> bool) {
+    restore_with(app, WorkspaceRoot::open, may_commit);
+}
+
+/// `restore_last_workspace` の本体。フォルダーを開く段階を差し替えられるようにしてある。
+fn restore_with<R: Runtime>(
+    app: &AppHandle<R>,
+    open_root: impl FnOnce(&Path) -> io::Result<WorkspaceRoot>,
+    may_commit: impl FnOnce() -> bool,
+) {
+    // 開くものがなければ、フォルダーを開く待ちを始めない。ここでの読みはロックの外であり、
+    // 判断ではない。判断は、フォルダーを開いたあとにロックの内側で読み直して行う。
+    if app.state::<AppState>().has_open_scope() {
+        return;
+    }
+    let Some(path) = last_workspace(app) else {
         return;
     };
-    if app.state::<AppState>().scope_id().is_some() {
+    let root = open_root(Path::new(&path));
+
+    let _lifecycle = lock_lifecycle();
+    // 記録が変わっていれば、利用者が閉じたか、別のフォルダーを開いた。
+    if last_workspace(app).as_deref() != Some(path.as_str()) {
         return;
     }
-    if open_unlocked(app, Path::new(&path)).is_err() {
+    let restored = match root {
+        Ok(root) => {
+            // 据えると、開いているワークスペースとloose tabを破棄する。利用者が開いたものを残す。
+            if app.state::<AppState>().has_open_scope() || !may_commit() {
+                return;
+            }
+            install_unlocked(app, root)
+        }
+        Err(error) => Err(open_error_code(&error)),
+    };
+    if restored.is_err() {
         recent::forget(app, &path);
     }
+}
+
+fn last_workspace<R: Runtime>(app: &AppHandle<R>) -> Option<String> {
+    app.state::<SettingsStore>().settings().last_workspace
 }
 
 /// 開いているワークスペース。Frontendが起動時に問い合わせる（`get_workspace_command`）。
@@ -127,15 +170,28 @@ pub fn current_workspace<R: Runtime>(app: &AppHandle<R>) -> Option<WorkspaceOpen
 /// `open_path` の本体。開閉を直列にするロック（`lock_lifecycle`）を保持した呼び出し元から
 /// 呼ぶこと。
 fn open_unlocked<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    let state = app.state::<AppState>();
     let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
-    let opened = open_selected_folder(&state, path, sink)?;
-    if let Some(root) = state.workspace_path() {
+    let opened = open_selected_folder(&app.state::<AppState>(), path, sink)?;
+    announce_opened(app, opened);
+    Ok(())
+}
+
+/// 開いたルートを据え、記録してからFrontendへ知らせる。`open_unlocked` の後半で、ルートを
+/// 先に（ロックの外で）開いた呼び出し元が使う。ロックを保持した呼び出し元から呼ぶこと。
+fn install_unlocked<R: Runtime>(app: &AppHandle<R>, root: WorkspaceRoot) -> Result<(), ErrorCode> {
+    let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
+    let opened = install_selected_folder(&app.state::<AppState>(), root, sink)?;
+    announce_opened(app, opened);
+    Ok(())
+}
+
+/// 開いたワークスペースを最近使ったフォルダーへ記録し、Frontendへ知らせる。
+fn announce_opened<R: Runtime>(app: &AppHandle<R>, opened: WorkspaceOpenedEvent) {
+    if let Some(root) = app.state::<AppState>().workspace_path() {
         recent::record_opened(app, &root);
     }
     // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
     let _ = app.emit(WORKSPACE_OPENED_EVENT, opened);
-    Ok(())
 }
 
 /// ワークスペースを閉じ、Frontendをwelcome状態へ戻す（6.1）。
@@ -166,8 +222,18 @@ pub fn open_selected_folder(
     path: &Path,
     sink: Arc<dyn ChangeSink>,
 ) -> Result<WorkspaceOpenedEvent, ErrorCode> {
+    let root = WorkspaceRoot::open(path).map_err(|error| open_error_code(&error))?;
+    install_selected_folder(state, root, sink)
+}
+
+/// 開いたルートをワークスペースとして据え、Frontendへ送る通知を作る。
+fn install_selected_folder(
+    state: &AppState,
+    root: WorkspaceRoot,
+    sink: Arc<dyn ChangeSink>,
+) -> Result<WorkspaceOpenedEvent, ErrorCode> {
     state
-        .open_workspace(path, sink)
+        .install_workspace(root, sink)
         .map_err(|error| open_error_code(&error))?;
     Ok(state
         .current_workspace()
@@ -438,7 +504,7 @@ mod tests {
             ..Settings::default()
         });
 
-        restore_last_workspace(app.handle());
+        restore_last_workspace(app.handle(), || true);
         assert!(
             app.state::<AppState>().scope_id().is_some(),
             "復元できていない"
@@ -478,7 +544,7 @@ mod tests {
         });
         let opened = collect(&app, WORKSPACE_OPENED_EVENT);
 
-        restore_last_workspace(app.handle());
+        restore_last_workspace(app.handle(), || true);
 
         assert!(app.state::<AppState>().scope_id().is_some());
         assert_eq!(opened.lock().unwrap().len(), 1);
@@ -499,7 +565,7 @@ mod tests {
         let opened = collect(&app, WORKSPACE_OPENED_EVENT);
         let changed = collect(&app, RECENT_FOLDERS_CHANGED_EVENT);
 
-        restore_last_workspace(app.handle());
+        restore_last_workspace(app.handle(), || true);
 
         assert!(app.state::<AppState>().scope_id().is_none());
         assert!(opened.lock().unwrap().is_empty());
@@ -515,18 +581,20 @@ mod tests {
         let app = app_with(Settings::default());
         let opened = collect(&app, WORKSPACE_OPENED_EVENT);
 
-        restore_last_workspace(app.handle());
+        restore_last_workspace(app.handle(), || true);
 
         assert!(app.state::<AppState>().scope_id().is_none());
         assert!(opened.lock().unwrap().is_empty());
     }
 
     /// 復元が最後のワークスペースを読んだあとに、利用者が閉じる操作を終えても、閉じたものを
-    /// 開き直さない。復元は、開閉のロックの内側で最後のワークスペースを読む。
+    /// 開き直さない。復元は、フォルダーを開いたあとに、開閉のロックの内側で最後のワークスペース
+    /// を読み直して判断する。
     ///
-    /// 開閉のロックを保持したまま復元を始めて、待たせる。その間に閉じる操作の結果
+    /// 開閉のロックを保持したまま復元を始めて、判断の手前で待たせる。その間に閉じる操作の結果
     /// （最後のワークスペースを消す）を再現してからロックを放すと、復元は消えたあとの値を読む。
-    /// ロックの外で先に読む実装では、待つ前に読んだ古いパスを開き直して、このテストが失敗する。
+    /// 最初の（ロックの外の）読みだけで判断する実装では、その古いパスを開き直して、このテストが
+    /// 失敗する。
     #[test]
     fn a_close_finished_before_the_restore_decides_wins() {
         let temp = TempDir::new("restore-close-race");
@@ -538,7 +606,7 @@ mod tests {
         let opened = collect(&app, WORKSPACE_OPENED_EVENT);
         let guard = lock_lifecycle();
         let handle = app.handle().clone();
-        let restoring = thread::spawn(move || restore_last_workspace(&handle));
+        let restoring = thread::spawn(move || restore_last_workspace(&handle, || true));
         // 復元のスレッドが、ロックを待つところまで進む。
         thread::sleep(std::time::Duration::from_millis(100));
 
@@ -565,9 +633,317 @@ mod tests {
         app.state::<SettingsStore>()
             .record_opened_workspace(&canonical(&last));
 
-        restore_last_workspace(app.handle());
+        restore_last_workspace(app.handle(), || true);
 
         assert_eq!(app.state::<AppState>().scope_id(), before);
+    }
+
+    /// 復元が据えるのは、開けたフォルダーで、待ちを取りやめていないときだけ。開けなかった
+    /// フォルダーは、取りやめたかどうかによらず外す。取りやめたときは、開けても記録を残し、
+    /// 次の起動でもう一度試す（9.2）。据えてよいかは、据える直前にだけ尋ねる。
+    #[test]
+    fn a_restore_installs_only_what_opened_and_was_not_given_up() {
+        struct Case {
+            name: &'static str,
+            exists: bool,
+            may_commit: bool,
+            installed: bool,
+            kept: bool,
+            asked: bool,
+        }
+        let cases = [
+            Case {
+                name: "開けて、取りやめていない",
+                exists: true,
+                may_commit: true,
+                installed: true,
+                kept: true,
+                asked: true,
+            },
+            Case {
+                name: "開けたが、取りやめた",
+                exists: true,
+                may_commit: false,
+                installed: false,
+                kept: true,
+                asked: true,
+            },
+            Case {
+                name: "開けず、取りやめていない",
+                exists: false,
+                may_commit: true,
+                installed: false,
+                kept: false,
+                asked: false,
+            },
+            Case {
+                name: "開けず、取りやめた",
+                exists: false,
+                may_commit: false,
+                installed: false,
+                kept: false,
+                asked: false,
+            },
+        ];
+        for (index, case) in cases.iter().enumerate() {
+            let temp = TempDir::new(&format!("restore-commit-{index}"));
+            let path = if case.exists {
+                canonical(temp.path())
+            } else {
+                canonical(temp.path()) + "\\gone"
+            };
+            let app = app_with(Settings {
+                last_workspace: Some(path.clone()),
+                recent_folders: vec![path.clone()],
+                ..Settings::default()
+            });
+            let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+            let asked = std::cell::Cell::new(false);
+
+            restore_last_workspace(app.handle(), || {
+                asked.set(true);
+                case.may_commit
+            });
+
+            let name = case.name;
+            assert_eq!(asked.get(), case.asked, "{name}: 尋ねたか");
+            assert_eq!(
+                app.state::<AppState>().scope_id().is_some(),
+                case.installed,
+                "{name}: 据えたか"
+            );
+            assert_eq!(
+                opened.lock().unwrap().len(),
+                usize::from(case.installed),
+                "{name}"
+            );
+            let settings = app.state::<SettingsStore>().settings();
+            assert_eq!(
+                settings.last_workspace.is_some(),
+                case.kept,
+                "{name}: 最後のワークスペースの記録"
+            );
+            assert_eq!(
+                settings.recent_folders.is_empty(),
+                !case.kept,
+                "{name}: 最近使ったフォルダー"
+            );
+        }
+    }
+
+    /// フォルダーを開いている間、開閉のロックを保持しない。保持すると、ロックを待つ
+    /// `get_workspace_command` が返らず、Frontendの準備が済まないため、関連付けで渡された
+    /// ファイルが開けない（9.2）。
+    ///
+    /// フォルダーを開く段階を、放すまで止める。その間に、ロックを取る問い合わせと、利用者の
+    /// 「フォルダーを開く」が進み、復元は利用者が開いたものを上書きしない。
+    #[test]
+    fn the_lifecycle_lock_is_free_while_the_restore_waits_for_the_folder() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = TempDir::new("restore-slow-open");
+        let last = temp.path().join("last");
+        let mine = temp.path().join("mine");
+        fs::create_dir(&last).unwrap();
+        fs::create_dir(&mine).unwrap();
+        let app = app_with(Settings {
+            last_workspace: Some(canonical(&last)),
+            recent_folders: vec![canonical(&last)],
+            ..Settings::default()
+        });
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let handle = app.handle().clone();
+        let restoring = thread::spawn(move || {
+            restore_with(
+                &handle,
+                move |path| {
+                    entered_tx.send(()).expect("入ったことを知らせられない");
+                    release_rx.recv().expect("放す合図が来ない");
+                    WorkspaceRoot::open(path)
+                },
+                || true,
+            );
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("復元がフォルダーを開く段階へ進まない");
+
+        // 止まっている間も、ロックを取る問い合わせと、利用者の操作は待たされない。
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = app.handle().clone();
+        let user = thread::spawn(move || {
+            let queried = current_workspace(&handle);
+            let opened = open_path(&handle, &mine);
+            done_tx.send((queried, opened)).expect("結果を返せない");
+        });
+        let (queried, opened) = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("フォルダーを開いている間、開閉のロックを保持している");
+        assert_eq!(queried, None);
+        assert_eq!(opened, Ok(()));
+        user.join().expect("利用者の操作のスレッドが失敗した");
+        let mine_scope = app.state::<AppState>().scope_id();
+        assert!(mine_scope.is_some());
+
+        release_tx.send(()).expect("放せない");
+        restoring.join().expect("復元のスレッドが失敗した");
+        assert_eq!(
+            app.state::<AppState>().scope_id(),
+            mine_scope,
+            "利用者が開いたものを上書きした"
+        );
+    }
+
+    /// フォルダーを開く段階で止まった復元の間に、`meanwhile` を別のスレッドで行い、その結果を
+    /// 返してから復元を進める。`meanwhile` が2秒で戻らなければ、開閉のロックを保持しているとみなす。
+    fn restore_interrupted_by<T: Send + 'static>(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        open_root: fn(&Path) -> io::Result<WorkspaceRoot>,
+        meanwhile: impl FnOnce(&AppHandle<tauri::test::MockRuntime>) -> T + Send + 'static,
+    ) -> T {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let handle = app.handle().clone();
+        let restoring = thread::spawn(move || {
+            restore_with(
+                &handle,
+                move |path| {
+                    entered_tx.send(()).expect("入ったことを知らせられない");
+                    release_rx.recv().expect("放す合図が来ない");
+                    open_root(path)
+                },
+                || true,
+            );
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("復元がフォルダーを開く段階へ進まない");
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = app.handle().clone();
+        thread::spawn(move || {
+            done_tx.send(meanwhile(&handle)).expect("結果を返せない");
+        });
+        let result = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("フォルダーを開いている間、開閉のロックを保持している");
+
+        release_tx.send(()).expect("放せない");
+        restoring.join().expect("復元のスレッドが失敗した");
+        result
+    }
+
+    /// フォルダーを開いている間に、ファイルだけをドロップして開いたloose tabを、復元が破棄しない。
+    /// ワークスペースを据える切り替えは、開いているloose tabとその監視を破棄する（6.1）。
+    /// `scope_id()` はワークスペースの監視だけを見るため、それだけで判断すると、利用者が開いた
+    /// 文書が失われる。文書を開くのを優先し、復元は見送る。記録は残し、次の起動でもう一度試す。
+    #[test]
+    fn a_document_dropped_while_the_restore_waits_is_not_discarded() {
+        let temp = TempDir::new("restore-drop");
+        let last = temp.path().join("last");
+        let elsewhere = temp.path().join("elsewhere");
+        fs::create_dir(&last).unwrap();
+        fs::create_dir(&elsewhere).unwrap();
+        let note = elsewhere.join("note.md");
+        fs::write(&note, b"# note\n").unwrap();
+        let app = app_with(Settings {
+            last_workspace: Some(canonical(&last)),
+            recent_folders: vec![canonical(&last)],
+            ..Settings::default()
+        });
+        let documents = collect(&app, crate::open_document::OPEN_DOCUMENT_EVENT);
+        let workspaces = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let dropped = restore_interrupted_by(&app, WorkspaceRoot::open, move |handle| {
+            crate::open_document::open_document(handle, &note)
+        });
+
+        assert_eq!(dropped, Ok(()));
+        let payloads = documents.lock().unwrap().clone();
+        assert_eq!(payloads.len(), 1);
+        let opened: crate::ipc::types::OpenDocumentEvent =
+            serde_json::from_str(&payloads[0]).expect("指示を解釈できない");
+        assert!(
+            app.state::<AppState>()
+                .workspace()
+                .with_scope(&opened.scope_id, |_| ())
+                .is_some(),
+            "復元が、利用者が開いた文書のスコープを破棄した"
+        );
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert!(workspaces.lock().unwrap().is_empty(), "復元を据えた");
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, Some(canonical(&last)));
+        assert_eq!(settings.recent_folders, [canonical(&last)]);
+    }
+
+    /// 開けなかったフォルダーは、利用者が文書を開いていても外す。据えない理由（利用者が開いた
+    /// ものを残す）と、外す理由（開けない記録を残しても取れる行動がない、9.2）は別である。
+    #[test]
+    fn an_unopenable_last_workspace_is_dropped_even_when_a_document_is_open() {
+        let temp = TempDir::new("restore-drop-missing");
+        let missing = canonical(temp.path()) + "\\gone";
+        let note = temp.path().join("note.md");
+        fs::write(&note, b"# note\n").unwrap();
+        let app = app_with(Settings {
+            last_workspace: Some(missing.clone()),
+            recent_folders: vec![missing],
+            ..Settings::default()
+        });
+        let documents = collect(&app, crate::open_document::OPEN_DOCUMENT_EVENT);
+
+        let dropped = restore_interrupted_by(&app, WorkspaceRoot::open, move |handle| {
+            crate::open_document::open_document(handle, &note)
+        });
+
+        assert_eq!(dropped, Ok(()));
+        assert_eq!(documents.lock().unwrap().len(), 1);
+        assert!(app.state::<AppState>().has_open_scope(), "文書が失われた");
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, None);
+        assert!(settings.recent_folders.is_empty());
+    }
+
+    /// 文書を開いてある状態では、フォルダーを開く待ちを始めない。据えられないのに、応答しない
+    /// 共有へ接続を試みる必要がない。記録は残す。
+    #[test]
+    fn the_restore_does_not_start_while_a_document_is_open() {
+        let temp = TempDir::new("restore-skip");
+        let last = temp.path().join("last");
+        fs::create_dir(&last).unwrap();
+        let note = temp.path().join("note.md");
+        fs::write(&note, b"# note\n").unwrap();
+        let app = app_with(Settings {
+            last_workspace: Some(canonical(&last)),
+            recent_folders: vec![canonical(&last)],
+            ..Settings::default()
+        });
+        crate::open_document::open_document(app.handle(), &note).expect("開けない");
+        let asked = std::cell::Cell::new(false);
+
+        restore_with(
+            app.handle(),
+            |path| {
+                asked.set(true);
+                WorkspaceRoot::open(path)
+            },
+            || true,
+        );
+
+        assert!(
+            !asked.get(),
+            "文書を開いてあるのに、フォルダーを開こうとした"
+        );
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert_eq!(
+            app.state::<SettingsStore>().settings().last_workspace,
+            Some(canonical(&last))
+        );
     }
 
     /// 開いているワークスペースを問い合わせられる。開いていなければ `None` を返す。
