@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import type { Element, Root } from "hast";
 import {
   anchorElementId,
   footnoteElementId,
   HEADING_ID_PREFIX,
+  rehypeHeadingIds,
 } from "./heading-id";
 
 describe("anchorElementId", () => {
@@ -37,6 +39,89 @@ describe("footnoteElementId", () => {
 
   test("復号できない断片は解決できない", () => {
     expect(footnoteElementId("%ZZ")).toBeNull();
+  });
+});
+
+describe("rehypeHeadingIds", () => {
+  const heading = (text: string, id?: string): Element => ({
+    type: "element",
+    tagName: "h2",
+    properties: id === undefined ? {} : { id },
+    children: [{ type: "text", value: text }],
+  });
+  const treeOf = (...headings: Element[]): Root => ({
+    type: "root",
+    children: headings,
+  });
+  const idsOf = (tree: Root) =>
+    (tree.children as Element[]).map((node) => node.properties.id);
+
+  test("同じ見出しの連番は、既存のIDと使用済みの連番を飛ばす", () => {
+    const tree = treeOf(
+      heading("a"),
+      heading("a"),
+      heading("a-1"),
+      heading("a"),
+      heading("x", "user-content-a-4"),
+      heading("a"),
+      heading("a"),
+    );
+    rehypeHeadingIds()(tree);
+
+    expect(idsOf(tree)).toEqual([
+      "user-content-a",
+      "user-content-a-1",
+      "user-content-a-1-1",
+      "user-content-a-2",
+      "user-content-a-4",
+      "user-content-a-3",
+      "user-content-a-5",
+    ]);
+  });
+
+  test("連番の探索を数え直さない。数え直した結果と同じIDになる", () => {
+    // 数え直す実装（毎回 `-1` から探す）と、衝突しやすい小さな語彙の列で比べる。
+    const words = ["a", "b", "a-1", "a-2", "b-1", "a 1"];
+    let seed = 12345;
+    const random = (limit: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % limit;
+    };
+    const slugOf = (word: string) => word.replace(" ", "-");
+    const reference = (texts: string[]): string[] => {
+      const used = new Set<string>();
+      return texts.map((text) => {
+        const base = `${HEADING_ID_PREFIX}${slugOf(text)}`;
+        let candidate = base;
+        for (let counter = 1; used.has(candidate); counter += 1) {
+          candidate = `${base}-${counter}`;
+        }
+        used.add(candidate);
+        return candidate;
+      });
+    };
+
+    for (let round = 0; round < 50; round++) {
+      const texts = Array.from(
+        { length: 5 + random(60) },
+        () => words[random(words.length)] as string,
+      );
+      const tree = treeOf(...texts.map((text) => heading(text)));
+      rehypeHeadingIds()(tree);
+      expect(idsOf(tree)).toEqual(reference(texts));
+    }
+  });
+
+  test("同じ見出しが2万個並んでも、時間が二乗にならない", () => {
+    // 数え直す実装では2万個で約34秒かかった（実測）。
+    const count = 20_000;
+    const tree = treeOf(...Array.from({ length: count }, () => heading("a")));
+    rehypeHeadingIds()(tree);
+
+    const ids = idsOf(tree);
+    expect(ids[0]).toBe("user-content-a");
+    expect(ids[count - 1]).toBe(`user-content-a-${count - 1}`);
+    expect(new Set(ids).size).toBe(count);
   });
 });
 

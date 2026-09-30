@@ -42,6 +42,7 @@ export const HEADING_ID_PREFIX = "user-content-";
 export function rehypeHeadingIds() {
   return (tree: Root): undefined => {
     const used = new Set<string>();
+    const nextCounter = new Map<string, number>();
 
     visit(tree, "element", (node) => {
       const id = node.properties.id;
@@ -54,17 +55,36 @@ export function rehypeHeadingIds() {
       node.properties.id = uniqueId(
         HEADING_ID_PREFIX + slug(textContent(node)),
         used,
+        nextCounter,
       );
     });
   };
 }
 
-/** 使用済みのIDと重ならない候補を返し、その候補を使用済みへ加える。 */
-function uniqueId(base: string, used: Set<string>): string {
-  let candidate = base;
-  for (let counter = 1; used.has(candidate); counter += 1) {
+/**
+ * 使用済みのIDと重ならない候補を返し、その候補を使用済みへ加える。
+ *
+ * 連番の探索は、同じ `base` の前回の続きから始める。毎回 `-1` から数え直すと、k番目の重複に
+ * k回かかり、同じ見出しがn個並ぶ文書で全体がO(n²)になる（2万個で約34秒。実測）。使用済みの
+ * 集合は増える一方のため、前回見つけた連番より小さい番号は、必ず使用済みである。数え直した
+ * ときと同じIDになる。
+ */
+function uniqueId(
+  base: string,
+  used: Set<string>,
+  nextCounter: Map<string, number>,
+): string {
+  if (!used.has(base)) {
+    used.add(base);
+    return base;
+  }
+  let counter = nextCounter.get(base) ?? 1;
+  let candidate = `${base}-${counter}`;
+  while (used.has(candidate)) {
+    counter += 1;
     candidate = `${base}-${counter}`;
   }
+  nextCounter.set(base, counter + 1);
   used.add(candidate);
   return candidate;
 }
