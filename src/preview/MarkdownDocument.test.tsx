@@ -7,6 +7,8 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { MESSAGES } from "../i18n/messages";
+import { DOCUMENT_LIMITS } from "../markdown/limits";
 import type { LinkTarget } from "../markdown/link-target";
 import type { ViewTarget } from "../state/document-tab";
 import type { ImageResource } from "../types/generated/ImageResource";
@@ -373,5 +375,87 @@ describe("MarkdownDocument", () => {
       expect(await src()).toBe("http://mdperuse-img.localhost/id-2"),
     );
     expect(issued).toBe(2);
+  });
+});
+
+describe("大きい・複雑な文書の書式なし表示（8.7）", () => {
+  /** 文字数の上限を超える本文。1行にRaw HTMLと、書式の記法を含める。 */
+  const longText = `# 見出し\n\n<script>alert(1)</script>\n\n![図](a.png)\n\n${"a\n".repeat(DOCUMENT_LIMITS.richMaxChars)}`;
+  /** 文字数は上限内だが、リストの項目が多すぎる本文。 */
+  const manyItems = "- a\n".repeat(
+    Math.floor(Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / 4)) + 1,
+  );
+
+  test.each([
+    // 説明, 本文, 理由
+    ["文字数が上限を超える", longText, "tooLong"],
+    ["リストの項目が多い", manyItems, "tooManyListItems"],
+  ] as const)(
+    "%s ときは、パースせずにソースをそのまま示し、理由を添える",
+    async (_name, text, reason) => {
+      let issued = 0;
+      const { rendered, failures } = mount(text, {
+        issueImages: async () => {
+          issued += 1;
+          return [];
+        },
+      });
+      await waitFor(() => expect(rendered).toHaveLength(1));
+
+      const source = document.querySelector(".plain-source");
+      expect(source?.tagName).toBe("PRE");
+      // ソースは1文字も変えずに示す。
+      expect(source?.textContent).toBe(text);
+      expect(screen.getByRole("note").textContent).toBe(
+        MESSAGES.ja.plainDocument[reason],
+      );
+      // パースしないため、見出し、Raw HTMLの要素、画像は生じず、画像の発行も行わない。
+      expect(screen.queryByRole("heading")).toBeNull();
+      expect(document.querySelector("script")).toBeNull();
+      expect(screen.queryByRole("img")).toBeNull();
+      expect(issued).toBe(0);
+      expect(failures).toEqual([]);
+    },
+  );
+
+  test("上限内の文書は書式を付けて描画する", async () => {
+    const { rendered } = mount("# 見出し\n\n- a\n- b\n");
+    await waitFor(() => expect(rendered).toHaveLength(1));
+
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "見出し",
+    );
+    expect(document.querySelector(".plain-source")).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  test("書式なしの文書から書式ありの文書へ替えると、案内とソースを残さない", async () => {
+    const { rendered, rerender } = mount(longText);
+    await waitFor(() => expect(rendered).toHaveLength(1));
+    expect(document.querySelector(".plain-source")).not.toBeNull();
+
+    rerender("# 次の文書\n");
+
+    await waitFor(() => expect(rendered).toHaveLength(2));
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(
+      "次の文書",
+    );
+    expect(document.querySelector(".plain-source")).toBeNull();
+    expect(screen.queryByRole("note")).toBeNull();
+  });
+
+  test("描画中の書式ありの文書を、書式なしの文書で差し替えても、古い描画で上書きしない", async () => {
+    // 先に始めた書式ありの描画が、後から書式なしの表示を上書きしないこと。
+    const { rendered, rerender } = mount("# 前の文書\n");
+    rerender(longText);
+
+    await waitFor(() =>
+      expect(document.querySelector(".plain-source")).not.toBeNull(),
+    );
+    // 前の描画が完了する時間を与えても、書式なしのままである。
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(document.querySelector(".plain-source")).not.toBeNull();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(rendered.length).toBeGreaterThanOrEqual(1);
   });
 });

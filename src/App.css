@@ -726,3 +726,23 @@ body {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/*
+ * 書式なしで表示する大きい・複雑な文書（8.7）。ソースをそのまま並べるため、長い行は折り返す。
+ * 強制カラーでは、枠線と文字がシステムカラーへ置き換わるため、個別の指定は要らない。
+ */
+.markdown-body .plain-notice {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-fg-muted);
+}
+
+.markdown-body .plain-source {
+  margin: 0;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 0.875em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

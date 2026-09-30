@@ -1,3 +1,4 @@
+import type { PlainDocumentReason } from "../markdown/limits";
 import type { LinkRejectionReason } from "../markdown/link-target";
 import type { Language } from "../types/generated/Language";
 
@@ -30,6 +31,10 @@ export type Messages = {
   fileDeleted: { keepingContent: string; withoutContent: string };
   /** 文書全体を描画できなかったときの通知。数式・図・画像の位置だけの失敗はそれぞれの位置に示す。 */
   renderFailed: (detail: string) => string;
+  /**
+   * 大きい・複雑な文書を、書式を付けずにそのまま表示するときの案内（8.7）。理由ごとに文言を分ける。
+   */
+  plainDocument: Record<PlainDocumentReason, string>;
   treeLabel: string;
   treeLoading: string;
   /** ワークスペースを開いていないときの案内に並べる、最近使ったフォルダーの見出し。 */
@@ -98,6 +103,12 @@ const ja: Messages = {
       "このファイルは削除されました。表示できる内容はありません。",
   },
   renderFailed: (detail) => `文書を描画できませんでした（${detail}）。`,
+  plainDocument: {
+    tooLong:
+      "この文書は長いため、書式を付けずにそのまま表示しています。リンクと画像は表示されません。",
+    tooManyListItems:
+      "この文書はリストの項目が多く、書式を付けると表示に時間がかかりすぎるため、書式を付けずにそのまま表示しています。リンクと画像は表示されません。",
+  },
   treeLabel: "ファイル",
   treeLoading: "読み込み中…",
   recentFoldersHeading: "最近使ったフォルダー",
@@ -164,6 +175,12 @@ const en: Messages = {
     withoutContent: "This file was deleted. There is no content to show.",
   },
   renderFailed: (detail) => `Could not render the document (${detail}).`,
+  plainDocument: {
+    tooLong:
+      "This document is long, so it is shown as plain text without formatting. Links and images are not displayed.",
+    tooManyListItems:
+      "This document has many list items, which would make formatting too slow, so it is shown as plain text without formatting. Links and images are not displayed.",
+  },
   treeLabel: "Files",
   treeLoading: "Loading...",
   recentFoldersHeading: "Recent folders",

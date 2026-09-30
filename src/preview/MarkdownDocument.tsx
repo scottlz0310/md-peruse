@@ -8,11 +8,13 @@ import {
   useState,
 } from "react";
 import { useMessages } from "../i18n/LanguageContext";
+import { plainDocumentReason } from "../markdown/limits";
 import type { LinkTarget } from "../markdown/link-target";
 import { renderMarkdown } from "../markdown/render";
 import type { ViewTarget } from "../state/document-tab";
 import type { ImageResource } from "../types/generated/ImageResource";
 import { targetOfLink } from "./link-click";
+import { PlainDocument } from "./PlainDocument";
 
 type Props = {
   /** 読み込んだ本文。改行はRust側でLFへ正規化済み（6.3）。 */
@@ -93,6 +95,17 @@ export function MarkdownDocument({
   // 組み立て直す（10.5）。
   // biome-ignore lint/correctness/useExhaustiveDependencies: `imageRevision` は本文の外で決まる描き直しの契機であり、effectの中では読まない。
   useEffect(() => {
+    // 大きい・複雑な文書はパースせず、ソースをそのまま表示する（8.7）。パースが数秒から
+    // 数十秒かかり、その間WebViewが応答しなくなるため、パースの前に判定する。
+    const plain = plainDocumentReason(text);
+    if (plain !== null) {
+      setContent(
+        <PlainDocument text={text} notice={messages.plainDocument[plain]} />,
+      );
+      setRendered(text);
+      onRenderedRef.current();
+      return;
+    }
     let current = true;
     renderMarkdown(
       text,
