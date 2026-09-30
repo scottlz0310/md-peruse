@@ -217,15 +217,18 @@ mod tests {
     use crate::ipc::types::FileChangeEvent;
     use crate::recent::{RECENT_FOLDERS_CHANGED_EVENT, RecentFolders};
     use crate::settings::Settings;
+    use crate::telemetry::PackageSignatureKind;
     use crate::telemetry::testing::RecordingLogger;
-    use crate::telemetry::{NullLogger, PackageSignatureKind};
     use std::fs;
     use std::path::PathBuf;
     use tauri::Listener;
 
     /// 状態、設定、最近使ったフォルダーの対応表を登録した `mock_app`。
     fn app_with(settings: Settings) -> tauri::App<tauri::test::MockRuntime> {
-        app_with_telemetry(settings, Telemetry::new(Box::new(NullLogger), None))
+        app_with_telemetry(
+            settings,
+            Telemetry::new(Box::new(RecordingLogger::default()), None),
+        )
     }
 
     /// 送るイベントを確かめるため、`Telemetry` を差し替えて始めた `mock_app`。

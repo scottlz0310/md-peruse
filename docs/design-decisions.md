@@ -1697,7 +1697,11 @@ Microsoft Store版の初回リリースから、利用状況の基準値を取�
 
 #### 実装の構成
 
-発火点はすべて `Telemetry::record`（`src-tauri/src/telemetry.rs`）を呼ぶ。この入口が、Store署名のときだけ送ること、各イベントを1セッションに1回だけ送ること、送信の失敗を無視することを引き受ける。発火点ごとに書かない。送信の口は `EventLogger`（イベント名だけを受け取る）で、WinRTの `StoreServicesCustomEventLogger` での実送信は、この trait の実装として足す。実送信を足すまでの製品は、何も送らない実装（`NullLogger`）を使う。
+発火点はすべて `Telemetry::record`（`src-tauri/src/telemetry.rs`）を呼ぶ。この入口が、Store署名のときだけ送ること、各イベントを1セッションに1回だけ送ること、送信の失敗を無視することを引き受ける。発火点ごとに書かない。送信の口は `EventLogger`（イベント名だけを受け取る）で、実装は `StoreEventLogger`（`src-tauri/src/telemetry/store_logger.rs`）である。
+
+`StoreEventLogger` は、`StoreServicesCustomEventLogger.Log()` を常駐の専用スレッドで呼ぶ。`record` は名前をチャンネルへ置くだけで、DLLのロードと `Log()` の待ちで呼び出し元を止めない。起動時の `session_start` はメインスレッドで記録されるため、これは起動を遅らせないための要件でもある。専用スレッドはMTAで初期化し、ロガーのオブジェクトをセッションの間ずっと持つ。通常のアプリが最初に作ったロガーを使い続ける形と揃え、SDKが内部で持つ送信の処理をスレッドの終了に巻き込まない。Partner Centerに実際に反映されるかは、Store公開後にしか確認できない（13.5）。
+
+スレッドは最初のイベントで初めて立てる。Storeから配布されていない実行は `record` が送信の手前で止めるため、スレッドもWinRTの活性化も生じない。スレッドを立てられない場合と、送信の口を得られない場合は、スレッドが終わって受け手が捨てられ、以後の記録が失敗として返る。これは他の送信失敗と同じく無視する。終了直前にチャンネルに残ったイベントは失われうる。最善努力の送信であり、再送しない方針（前節）と整合する。
 
 | イベント | 発火点 |
 | --- | --- |
@@ -1723,7 +1727,7 @@ Microsoft Store版の初回リリースから、利用状況の基準値を取�
 
 ビルド時のfeature flagで分けない。提出用ビルドの設定を取り違えたときに気づけないためである。署名種別は提出物そのものの性質であり、ビルド設定から独立している。パッケージIDを取得できない実行では署名種別も得られないため、`None` として同じ判定へ集約する。
 
-「パッケージ化した開発版・テスト版で送信しない」ことは、回帰テストとして固定した。すべてのイベントが `Telemetry::record` の判定（`should_send`）を通り、`Developer` 署名と非パッケージ実行では、どのイベントも送信の口へ届かない。署名種別は `package_signature_kind`（`Package::Current().SignatureKind()`）で取得し、取得できないとき、または知らない値のときは送らない側へ倒す。実際にパッケージ化した開発版での確認は、MSIXの検証（Phase 5）で行う。
+「パッケージ化した開発版・テスト版で送信しない」ことは、回帰テストとして固定した。すべてのイベントが `Telemetry::record` の判定（`should_send`）を通り、`Developer` 署名と非パッケージ実行では、どのイベントも送信の口へ届かない。署名種別は `package_signature_kind`（`Package::Current().SignatureKind()`）で取得し、取得できないとき、または知らない値のときは送らない側へ倒す。実際にパッケージ化した開発版でも、`Developer` 署名では送信の口へ届かないことを、開発用証明書で署名したMSIXで確認した（13.5）。
 
 将来のSDK更新で経路が失われた場合は、イベントなしで提出する。この機能がStore提出をブロックしない（13.5）。
 
@@ -1820,6 +1824,7 @@ Phase 1のスパイクで次を確定した。
 | Application | `EntryPoint="Windows.FullTrustApplication"`、`uap10:RuntimeBehavior="packagedClassicApp"`、`uap10:TrustLevel="mediumIL"` |
 | Capability | `rescap:Capability Name="runFullTrust"` のみ。`broadFileSystemAccess` は宣言しない |
 | 関連付け | `windows.fileTypeAssociation` で `.md` と `.markdown` |
+| 依存 | `Microsoft.Services.Store.Engagement`（10.0.23012.0以上）と `Microsoft.VCLibs.140.00`（14.0.0.0以上）の2つの `PackageDependency`。Store向けカスタムイベントの送信に必要（13.5） |
 | winapp CLI | 0.6.1（WinGet `Microsoft.WinAppCli`） |
 
 マニフェストは `packaging/Package.appxmanifest.template` を正本とし、`scripts/build-msix.ps1` が `Version` を置換して生成する。`ProcessorArchitecture` は `x64` に固定する（ARM64は対応外。3章）。
@@ -1976,6 +1981,27 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 - **CSPとTauri capabilityの最終値には影響しない。** 送信はWinRTのin-process activationであり、WebViewからのHTTPS通信を伴わない。`connect-src` を広げる必要がなく、capabilityの追加も不要である。
 - パッケージIDを持たない実行（`bun run tauri dev` を含む）では `0x80040154` で失敗する。ただしこれは「開発版・テスト環境で本番イベントを送信しない」という要件を満たさない。上記のとおりEngagementとVCLibsの `PackageDependency` を宣言したパッケージでは送信が成功するため、開発用の自己署名MSIXやパッケージ化したE2E実行はこの経路を通る。要件は `Package.Current.SignatureKind` による明示的な判定で満たす（11.4）。
 - 失敗はHRESULTとして返るだけで、例外やプロセス終了にはならない。「テレメトリの送信失敗でファイル・フォルダー操作を失敗させない」という要件は呼び出し側で担保できる。
+
+実装（`src-tauri/src/telemetry/store_logger.rs`）は、SDKのwinmdも、そこから生成したバインディングも使わない。SDKの成果物とそこから生成したコードは、ライセンス上の扱いに注意が要るため、リポジトリへ含めない。呼ぶのは `GetDefault()` と `Log()` の2つだけなので、必要な情報を手で書いた最小のABIで呼ぶ。値は、ローカルに導入したframework packageの `Microsoft.Services.Store.Engagement.winmd` のメタデータから読み取った。
+
+| 項目 | 値 |
+| --- | --- |
+| 活性化するクラス | `Microsoft.Services.Store.Engagement.StoreServicesCustomEventLogger`（ThreadingModel `both`） |
+| statics のIID | `IStoreServicesCustomEventLoggerStatics` = `5E9C9D4B-A892-32F3-87AC-410B81F89CD6` |
+| ロガーのIID | `IStoreServicesCustomEventLogger` = `6D544721-C351-3A70-95B6-161F52FBC13D`（`GetDefault()` が既定のインターフェースを直接返すため、実行時には使わない） |
+| staticsのvtable | `IInspectable`（6スロット）のあと、slot 6 が `GetDefault(out logger)` |
+| ロガーのvtable | `IInspectable`（6スロット）のあと、slot 6 が `Log(HSTRING)`、slot 7 が `LogForVariation`（呼ばない） |
+
+活性化ファクトリを `IInspectable` として得て、staticsのIIDで `QueryInterface` し、`GetDefault()` でロガーを得る。ロガーとstaticsの解放は、`IInspectable` の`Drop` に任せる。インターフェースはIIDで固定されるため、SDKの更新でメソッドの並びが変わることはない。
+
+このABIを、開発用証明書で署名したmd-peruse本体のMSIX（2つの `PackageDependency` を宣言したもの）で実測した。送信スレッドの各段の結果を一時的に記録するパッチを当てたReleaseビルドで、確認後にパッチは戻している。
+
+| 実行条件 | 結果 |
+| --- | --- |
+| `Developer` 署名のまま起動 | `session_start` の記録が署名種別の判定で止まる。送信スレッドも `RoInitialize` も `Log()` も動かない |
+| 署名種別の判定だけを一時的に外して起動 | `RoInitialize`、`GetDefault()`、`Log(session_start)` がすべて成功する。起動後もアプリは応答し、ウィンドウを閉じると正常に終了する |
+
+これで、手書きのABIが本物のDLLに対して成立すること、`Developer` 署名では送信の口へ届かないことを確認した。`Store` 署名での送信は、Store公開後にしか確認できない。
 
 未確認の事項は次のとおり。
 

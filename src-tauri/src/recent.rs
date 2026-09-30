@@ -208,7 +208,7 @@ mod tests {
             ..Settings::default()
         }));
         app.manage(crate::telemetry::Telemetry::new(
-            Box::new(crate::telemetry::NullLogger),
+            Box::new(crate::telemetry::testing::RecordingLogger::default()),
             None,
         ));
         app

@@ -14,7 +14,11 @@
 ## [Unreleased]
 
 ### Added
-- Store向けカスタムイベントの発火点と、送信の口を加えた（[design-decisions.md](./docs/design-decisions.md) 11.4）。Storeから配布されたパッケージのときだけ、各イベントを1セッションに1回送る設計で、実際の送信はまだ行わない
+- Store向けカスタムイベントの実送信を加えた（[design-decisions.md](./docs/design-decisions.md) 11.4、13.5）。これまで何も送らなかった送信の口を、`StoreServicesCustomEventLogger` を呼ぶ実装（`StoreEventLogger`）に置き換えた。Storeから配布されたパッケージ（署名種別が `Store`）のときだけ、各イベントを1セッションに1回、イベント名だけを送る。開発用に署名したMSIXと、パッケージ化していない実行では送らない
+  - **呼び出し方:** SDKのwinmdも、そこから生成したバインディングも使わない。ライセンス上の扱いに注意が要るため、呼ぶ2つのメソッド（`GetDefault` と `Log`）に必要な型名、IID、vtableの並びだけを手で書いた最小のABIで呼ぶ
+  - **送信スレッド:** `Log()` は常駐の専用スレッドで呼ぶ。メインスレッドと各操作のスレッドは、DLLのロードと `Log()` の待ちで止まらない。最初のイベントで初めてスレッドを立てるため、送らない実行ではスレッドもWinRTの活性化も生じない
+  - **マニフェスト:** `Microsoft.Services.Store.Engagement` と `Microsoft.VCLibs.140.00` の2つの `PackageDependency` を宣言した。開発用に署名したMSIXを導入するときは、この2つを先に導入しておく
+- Store向けカスタムイベントの発火点と、送信の口を加えた（[design-decisions.md](./docs/design-decisions.md) 11.4）。Storeから配布されたパッケージのときだけ、各イベントを1セッションに1回送る設計である
 - 関連付け起動と単一インスタンスを加えた（[design-decisions.md](./docs/design-decisions.md) 9.2）。エクスプローラーなどから `.md` を開くと、起動中のインスタンスがあればそのウィンドウのタブとして開き、ウィンドウを前面へ出す。新規に起動したときは、最後のワークスペースを復元してから、渡されたファイルを開く
 - ドラッグ＆ドロップで、ファイルとフォルダーを開けるようにした（[design-decisions.md](./docs/design-decisions.md) 9.1、10.4）
   - **フォルダー:** ワークスペースとして開く。「フォルダーを開く」と同じで、開いていたタブは破棄する。複数あれば最初の1つだけを採る

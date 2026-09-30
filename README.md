@@ -140,6 +140,8 @@ Add-AppxPackage .\build\msix\md-peruse_0.1.0.0_x64.msix
 
 `Package.appxmanifest` は `packaging/Package.appxmanifest.template` から生成し、`Version` をビルド時に置換する。`ProcessorArchitecture` は `x64` に固定している。Identity と PublisherDisplayName はPartner Centerの登録値と一致させること。
 
+マニフェストは、Store向けカスタムイベントの送信（[docs/design-decisions.md](./docs/design-decisions.md) 11.4、13.5）のために、`Microsoft.Services.Store.Engagement` と `Microsoft.VCLibs.140.00` の2つのframework packageへの依存を宣言している。開発用に署名したMSIXを `Add-AppxPackage` で導入するときは、この2つを先に導入しておく（Storeから配布されるパッケージは、Storeが解決する）。
+
 ### アイコン
 
 正方形アイコンの原本は `assets/app-icon.png`（1024x1024）の1点とし、各サイズは生成する。
