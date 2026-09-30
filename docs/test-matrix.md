@@ -38,7 +38,7 @@
 | 見出しアンカー | — | `heading-id.test.ts`、`pipeline.test.ts`「見出しアンカー」、`MarkdownDocument`「同一文書内のアンカーは…」、`App`「見出しへの移動も履歴へ積み…」 | — |
 | 相対リンク | — | `link-target.test.ts`（解決できる、拒否する）、`MarkdownDocument`「別の文書へのリンクは…」、`App`「本文中の相対リンクで別の文書を開く」「開けないリンクは…」 | — |
 | 相対画像 | `image::reference`（解決、範囲外の拒否）、`image::format`、`image::resource`、`image::protocol`、`ipc::commands`（参照ごとの発行） | `render.test.tsx`「画像（5.4、7.3）」、`MarkdownDocument`、`App`「本文の画像は…」 | tasks.md 4-2「画像の表示」「画像 resource ID の世代管理」 |
-| 文書内検索 | — | `DocumentFind`、`find-ranges.test.ts`、`find.test.ts`、`App`「文書内検索は本文だけを対象にし…」 | `forced-colors` は CDP のエミュレーションで確認。実 OS のハイコントラストは未確認（下の「確認できていない項目」） |
+| 文書内検索 | — | `DocumentFind`、`find-ranges.test.ts`、`find.test.ts`、`App`「文書内検索は本文だけを対象にし…」 | `forced-colors` は CDP のエミュレーションで確認。実 OS のハイコントラスト黒でも、検索バーと現在位置の一致が判読できることを確認（design-decisions.md 10.6） |
 | ホットリロード | `watch`（畳み込み、窓の時間規則）、`watch_runtime`（実ファイルでの Watcher、atomic replace の追従） | `tab-changes.test.ts`、`tab-status.test.ts`、`App`「ファイル変更への追従（6.4、6.5、5.4）」 | tasks.md 4-2「`notify` のイベントを…写像する処理」（atomic replace の単発と 50 ms 間隔 20 回） |
 | 入力上限 | `read`（10 MiB の境界）、`image::format`（バイト数とピクセル寸法）、`limits` | `mermaid.test.ts`（入力サイズ）、`highlight.test.ts`、`limits.test.ts`、`render.test.tsx`（数式の上限と予算） | — |
 | 大きい・複雑な文書 | — | `limits.test.ts`「plainDocumentReason」（文字数、ブロックの長さ、項目数と境界）、`MarkdownDocument`「大きい・複雑な文書の書式なし表示（8.7）」「文書の切り替えでの部分木の作り直し」、`plain-chunks.test.ts`（本文の分け方）、`PlainDocument`（分けた境目をまたぐ文書内検索） | tasks.md 4-2「大きい・複雑な文書を、書式なしで表示する」「書式なしで表示する大きい文書が、アクセシビリティ木が有効な環境で応答しなくなる」、design-decisions.md 8.7、13.6 の測定表。選択とコピーの専用テストは無い |
@@ -75,7 +75,7 @@
 | --- | --- | --- |
 | 5.1 性能 | — | design-decisions.md 13.6（Release、パッケージ化しない）。起動時間とメモリは Phase 5（MSIX） |
 | 5.2 リソース効率 | `watch_runtime`（Watcher の破棄で通知が止まる）、`settings_store`（debounce と終了時の flush） | 終了後のプロセスの残存は未確認（Phase 5） |
-| 5.3 アクセシビリティ | `TreeView`（ARIA、キー）、`TabBar`、`SidebarLayout`（キーでの幅変更）、`Breadcrumb`、`DocumentFind`（`forced-colors`） | design-decisions.md 10.6（CDP で `forced-colors`）、tasks.md「Reduced Motion」。実 OS のハイコントラストは未確認 |
+| 5.3 アクセシビリティ | `TreeView`（ARIA、キー）、`TabBar`、`SidebarLayout`（キーでの幅変更）、`Breadcrumb`、`DocumentFind`（`forced-colors`） | design-decisions.md 10.6（CDP で `forced-colors`）、tasks.md「Reduced Motion」。実 OS のハイコントラスト黒の実機で確認（10.6）。黒以外のテーマは未確認 |
 | 5.4 セキュリティ | 下の「セキュリティ回帰との突き合わせ」 | — |
 | 5.5 プライバシーとテレメトリ | `telemetry`（5種、1回だけ、Store 署名のときだけ）、`telemetry::store_logger`、`App`「文書の表示結果の通知（11.4）」 | tasks.md 4-2「実送信」「署名種別の判定」（開発用署名の MSIX で確認） |
 | 5.6 国際化 | `messages.test.ts`、`i18n`、`language`。言語ごとの表の不足は型検査（`tsc --noEmit`）で検出する | — |
@@ -110,10 +110,10 @@
 | atomic replace による連続更新でプレビューが壊れない | Rust: `watch`（`coalesce_*`）、`watch_runtime`（`a_loose_watcher_follows_its_file_including_atomic_replace`）。Frontend: `tab-status.test.ts`（atomic replace の畳み込み結果で、開いているタブが `stale` になる）、`App`（変更のたびに読み直しても、遅れて届いた古い応答で上書きしない）。実機: 単発と、50 ms 間隔の20回連続（tasks.md 4-2）。MSIX での確認は Phase 5 |
 | 陳腐化した走査応答が新しいツリーを上書きせず、別パスの同時走査が相互に無効化されない | `file-tree.test.ts`「走査の世代（5.3）」、`App`「切り替える前に要求した走査の応答は反映しない」 |
 | 画像の更新と監視のバッファあふれの後に、古い画像がキャッシュから表示されない | Rust: `image::resource`（世代の前進、無効化）、`image::protocol`（書き換えた画像を旧いIDで配信しない）、`watch_runtime`（書き換えの通知、あふれ）。Frontend: `MarkdownDocument`「画像の書き換えを知らされたら…」、`App`「発行済みの画像が書き換わったら…」。実機: tasks.md 4-2「画像resource IDの世代管理」 |
-| キーボードだけで主要操作を完了できる | 個別の操作は、`TreeView`（移動、開閉、選択）、`TabBar` と `App`（`Ctrl+Tab`、`Ctrl+W`）、`SidebarLayout`（幅）、`DocumentFind`（`Ctrl+F`、`F3`）、`App`（`Alt+←`、`Alt+→`）、Rust の `menu` と `webview_keys`（アクセラレータ）でテストしている。**通しの実機確認は未実施**（下に示す） |
+| キーボードだけで主要操作を完了できる | 個別の操作は、`TreeView`（移動、開閉、選択）、`TabBar` と `App`（`Ctrl+Tab`、`Ctrl+W`）、`SidebarLayout`（幅）、`DocumentFind`（`Ctrl+F`、`F3`）、`App`（`Alt+←`、`Alt+→`）、Rust の `menu` と `webview_keys`（アクセラレータ）でテストしている。通しの実機確認（Release）: マウスを使わずに、フォルダーを開く、ツリーの移動、文書を開く、タブの切り替え、検索、リンク、戻る・進む、表示の切り替え、メニュー、ワークスペースを閉じる、までを完了できた（tasks.md 4-2「キーボードだけで主要操作を通しで完了できることを…」） |
 | 不正な Markdown や Mermaid 入力でアプリが停止しない | Markdown: `malformed.test.tsx`（29種の壊れた入力）、`MarkdownDocument`「本文全体を描画できないときは、失敗を知らせ…」。Mermaid: `mermaid.test.ts`（構文エラー、読込の失敗、時間切れ）、`MermaidDiagram.test.tsx`。WebView2 の失敗: `startup_failure` |
 | Raw HTML、危険な URL scheme、境界外画像が遮断され、セキュリティ回帰テストが通る | 「セキュリティ回帰との突き合わせ」 |
-| `forced-colors` 有効時に Mermaid 図とコードブロックが判読できる | 実機の WebView2 を CDP で `forced-colors: active` にして確認（design-decisions.md 10.6）。実 OS のハイコントラストは未確認（下に示す） |
+| `forced-colors` 有効時に Mermaid 図とコードブロックが判読できる | 実機の WebView2 を CDP で `forced-colors: active` にして確認（design-decisions.md 10.6）。実 OS のハイコントラスト黒の実機でも、タイトルバー、メニュー、ツリー、タブ、本文、Mermaid の図、検索バー、書式なしの文書が判読できることを確認（10.6。黒以外のテーマは未確認） |
 | spec.md の性能目標を満たす | 描画に関わる3指標（文書切り替え、変更反映、ツリー展開）は、Release の実機で満たす（design-decisions.md 13.6。判定は中央値）。起動とメモリは、MSIX が条件のため Phase 5 |
 | Store 向けカスタムイベントが、定義どおりの条件でのみ送信され、送信失敗がファイル・フォルダー操作へ波及しない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3） | Rust: `telemetry`（イベントは5種で名前が安定、1セッションに各1回、Store 署名のときだけ送る、送信の失敗は無視して再送しない、送らないイベントは送信済みとして記録しない）、`telemetry::store_logger`（偽の COM オブジェクトでの vtable、`HSTRING`、各段の失敗）、`open_folder`（利用者が開いたときだけ数え、復元は数えない、開けなかったときは数えない）。Frontend: `App`「文書の表示結果の通知（11.4）」（描画できたことは1回だけ、失敗は成功と別に1回だけ、失敗の表示だけでは成功を知らせない）、`MarkdownDocument`「描画が完了するたびに知らせる（11.4）」。実機: 開発用に署名した MSIX で、署名種別の判定が送信の口へ届かないこと、判定だけを外すと `RoInitialize`、`GetDefault()`、`Log()` が成功することを確認（tasks.md 4-2「Store向けカスタムイベントの実送信」「…送信を `Package.Current.SignatureKind` が `Store` のときだけに限る判定」）。**`Store` 署名での実送信は、Store 公開後にしか確認できない**（Phase 5、[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4） |
 | 起動中に2つ目の `.md` を関連付けから開く経路が E2E 回帰項目として固定され、既存ウィンドウへのタブ追加でセッション単位のイベントが重複送信されない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階3） | Rust: `launch`（2つ目の起動は、準備が済んでいれば直ちに開く、セッションのイベントを送らない、相対パスは2つ目のプロセスの作業ディレクトリで解決する）。Frontend: `App`「起動後に2つ目の起動で届く指示は、既存のウィンドウのタブとして開く」、`App`「描画できたことは、何度文書を表示しても1回だけ知らせる」。実機（`tauri dev`）: 最小化したウィンドウへの2つ目のプロセス（絶対パス、相対パス、引数なし）を確認（tasks.md 4-2「関連付け起動と単一インスタンス」）。MSIX 内での確認は Phase 5 |
@@ -121,9 +121,7 @@
 ## 確認できていない項目
 
 - **WebView2 の失敗ダイアログを出す経路そのもの（4.4）**: 案内の文言と、表示を注入した関数は単体テストで固定したが、実際のウィンドウ作成の失敗から `MessageBoxW` までの結線は、自動テストで再現できない（WebView2 を欠落させられない）。実機で環境変数により再現して確かめた記録（tasks.md）が担う。
-- **実 OS のハイコントラスト**: `forced-colors` は CDP のエミュレーションで確認した。実際の OS 設定下の確認は、利用者の環境で行う（tasks.md「検討待ち」）。
-- **キーボードだけでの通しの操作**: 個別の操作は上のとおりテストで固定しているが、フォルダーを開く、タブを移る、文書内を検索する、戻る／進む、ウィンドウを閉じる、までを、マウスを使わずに通して行う実機の確認は、まだ行っていない。
-- **変更反映の、前面での再測定**: 1 MiB の文書を1.5秒間隔で書き換えると、変更反映が約6秒遅れる測定が、無人・バックグラウンドの状態であった（tasks.md「検討待ち」）。ユーザーが前面で操作している状態での再測定は、まだ行っていない。
+- **実 OS のハイコントラストの、黒以外のテーマ**: ハイコントラスト黒は実機で確認した（design-decisions.md 10.6）。白、ハイコントラスト1・2は、OS のテーマを切り替える別の操作が要るため確認していない。`forced-colors` ではシステムカラーへ置き換わるため、テーマ固有の色は使っていない。
 - **選択・コピーの、書式なし表示での動作**: 専用のテストは無い。書式なしの表示は `pre` の隣り合うテキストノードであり、`textContent` が元の本文と一致することは `PlainDocument.test.tsx` で固定している。文書内検索が、分けた境目をまたぐ一致を取れることも同じテストで固定した。
 - **MSIX での実機確認**: ファイル関連付け、単一インスタンス、複数ファイルの渡され方、ファイル変更への追従。Phase 5（tasks.md Phase 5）。
 - **起動時間とメモリ**: Phase 5（MSIX）。
