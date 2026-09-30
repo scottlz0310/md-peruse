@@ -98,6 +98,129 @@ export const KATEX_LIMITS = {
 export const KATEX_OUTPUT_EXPANSION_RATIO = 12;
 
 /**
+ * 書式を付けて描画する文書の上限。超えた文書は、パースせずにソースをそのまま表示する
+ * （design-decisions.md 8.7）。
+ *
+ * 描画時間は本文の長さにほぼ比例するが、リストの項目が多いと二乗で伸びる。
+ * `mdast-util-from-markdown`（2.0.3）は、リストの項目ごとに、文書全体のイベント配列の途中へ
+ * `splice` で2件を挿入する。配列が長いほど1回が高くつくため、時間が「項目数 × 文字数」に
+ * 比例して加わる（実測。WebView2、Core i7-12700K）。
+ *
+ * 単位は文字数（UTF-16コードユニット）である。時間は文字数で決まり、バイト数では決まらない。
+ * 日本語主体の文書は1文字が3バイトのため、バイトで数えると同じ時間の文書が3倍の値になる。
+ */
+export const DOCUMENT_LIMITS = {
+  /**
+   * 書式を付けて描画する本文の文字数。約60万文字は、日本語主体の文書で約1 MiBに当たり、
+   * 描画に約1.4秒かかる（実測）。
+   */
+  richMaxChars: 600_000,
+  /**
+   * 「リスト項目数 × 文字数」の上限。この値までの実測で最も遅いのは、ネストしたリスト
+   * 21400項目・21万文字の約1.9秒である。超える文書は、単一のリスト1 MiB（2.8万項目、
+   * 約4.1秒）、ネストしたリスト500 KiB（4.1万項目、約6.1秒）、同1 MiB（8.2万項目、
+   * 約54秒）のように、数秒から数十秒かかる。
+   */
+  richMaxListItemChars: 5_000_000_000,
+} as const;
+
+/** 書式なしで表示する理由。 */
+export type PlainDocumentReason = "tooLong" | "tooManyListItems";
+
+/**
+ * この文書を書式なしで表示するべきときの理由を返す。書式を付けて描画してよければ `null`。
+ *
+ * 文字数を先に見る。リスト項目の数え上げは、文字数の上限内の文書にだけ行い、しかも
+ * 「項目数 × 文字数」の上限を超えた時点で打ち切る。上限は10 MiBのMarkdownでも一定時間で
+ * 判定できる。
+ *
+ * 項目の数え方は {@link countListItems} による。コードブロックの中の行も数えるが、多く
+ * 見積もる側であり、書式なしへ倒れるだけで壊れない。
+ */
+export function plainDocumentReason(text: string): PlainDocumentReason | null {
+  const chars = text.length;
+  if (chars > DOCUMENT_LIMITS.richMaxChars) return "tooLong";
+  const maxItems = Math.floor(
+    DOCUMENT_LIMITS.richMaxListItemChars / Math.max(chars, 1),
+  );
+  return countListItems(text, maxItems) > maxItems ? "tooManyListItems" : null;
+}
+
+const SPACE = 0x20;
+const TAB = 0x09;
+const QUOTE = 0x3e; // >、引用の接頭辞
+
+/**
+ * リストの項目を数える。数え上げが `limit` を超えた時点で打ち切り、そのときの値を返す。
+ *
+ * 各行で、行頭の接頭辞（空白、タブ、引用の `>`）を読み飛ばし、続くマーカー（`-`、`*`、`+`、
+ * `1.`、`1)`。番号は9桁まで）を1つずつ数える。引用の中のリスト（`> - a`）と、同じ行に連なる
+ * マーカー（`- - a`、`> 1. - a`）は、パーサーも項目として処理するため数える。
+ *
+ * 正規表現ではなく、文字列を1回走査する。接頭辞を後読みで確かめる正規表現は、マーカーが
+ * 連なる長い行で、候補ごとに行頭まで戻り二乗になる。判定そのものが固まらないよう、走査は
+ * 文字数に比例する。
+ */
+function countListItems(text: string, limit: number): number {
+  const length = text.length;
+  let items = 0;
+  let lineStart = 0;
+  while (lineStart < length) {
+    let position = lineStart;
+    for (;;) {
+      const code = text.charCodeAt(position);
+      if (code !== SPACE && code !== TAB && code !== QUOTE) break;
+      position += 1;
+    }
+    for (;;) {
+      const width = listMarkerWidth(text, position);
+      if (width === 0) break;
+      items += 1;
+      if (items > limit) return items;
+      position += width;
+    }
+    const newline = text.indexOf("\n", position);
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
+  return items;
+}
+
+/**
+ * `position` にあるリストのマーカーと、続く空白（空白とタブの連なり）の長さを返す。
+ * マーカーでなければ0。行末までしか読まない。
+ */
+function listMarkerWidth(text: string, position: number): number {
+  const code = text.charCodeAt(position);
+  let end = position;
+  if (code === 0x2d || code === 0x2a || code === 0x2b) {
+    // - * +
+    end += 1;
+  } else if (code >= 0x30 && code <= 0x39) {
+    // 番号は9桁まで。10桁以上はリストの番号ではない。
+    while (
+      end - position < 9 &&
+      text.charCodeAt(end) >= 0x30 &&
+      text.charCodeAt(end) <= 0x39
+    ) {
+      end += 1;
+    }
+    const delimiter = text.charCodeAt(end);
+    // . )
+    if (delimiter !== 0x2e && delimiter !== 0x29) return 0;
+    end += 1;
+  } else {
+    return 0;
+  }
+  const gap = text.charCodeAt(end);
+  if (gap !== SPACE && gap !== TAB) return 0;
+  while (text.charCodeAt(end) === SPACE || text.charCodeAt(end) === TAB) {
+    end += 1;
+  }
+  return end - position;
+}
+
+/**
  * このコードブロックが文書の予算から消費する量を返す。
  *
  * 呼び出し側はこの値を積み上げ、`shouldHighlight` の `spentBudget` へ渡す。
