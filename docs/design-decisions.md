@@ -1891,6 +1891,15 @@ Store向けカスタムイベント（11.4）の送信失敗は、本章の対�
 | ツリー項目単位の失敗 | 該当項目のインライン表示 |
 | 文書内の要素単位の失敗 | 該当要素の位置へのインライン表示 |
 
+**WebView2 Runtimeの欠落と初期化の失敗（起動失敗）。** ウィンドウ（WebView）を作れないと、FrontendもIPCも成立しないため、ネイティブ側だけが原因を示せる。Release（Phase 4）で、環境変数 `WEBVIEW2_BROWSER_EXECUTABLE_FOLDER`（存在しないフォルダー、Runtimeの無いフォルダー）と `WEBVIEW2_USER_DATA_FOLDER`（ファイルを指す）で失敗を再現し、次の挙動を確かめた。
+
+| 失敗 | 実装前 | 実装後 |
+| --- | --- | --- |
+| Runtimeが見つからない | Tauri（wry）の英語のダイアログ（「Could not find the WebView2 Runtime」、公式の入手先つき）だけで、UI言語の案内は無い。ダイアログが出ないまま異常終了した回が1回あった（再現せず） | 同じダイアログの後に、UI言語のダイアログを示して終了する |
+| 利用者データのフォルダーを使えない | panic（`Failed to setup app: error encountered during setup hook: the underlying handle is not available`）で、案内なしに異常終了した（終了コード0xC0000409）。WebView2が出す日本語のダイアログ（「データ ディレクトリを作成できませんでした」）は別のプロセスから出る | WebView2のダイアログの後に、UI言語のダイアログを示して終了する |
+
+実装は、ウィンドウを作る処理（`WebviewWindowBuilder::build` と、そのWebViewを扱う `webview_keys::attach`）の失敗を捕まえ、`src/startup_failure.rs` で、UI言語（設定から決まる言語）の案内、Microsoftの公式の修復先（https://developer.microsoft.com/microsoft-edge/webview2/）、失敗の内容を含むネイティブのメッセージボックスを示してから、終了する（終了コード1）。Tauriの `setup` は失敗を返すとpanicにするため、返さずにその場で終了する。`webview_keys::attach` のWebView2のCOM呼び出し（`ICoreWebView2Settings3` の取得を含む）の失敗は、`.expect` のpanicではなく `Result` で返す。`panic = "abort"` のReleaseでは、panicすると案内を出せないためである（レビュー指摘）。Tauriのダイアログのプラグインは、アプリを作った後のハンドルが要るため使わず、`MessageBoxW` を呼ぶ。WebView2やwryが先に出すダイアログは、抑えられないため、そのまま出る（2つ続けて出る）。実機のWebView2で、上の2つの失敗を再現し、案内のダイアログの表示と、閉じた後の終了を確かめた。旧いRuntimeで `ICoreWebView2Settings3` を取得できない場合は、インターフェイスの取得を一時的に失敗させて再現し、案内の詳細に「WebView2のブラウザーアクセラレータキーを無効にできない: インターフェイスがサポートされていません (0x80004002)」が出ることを確かめた。MSIXのPackage Identityの失敗は、この確認の対象外で、Phase 5で扱う。
+
 ## 13. パッケージングとStore
 
 - Tauri CLIのRelease出力をx64で生成する。
