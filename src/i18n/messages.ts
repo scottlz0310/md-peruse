@@ -106,6 +106,8 @@ const ja: Messages = {
   plainDocument: {
     tooLong:
       "この文書は長いため、書式を付けずにそのまま表示しています。リンクと画像は表示されません。",
+    tooLongBlock:
+      "この文書は、空行で区切られた1つのまとまり（段落、表、リスト）が長く、書式を付けると表示に時間がかかりすぎるため、書式を付けずにそのまま表示しています。リンクと画像は表示されません。",
     tooManyListItems:
       "この文書はリストの項目が多く、書式を付けると表示に時間がかかりすぎるため、書式を付けずにそのまま表示しています。リンクと画像は表示されません。",
   },
@@ -178,6 +180,8 @@ const en: Messages = {
   plainDocument: {
     tooLong:
       "This document is long, so it is shown as plain text without formatting. Links and images are not displayed.",
+    tooLongBlock:
+      "This document has a single block (paragraph, table, or list) with no blank line for a very long stretch, which would make formatting too slow, so it is shown as plain text without formatting. Links and images are not displayed.",
     tooManyListItems:
       "This document has many list items, which would make formatting too slow, so it is shown as plain text without formatting. Links and images are not displayed.",
   },
