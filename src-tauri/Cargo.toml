@@ -15,11 +15,11 @@ name = "md_peruse_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
+tauri-build = { version = "2.7.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.11.6", features = [] }
-tauri-plugin-opener = "2.5.5"
+tauri = { version = "2.12.0", features = [] }
+tauri-plugin-opener = "2.6.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 ts-rs = "12.0.1"
@@ -37,11 +37,10 @@ windows = { version = "0.62.2", features = [
 ] }
 # WebViewにフォーカスがあるときのキー入力の通知と、ブラウザーアクセラレータキーの無効化
 # （design-decisions.md 10.1、`src/webview_keys.rs`）。Tauriは設定を公開しておらず、
-# `with_webview` で得るWebView2のcontrollerを直接扱う。どちらもTauri（wry）が依存する版と
-# 揃えており、重複してコンパイルされない。`windows-core` はwebview2-comが使う0.61系の
-# `Interface`（`cast`）を呼ぶためだけに別名で置く。
-webview2-com = "0.38.2"
-webview2-com-core = { package = "windows-core", version = "0.61.2" }
+# `with_webview` で得るWebView2のcontrollerを直接扱う。Tauri（wry）が依存する版と揃えており、
+# 重複してコンパイルされない。`windows` 0.62 系と `windows-core` も共通のため、`Interface`
+# （`cast`）は `windows::core` から使う。
+webview2-com = "0.39.1"
 # 画像配信の同時読込数の上限（design-decisions.md 7.3）。Tauriの非同期ランタイムはtokioであり、
 # 待つ側がブロッキングスレッドを占有しないよう非同期のセマフォを使う。Tauriが依存する版と揃える。
 tokio = { version = "1.53.1", default-features = false, features = ["sync"] }
@@ -68,18 +67,18 @@ imagesize = { version = "0.15.0", default-features = false, features = [
 getrandom = "0.4.3"
 hmac = "0.13.0"
 sha2 = "0.11.0"
-tauri-plugin-dialog = "2.7.3"
+tauri-plugin-dialog = "2.8.0"
 # 関連付け起動を起動中のインスタンスへ渡す（design-decisions.md 9.2）。2つ目のプロセスは
 # 引数を渡して終了し、起動中のインスタンスがそれを受け取る。
-tauri-plugin-single-instance = "2.4.5"
+tauri-plugin-single-instance = "2.5.0"
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。
 # dev-dependencies の feature は通常ビルドへ波及しないため、製品バイナリには入らない。
-tauri = { version = "2.11.6", features = ["test"] }
+tauri = { version = "2.12.0", features = ["test"] }
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
 # muda と同じ系列へ解決させる（cargo は semver 互換なら1つへ統一する）。
-muda = "0.19.3"
+muda = "0.20.0"
 
 [profile.release]
 codegen-units = 1
