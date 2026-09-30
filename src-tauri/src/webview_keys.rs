@@ -16,10 +16,10 @@ use webview2_com::Microsoft::Web::WebView2::Win32::{
     COREWEBVIEW2_KEY_EVENT_KIND, COREWEBVIEW2_KEY_EVENT_KIND_KEY_DOWN,
     COREWEBVIEW2_KEY_EVENT_KIND_SYSTEM_KEY_DOWN, ICoreWebView2Controller, ICoreWebView2Settings3,
 };
-use webview2_com_core::Interface;
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, VK_CONTROL, VK_MENU, VK_SHIFT};
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SC_KEYMENU, WM_SYSCOMMAND};
+use windows::core::Interface;
 
 use crate::menu::{ACCELERATORS, IMPLEMENTED, MenuCommand};
 
@@ -239,18 +239,12 @@ unsafe fn configure<R: Runtime>(
                     args.SetHandled(true)?;
                     // ホストのウィンドウが `Alt+文字` を受け取ったときと同じ経路で、
                     // 該当するメニューを開く（該当しなければOSが警告音を鳴らす）。
-                    // WebView2のcrateと `windows` の版が異なるため、エラーはHRESULTで渡す。
                     PostMessageW(
                         Some(HWND(hwnd as _)),
                         WM_SYSCOMMAND,
                         WPARAM(SC_KEYMENU as usize),
                         LPARAM(character as isize),
-                    )
-                    .map_err(|error| {
-                        webview2_com_core::Error::from_hresult(webview2_com_core::HRESULT(
-                            error.code().0,
-                        ))
-                    })?;
+                    )?;
                 }
                 KeyRoute::Page => {}
             }
