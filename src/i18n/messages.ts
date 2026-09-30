@@ -28,6 +28,8 @@ export type Messages = {
   tabDeleted: string;
   /** アクティブタブのファイルが削除されたときの通知。本文を保っているか否かで文言を分ける。 */
   fileDeleted: { keepingContent: string; withoutContent: string };
+  /** 文書全体を描画できなかったときの通知。数式・図・画像の位置だけの失敗はそれぞれの位置に示す。 */
+  renderFailed: (detail: string) => string;
   treeLabel: string;
   treeLoading: string;
   /** ワークスペースを開いていないときの案内に並べる、最近使ったフォルダーの見出し。 */
@@ -95,6 +97,7 @@ const ja: Messages = {
     withoutContent:
       "このファイルは削除されました。表示できる内容はありません。",
   },
+  renderFailed: (detail) => `文書を描画できませんでした（${detail}）。`,
   treeLabel: "ファイル",
   treeLoading: "読み込み中…",
   recentFoldersHeading: "最近使ったフォルダー",
@@ -160,6 +163,7 @@ const en: Messages = {
       "This file was deleted. Showing the last content that could be read.",
     withoutContent: "This file was deleted. There is no content to show.",
   },
+  renderFailed: (detail) => `Could not render the document (${detail}).`,
   treeLabel: "Files",
   treeLoading: "Loading...",
   recentFoldersHeading: "Recent folders",

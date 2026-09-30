@@ -342,3 +342,18 @@ pub struct LanguageChangedEvent {
     /// 選択から決まった実際の表示言語。
     pub language: crate::i18n::Language,
 }
+
+/// 文書を表示した結果。Store向けカスタムイベント（design-decisions.md 11.4）の
+/// `open_md_ok` と `open_md_fail` に対応する。
+///
+/// 描画の完了はFrontendだけが知るため、Frontendがcommandで知らせる。イベント名そのものは
+/// 渡さない。Frontendが送るイベントを、この2値へ限るためである（5.5）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum OpenMdResult {
+    /// 文書を描画できた。
+    Ok,
+    /// 文書全体を描画できず、失敗を表示した。数式・図・画像の位置だけの失敗は含めない。
+    Fail,
+}

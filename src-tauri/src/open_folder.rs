@@ -23,6 +23,7 @@ use crate::ipc::types::WorkspaceOpenedEvent;
 use crate::recent;
 use crate::settings_store::SettingsStore;
 use crate::state::AppState;
+use crate::telemetry::{Telemetry, TelemetryEvent};
 use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 
 /// ワークスペースを開いたことを運ぶTauri eventの名前。
@@ -78,8 +79,14 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
 /// ときは現在のワークスペースを保ち、理由を返す。示し方（ダイアログ、応答、黙って外す）は
 /// 呼び出し側が決める。
 pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    let _lifecycle = lock_lifecycle();
-    open_unlocked(app, path)
+    {
+        let _lifecycle = lock_lifecycle();
+        open_unlocked(app, path)?;
+    }
+    // 利用者が開いたときだけ記録する。起動時の復元は `open_unlocked` を直接呼ぶため、数えない
+    // （11.4）。開閉のロックを放してから記録し、記録の結果は返さない。
+    app.state::<Telemetry>().record(TelemetryEvent::OpenFolder);
+    Ok(())
 }
 
 /// 起動時に、最後のワークスペースを開き直す（9.2）。
@@ -210,18 +217,29 @@ mod tests {
     use crate::ipc::types::FileChangeEvent;
     use crate::recent::{RECENT_FOLDERS_CHANGED_EVENT, RecentFolders};
     use crate::settings::Settings;
+    use crate::telemetry::testing::RecordingLogger;
+    use crate::telemetry::{NullLogger, PackageSignatureKind};
     use std::fs;
     use std::path::PathBuf;
     use tauri::Listener;
 
     /// 状態、設定、最近使ったフォルダーの対応表を登録した `mock_app`。
     fn app_with(settings: Settings) -> tauri::App<tauri::test::MockRuntime> {
+        app_with_telemetry(settings, Telemetry::new(Box::new(NullLogger), None))
+    }
+
+    /// 送るイベントを確かめるため、`Telemetry` を差し替えて始めた `mock_app`。
+    fn app_with_telemetry(
+        settings: Settings,
+        telemetry: Telemetry,
+    ) -> tauri::App<tauri::test::MockRuntime> {
         let app = tauri::test::mock_app();
         app.manage(AppState::new(LanguagePreference::System));
         let recents = RecentFolders::new();
         recents.sync(&settings.recent_folders);
         app.manage(recents);
         app.manage(SettingsStore::without_saving(settings));
+        app.manage(telemetry);
         app
     }
 
@@ -393,6 +411,57 @@ mod tests {
         assert!(settings.recent_folders.is_empty());
         assert!(opened.lock().unwrap().is_empty());
         assert!(changed.lock().unwrap().is_empty());
+    }
+
+    /// Store署名のパッケージとして始めた `mock_app`。送った名前を返す送信の口も返す。
+    fn store_app(settings: Settings) -> (tauri::App<tauri::test::MockRuntime>, RecordingLogger) {
+        let logger = RecordingLogger::default();
+        let telemetry = Telemetry::new(Box::new(logger.clone()), Some(PackageSignatureKind::Store));
+        (app_with_telemetry(settings, telemetry), logger)
+    }
+
+    /// `open_folder` は、利用者がワークスペースを開いたときだけ記録する（11.4）。起動時の復元は
+    /// 数えない。起動するだけで送られると、フォルダー中心の利用の指標にならない。
+    #[test]
+    fn a_restored_workspace_is_not_counted_but_a_user_opened_one_is() {
+        let temp = TempDir::new("telemetry-restore");
+        let restored = temp.path().join("restored");
+        let mine = temp.path().join("mine");
+        fs::create_dir(&restored).unwrap();
+        fs::create_dir(&mine).unwrap();
+        let (app, logger) = store_app(Settings {
+            last_workspace: Some(canonical(&restored)),
+            recent_folders: vec![canonical(&restored)],
+            ..Settings::default()
+        });
+
+        restore_last_workspace(app.handle());
+        assert!(
+            app.state::<AppState>().scope_id().is_some(),
+            "復元できていない"
+        );
+        assert!(logger.sent().is_empty(), "復元を数えた");
+
+        open_path(app.handle(), &mine).expect("開けない");
+        assert_eq!(logger.sent(), ["open_folder"]);
+    }
+
+    /// 開けなかったときは記録しない。成功したときも、1セッションに1回だけ記録する。
+    #[test]
+    fn open_folder_is_recorded_for_a_success_and_only_once() {
+        let temp = TempDir::new("telemetry-open");
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let (app, logger) = store_app(Settings::default());
+
+        assert!(open_path(app.handle(), &temp.path().join("missing")).is_err());
+        assert!(logger.sent().is_empty(), "失敗を数えた");
+
+        open_path(app.handle(), &first).expect("開けない");
+        open_path(app.handle(), &second).expect("開けない");
+        assert_eq!(logger.sent(), ["open_folder"]);
     }
 
     /// 起動時は、最後のワークスペースを開き直す（9.2）。

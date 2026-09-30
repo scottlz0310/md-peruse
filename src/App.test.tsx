@@ -50,6 +50,8 @@ type Handlers = {
   openRecent?: (id: string) => void | Promise<void>;
   /** 準備が済んだ知らせ（`frontend_ready_command`）。Rustが保留したファイルを開く契機。 */
   onFrontendReady?: () => void | Promise<void>;
+  /** 文書の表示結果の通知（`report_open_result_command`。Store向けカスタムイベントの発火点）。 */
+  reportOpen?: (result: string) => void;
 };
 
 const UI_SETTINGS: UiSettings = {
@@ -69,6 +71,10 @@ function mockBackend(handlers: Handlers) {
         return Promise.resolve(handlers.currentWorkspace?.() ?? null);
       if (command === "frontend_ready_command")
         return Promise.resolve(handlers.onFrontendReady?.());
+      if (command === "report_open_result_command") {
+        handlers.reportOpen?.((payload as { result: string }).result);
+        return null;
+      }
       if (command === "open_recent_folder_command")
         return handlers.openRecent?.((payload as { id: string }).id);
       if (command === "get_ui_settings_command")
@@ -3087,5 +3093,89 @@ describe("App: 起動時に渡されたファイル（9.2）", () => {
 
     await waitFor(() => expect(heading()).toBe("second.md"));
     expect(screen.getAllByRole("tab")).toHaveLength(1);
+  });
+});
+
+describe("App: 文書の表示結果の通知（11.4）", () => {
+  const MISSING: IpcError = {
+    code: "fileNotFound",
+    message: "ファイルが見つかりません。",
+    detail: "missing.md",
+  };
+  const readWithLinks = (path: string): FileContent | Promise<FileContent> =>
+    path === "README.md"
+      ? fileContent(
+          path,
+          "## 目次\n\n[ガイド](docs/guide.md) [無い](missing.md)\n",
+        )
+      : path === "docs/guide.md"
+        ? fileContent(path, "## ガイド本文\n")
+        : Promise.reject(MISSING);
+
+  test("描画できたことは、何度文書を表示しても1回だけ知らせる", async () => {
+    const reported: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: readWithLinks,
+      reportOpen: (result) => reported.push(result),
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(reported).toEqual(["ok"]));
+
+    // 2つ目の文書も描画できるが、通知は増えない。
+    await act(async () => {
+      screen.getByRole("link", { name: "ガイド" }).click();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2 }).textContent).toBe(
+        "ガイド本文",
+      ),
+    );
+    expect(reported).toEqual(["ok"]);
+  });
+
+  test("読込の失敗を表示したことを知らせる。成功とは別に、1回だけ知らせる", async () => {
+    const reported: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: readWithLinks,
+      reportOpen: (result) => reported.push(result),
+    });
+    render(<App />);
+    await openReadme();
+    await waitFor(() => expect(reported).toEqual(["ok"]));
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await act(async () => {
+        screen.getByRole("link", { name: "無い" }).click();
+      });
+      await waitFor(() =>
+        expect(screen.getByRole("alert").textContent).toBe(MISSING.message),
+      );
+    }
+
+    expect(reported).toEqual(["ok", "fail"]);
+  });
+
+  test("失敗の表示だけでは成功を知らせない", async () => {
+    const reported: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: () => Promise.reject(MISSING),
+      reportOpen: (result) => reported.push(result),
+    });
+    render(<App />);
+    await openWorkspace({ scopeId: "scope-1", label: "docs" });
+    await waitFor(() => expect(screen.getByText("README.md")).toBeTruthy());
+
+    await act(async () => {
+      screen.getByText("README.md").click();
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(MISSING.message),
+    );
+    expect(reported).toEqual(["fail"]);
   });
 });

@@ -12,6 +12,7 @@ import {
   notifyFrontendReady,
   openRecentFolder,
   readFile,
+  reportOpenResult,
   scanDirectory,
   updateUiSettings,
   watchLooseDocument,
@@ -91,6 +92,7 @@ import type { IpcError } from "./types/generated/IpcError";
 import type { LanguageChangedEvent } from "./types/generated/LanguageChangedEvent";
 import type { MenuCommand } from "./types/generated/MenuCommand";
 import type { OpenDocumentEvent } from "./types/generated/OpenDocumentEvent";
+import type { OpenMdResult } from "./types/generated/OpenMdResult";
 import type { RecentFolderView } from "./types/generated/RecentFolderView";
 import type { UiSettings } from "./types/generated/UiSettings";
 import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
@@ -194,6 +196,12 @@ export default function App() {
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
   // Frontendの文言をそのまま表示する。
   const [error, setError] = useState<string | null>(null);
+  // Store向けカスタムイベントのために、文書の表示の結果を知らせたか（11.4）。Rust側が1セッションに
+  // 1回だけにするが、文書を開き直すたびにIPCを呼ばないよう、ここでも1回にとどめる。
+  const reportedRef = useRef<Record<OpenMdResult, boolean>>({
+    ok: false,
+    fail: false,
+  });
   // 文書の読込で監視スコープを添えるために持つ。
   const scopeRef = useRef<string | null>(null);
   // 走査と読込の応答は描画を待たずに最新の状態と照合するため、refにも持つ（5.3、6.5）。
@@ -607,7 +615,10 @@ export default function App() {
           // 読込中に切り替えてきたタブは、まだ本文を表示していない。元の文書を表示する。
           if (wasActive && shownRef.current?.tabId !== tabId) showActive(true);
         }
-        if (wasActive && notice !== "keep") setError(reason.message);
+        if (wasActive && notice !== "keep") {
+          setError(reason.message);
+          reportResult("fail");
+        }
       },
     );
   }
@@ -669,6 +680,26 @@ export default function App() {
    * loose tab）はRust側が決めて、スコープIDとスコープ相対パスで知らせる。固定タブで開く。
    * 複数あれば届いた順に開き、最後の1つがアクティブになる。
    */
+  /**
+   * 文書を表示した結果を、Store向けカスタムイベントのためにRustへ知らせる（11.4）。
+   * 送信は利用者が求めた操作ではないため、失敗しても表示を続け、失敗は示さない。
+   */
+  function reportResult(result: OpenMdResult) {
+    if (reportedRef.current[result]) return;
+    reportedRef.current[result] = true;
+    reportOpenResult(result).catch(() => {});
+  }
+
+  /** 本文全体を描画できなかったとき、理由を示して、失敗を知らせる。 */
+  function handleRenderFailed(reason: unknown) {
+    setError(
+      messages.renderFailed(
+        reason instanceof Error ? reason.message : String(reason),
+      ),
+    );
+    reportResult("fail");
+  }
+
   function handleOpenDocument(event: OpenDocumentEvent) {
     openDocument(
       { scopeId: event.scopeId, rootLabel: event.label ?? undefined },
@@ -1084,6 +1115,8 @@ export default function App() {
               issueImages={issueImages}
               imageRevision={imageRevision}
               scroller={previewRef}
+              onRendered={() => reportResult("ok")}
+              onRenderFailed={handleRenderFailed}
             />
           </>
         )}

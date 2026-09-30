@@ -149,6 +149,14 @@ fn requested_files(argv: &[String], base: &Path) -> Vec<String> {
     files_to_open(&absolute)
 }
 
+/// 新規に起動したプロセスが、関連付け起動でファイルを受け取ったかどうか。
+///
+/// Store向けカスタムイベント `launch_by_association` の条件である（11.4）。ファイルを開けたかは
+/// 問わない。ファイルを受け取ったことが、関連付けの定着を示す。
+pub fn launched_by_association(argv: &[String]) -> bool {
+    !requested_files(argv, Path::new("")).is_empty()
+}
+
 /// 起動中のインスタンスへ渡された、2つ目のプロセスの引数を受け取る。
 ///
 /// ウィンドウを前面へ出し、ファイルを保留へ入れてから、開く処理を別のスレッドへ渡す。
@@ -217,6 +225,8 @@ mod tests {
     use crate::ipc::types::OpenDocumentEvent;
     use crate::open_document::OPEN_DOCUMENT_EVENT;
     use crate::state::AppState;
+    use crate::telemetry::testing::RecordingLogger;
+    use crate::telemetry::{PackageSignatureKind, Telemetry};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::Arc;
@@ -573,6 +583,51 @@ mod tests {
         receive(&app, &command_line, &temp.0.join("work"));
 
         assert_eq!(paths(&events), ["notes.md"]);
+    }
+
+    /// 関連付け起動かどうかは、対象の拡張子のファイルを起動引数で受け取ったかで決める。
+    #[test]
+    fn a_launch_is_by_association_when_it_receives_a_document() {
+        let cases = [
+            ("Markdownを渡された", vec!["a.exe", "C:/docs/a.md"], true),
+            ("拡張子 markdown", vec!["a.exe", "C:/docs/a.markdown"], true),
+            ("対象外のファイル", vec!["a.exe", "C:/docs/a.txt"], false),
+            ("引数なし", vec!["a.exe"], false),
+            ("実行ファイル自身だけ", vec!["C:/odd.md"], false),
+            ("オプションだけ", vec!["a.exe", "--debug"], false),
+        ];
+        for (name, argv, expected) in cases {
+            assert_eq!(launched_by_association(&strings(&argv)), expected, "{name}");
+        }
+    }
+
+    /// 起動中のインスタンスへ渡された2つ目のプロセスは、新しいセッションではない。
+    /// `session_start` も `launch_by_association` も送らない（11.4）。送ると、1回の起動で複数の
+    /// ファイルを関連付けから開いたときに `launch_by_association / session_start` が100 %を超える。
+    #[test]
+    fn a_second_launch_sends_no_session_events() {
+        use std::time::{Duration, Instant};
+
+        let temp = TempDir::new("no-session-events");
+        let a = temp.write("a.md");
+        let logger = RecordingLogger::default();
+        let app = app();
+        app.manage(Telemetry::new(
+            Box::new(logger.clone()),
+            Some(PackageSignatureKind::Store),
+        ));
+        let events = collect(&app);
+        restored(app.handle());
+        frontend_ready(app.handle());
+
+        second_instance(app.handle(), argv(&[&a]), String::new());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while paths(&events).is_empty() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(20));
+        }
+
+        assert_eq!(paths(&events), ["a.md"], "文書が開いていない");
+        assert!(logger.sent().is_empty(), "送った: {:?}", logger.sent());
     }
 
     /// 対象のファイルを含まない起動は、何も開かない。

@@ -254,6 +254,10 @@ mod tests {
         app.manage(crate::settings_store::SettingsStore::without_saving(
             crate::settings::Settings::default(),
         ));
+        app.manage(crate::telemetry::Telemetry::new(
+            Box::new(crate::telemetry::NullLogger),
+            None,
+        ));
         let documents: Arc<Mutex<Vec<OpenDocumentEvent>>> = collect(&app, OPEN_DOCUMENT_EVENT);
 
         execute(app.handle(), &[inside, workspace.clone()]);

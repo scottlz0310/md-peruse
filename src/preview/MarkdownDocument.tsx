@@ -4,6 +4,7 @@ import {
   type Ref,
   type RefObject,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { useMessages } from "../i18n/LanguageContext";
@@ -43,6 +44,16 @@ type Props = {
   imageRevision: number;
   /** 本文をスクロールさせる要素。戻る／進むで離れたときの位置へ戻す（9.3）。 */
   scroller: RefObject<HTMLElement | null>;
+  /**
+   * 本文の描画が完了するたびに呼ぶ。Store向けカスタムイベント `open_md_ok` の発火点である
+   * （11.4）。数式・図・画像の位置だけの失敗は、その位置に示すだけで、描画の失敗に含めない。
+   */
+  onRendered: () => void;
+  /**
+   * 本文全体を描画できなかったときに呼ぶ。本文は空にする。前の文書の本文を残すと、別の文書の
+   * 内容を、いまの文書として見せてしまう。呼び出し側が失敗を利用者へ示す。
+   */
+  onRenderFailed: (error: unknown) => void;
   /** 本文の要素。文書内検索（8.6）の対象として渡す。 */
   ref?: Ref<HTMLElement>;
 };
@@ -61,11 +72,22 @@ export function MarkdownDocument({
   issueImages,
   imageRevision,
   scroller,
+  onRendered,
+  onRenderFailed,
   ref,
 }: Props) {
   const messages = useMessages();
   const [content, setContent] = useState<ReactElement | null>(null);
   const [rendered, setRendered] = useState<string | null>(null);
+
+  // 通知の関数は呼び出し側の描画ごとに替わる。effectの依存に入れると、通知の関数が替わるたびに
+  // 描き直してしまうため、refで最新の関数を読む。
+  const onRenderedRef = useRef(onRendered);
+  const onRenderFailedRef = useRef(onRenderFailed);
+  useEffect(() => {
+    onRenderedRef.current = onRendered;
+    onRenderFailedRef.current = onRenderFailed;
+  });
 
   // 数式の描画できなかった理由はhastへ文言として書き込まれるため、UI言語が変わったときも
   // 組み立て直す（10.5）。
@@ -76,11 +98,22 @@ export function MarkdownDocument({
       text,
       (references) => issueImages(path, references),
       messages,
-    ).then((element) => {
-      if (!current) return;
-      setContent(element);
-      setRendered(text);
-    });
+    ).then(
+      (element) => {
+        if (!current) return;
+        setContent(element);
+        setRendered(text);
+        onRenderedRef.current();
+      },
+      // 描画パイプライン自体の例外。通知の関数の例外を、描画の失敗と取り違えないよう、
+      // 成功の処理とは分けて受ける。
+      (error: unknown) => {
+        if (!current) return;
+        setContent(null);
+        setRendered(text);
+        onRenderFailedRef.current(error);
+      },
+    );
     return () => {
       current = false;
     };
