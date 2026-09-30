@@ -176,16 +176,23 @@ describe("上限どうしの関係", () => {
 describe("plainDocumentReason", () => {
   /** 1行 `unit` を `count` 行並べた文書。 */
   const lines = (unit: string, count: number) => unit.repeat(count);
-  /** 「項目数 × 文字数」の上限に、ちょうど収まる最大の項目数（1行4文字の `- a\n`）。 */
+  /**
+   * 「項目数 × 文字数」の上限に、ちょうど収まる最大の項目数（1項目5文字の `- a\n\n`）。
+   * 項目の間に空行を挟み、1つのブロックが長くなりすぎないようにする。
+   */
   const largestAllowedItems = Math.floor(
-    Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / 4),
+    Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / 5),
   );
 
   const cases: [string, string, PlainDocumentReason | null][] = [
     // 説明, 本文, 理由
     ["空の文書", "", null],
     ["短い文書", "# 見出し\n\n本文。\n", null],
-    ["文字数の上限ちょうど", "a".repeat(DOCUMENT_LIMITS.richMaxChars), null],
+    [
+      "文字数の上限ちょうど",
+      lines("aaaaaaaa\n\n", DOCUMENT_LIMITS.richMaxChars / 10),
+      null,
+    ],
     [
       "文字数の上限を1文字超える",
       "a".repeat(DOCUMENT_LIMITS.richMaxChars + 1),
@@ -198,12 +205,12 @@ describe("plainDocumentReason", () => {
     ],
     [
       "項目数 × 文字数がちょうど上限に収まる",
-      lines("- a\n", largestAllowedItems),
+      lines("- a\n\n", largestAllowedItems),
       null,
     ],
     [
       "項目数 × 文字数が上限を1項目超える",
-      lines("- a\n", largestAllowedItems + 1),
+      lines("- a\n\n", largestAllowedItems + 1),
       "tooManyListItems",
     ],
     [
@@ -241,8 +248,9 @@ describe("plainDocumentReason", () => {
     ["引用の本文の途中にあるハイフン", "> a - b\n", false],
     ["ハイフンが連なるだけ（区切り線）", "---\n", false],
     ["段落", "aaa\n", false],
-  ])("リスト項目の数え方: %s", (_name, unit, counted) => {
-    // 1行の長さに応じて、上限を超えるのに要る行数を求め、それを超える行数を並べる。
+  ])("リスト項目の数え方: %s", (_name, line, counted) => {
+    // 行の間に空行を挟み（1つのブロックが長くならない）、上限を超えるのに要る行数を並べる。
+    const unit = `${line}\n`;
     const overLimit = Math.ceil(
       Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / unit.length),
     );
@@ -252,16 +260,16 @@ describe("plainDocumentReason", () => {
   });
 
   test("同じ行に連なるマーカーは、1つずつ数える", () => {
-    // `- - a\n` は6文字で、項目は2つ。1行1項目として数えると、2.5万行（15万文字、項目2.5万、
-    // 積 3.75×10⁹）は上限内になる。1つずつ数えると、項目5万、積 7.5×10⁹ で上限を超える。
-    expect(plainDocumentReason(lines("- - a\n", 25_000))).toBe(
+    // `- - a\n\n` は7文字で、項目は2つ。1行1項目として数えると、2.5万行（17.5万文字、項目2.5万、
+    // 積 4.4×10⁹）は上限内になる。1つずつ数えると、項目5万、積 8.8×10⁹ で上限を超える。
+    expect(plainDocumentReason(lines("- - a\n\n", 25_000))).toBe(
       "tooManyListItems",
     );
   });
 
   test("引用の中のリストが上限を超えると、書式なしになる（レビュー指摘の再現）", () => {
-    // 7万項目・42万文字（文字数の上限内）。数えないと、パースだけで約19秒かかる。
-    expect(plainDocumentReason(lines("> - a\n", 70_000))).toBe(
+    // 7万項目・49万文字（文字数の上限内）。数えないと、パースだけで約19秒かかる。
+    expect(plainDocumentReason(lines("> - a\n\n", 70_000))).toBe(
       "tooManyListItems",
     );
   });
@@ -285,5 +293,113 @@ describe("plainDocumentReason", () => {
     // 長く、かつ項目も多い文書は、項目を数える前に長さの理由で返る。
     const both = lines("- a\n", DOCUMENT_LIMITS.richMaxChars);
     expect(plainDocumentReason(both)).toBe("tooLong");
+  });
+});
+
+describe("plainDocumentReason: 空行で区切られたブロックの長さ", () => {
+  const limit = DOCUMENT_LIMITS.richMaxBlockChars;
+  /** 行を、指定した文字数になるまで並べる。 */
+  // 1行が48文字（改行を含めて49文字）のため、`limit` 文字で切ると、行の途中で終わる。
+  // 末尾に改行を含めない。含めると、直後の行との間に空行ができてしまう。
+  const block = (chars: number, line = "a".repeat(48)) =>
+    `${line}\n`.repeat(Math.ceil(chars / (line.length + 1))).slice(0, chars);
+
+  test.each([
+    // 説明, 本文, 理由
+    ["ブロックが上限ちょうど", block(limit), null],
+    ["ブロックが上限を1文字超える", block(limit + 1), "tooLongBlock"],
+    [
+      "空行で区切れば、同じ長さのブロックがいくつ並んでも通る",
+      Array.from({ length: 5 }, () => block(limit)).join("\n\n"),
+      null,
+    ],
+    [
+      "空白とタブだけの行も、ブロックを区切る",
+      [block(limit), " \t ", block(limit)].join("\n"),
+      null,
+    ],
+    ["改行のない長い1行", "a".repeat(limit + 1), "tooLongBlock"],
+    [
+      "表も、行が連なるブロックとして数える",
+      `| a | b |\n| - | - |\n${"| 1 | 2 |\n".repeat(limit / 10)}`,
+      "tooLongBlock",
+    ],
+    [
+      "段落の前後の空行は、ブロックの長さに含めない",
+      `\n\n\n${block(limit)}\n\n\n`,
+      null,
+    ],
+  ] as [string, string, PlainDocumentReason | null][])(
+    "%s",
+    (_name, text, expected) => {
+      expect(plainDocumentReason(text)).toBe(expected);
+    },
+  );
+
+  test.each([
+    // 説明, 本文
+    [
+      "バッククォートのフェンスの中も数える",
+      `\`\`\`ts\n${block(limit + 1)}\n\`\`\`\n`,
+    ],
+    ["チルダのフェンスの中も数える", `~~~\n${block(limit + 1)}\n~~~\n`],
+    ["閉じないフェンスの中も数える", `\`\`\`\n${block(limit + 1)}\n`],
+  ])("フェンスコードの中も、ブロックの長さに数える: %s", (_name, text) => {
+    // フェンスを見分けると、パーサーの状態（front matter、数式、HTMLブロック、引用、リスト）と
+    // ずれて、長い段落を数え落とす。空行のない長いコードブロックは、書式なしになる。
+    expect(plainDocumentReason(text)).toBe("tooLongBlock");
+  });
+
+  test("フェンスの中の空行は、ブロックを区切る", () => {
+    // 空行を含むコードは、空行で区切られた短いブロックとして数える。
+    const code = `${block(limit * 0.6)}\n\n${block(limit * 0.6)}`;
+    expect(plainDocumentReason(`\`\`\`\n${code}\n\`\`\`\n`)).toBeNull();
+  });
+
+  test.each([
+    // 説明, 本文
+    [
+      "4つのバッククォートのフェンスの中に、3つの行がある（レビュー指摘）",
+      `\`\`\`\`\n\`\`\`\ncode\n\`\`\`\`\n${block(limit + 1)}\n`,
+    ],
+    [
+      "情報文字列にバッククォートを含む開始の行（レビュー指摘）",
+      `\`\`\`a\`b\n${"*a".repeat(55_000)}\n`,
+    ],
+    [
+      "front matter の中に、閉じないフェンスに見える行がある",
+      `---\nnote: |\n  \`\`\`\n---\n\n${block(limit + 1)}\n`,
+    ],
+    [
+      "数式ブロックの中に、閉じないフェンスに見える行がある",
+      `$$\n\`\`\`\n$$\n\n${block(limit + 1)}\n`,
+    ],
+    [
+      "HTMLコメントの中に、閉じないフェンスに見える行がある",
+      `<!--\n\`\`\`\n-->\n\n${block(limit + 1)}\n`,
+    ],
+  ])(
+    "フェンスに見える行があっても、後続の長いブロックを数え落とさない: %s",
+    (_name, text) => {
+      expect(plainDocumentReason(text)).toBe("tooLongBlock");
+    },
+  );
+
+  test("引用の中の長いブロックも数える", () => {
+    expect(plainDocumentReason(`> ${"a".repeat(limit + 1)}\n`)).toBe(
+      "tooLongBlock",
+    );
+  });
+
+  test.each([
+    // 説明, 本文
+    ["フェンスの開始が交互に続く", "```\n".repeat(150_000)],
+    ["空白だけの行が続く", "   \n".repeat(150_000)],
+    ["長い1行", "a".repeat(590_000)],
+    ["フェンスの文字が連なる1行", "`".repeat(590_000)],
+  ])("判定そのものが文書の長さに比例する時間で終わる: %s", (_name, text) => {
+    const started = performance.now();
+    plainDocumentReason(text);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });

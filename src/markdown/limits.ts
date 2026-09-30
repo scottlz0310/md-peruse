@@ -122,17 +122,28 @@ export const DOCUMENT_LIMITS = {
    * 約54秒）のように、数秒から数十秒かかる。
    */
   richMaxListItemChars: 5_000_000_000,
+  /**
+   * 空行で区切られた1つのブロック（段落、表、リスト）の文字数の上限。行の種類は見分けず、
+   * フェンスコードの中も数える（{@link hasLongBlock}）。`micromark` は、1つの段落の中の隣り合う `data` イベントの結合（`resolveData`）で、
+   * ループの中で `splice` を使うため、記法が密な巨大な段落は二乗で伸びる。強調の入れ子の
+   * 連続は、59万文字の1段落で73秒、10万文字で2.3秒、5万文字で0.28秒だった（実測）。10万文字
+   * までに抑えると、1つのブロックの最悪が約2.3秒になる。
+   */
+  richMaxBlockChars: 100_000,
 } as const;
 
 /** 書式なしで表示する理由。 */
-export type PlainDocumentReason = "tooLong" | "tooManyListItems";
+export type PlainDocumentReason =
+  | "tooLong"
+  | "tooLongBlock"
+  | "tooManyListItems";
 
 /**
  * この文書を書式なしで表示するべきときの理由を返す。書式を付けて描画してよければ `null`。
  *
- * 文字数を先に見る。リスト項目の数え上げは、文字数の上限内の文書にだけ行い、しかも
- * 「項目数 × 文字数」の上限を超えた時点で打ち切る。上限は10 MiBのMarkdownでも一定時間で
- * 判定できる。
+ * 文字数を先に見る。ブロックの長さとリスト項目の数え上げは、文字数の上限内の文書にだけ
+ * 行い、上限を超えた時点で打ち切る。どちらも文字数に比例する1回の走査で、10 MiBのMarkdownでも
+ * 一定時間で判定できる。
  *
  * 項目の数え方は {@link countListItems} による。コードブロックの中の行も数えるが、多く
  * 見積もる側であり、書式なしへ倒れるだけで壊れない。
@@ -140,6 +151,9 @@ export type PlainDocumentReason = "tooLong" | "tooManyListItems";
 export function plainDocumentReason(text: string): PlainDocumentReason | null {
   const chars = text.length;
   if (chars > DOCUMENT_LIMITS.richMaxChars) return "tooLong";
+  if (hasLongBlock(text, DOCUMENT_LIMITS.richMaxBlockChars)) {
+    return "tooLongBlock";
+  }
   const maxItems = Math.floor(
     DOCUMENT_LIMITS.richMaxListItemChars / Math.max(chars, 1),
   );
@@ -149,6 +163,48 @@ export function plainDocumentReason(text: string): PlainDocumentReason | null {
 const SPACE = 0x20;
 const TAB = 0x09;
 const QUOTE = 0x3e; // >、引用の接頭辞
+
+/**
+ * 空行で区切られたブロックのうち、`limit` 文字を超えるものがあるかを返す。
+ *
+ * ブロックは、空行（空白とタブだけの行を含む）で区切られた、連続する行である。行の種類は
+ * 見分けない。フェンスコードの中も数える。フェンスコードの中は記法の解析にかからないが、
+ * ある行がフェンスかどうかは、パーサーの状態（front matter、数式ブロック、HTMLブロック、
+ * 引用やリストの中）に依存し、この判定では再現しきれない。フェンスを取り違えて数え落とすと、
+ * 長い段落が上限を回避する（レビューで、開始の行と閉じる行について続けて指摘された）。
+ * 数えすぎる側は、空行のない10万文字を超えるコードブロックを含む文書が、書式なしになる
+ * だけで壊れない。
+ *
+ * 文字列を1回走査し、文字数に比例する。`limit` を超えた時点で打ち切る。
+ */
+function hasLongBlock(text: string, limit: number): boolean {
+  const length = text.length;
+  let lineStart = 0;
+  // 現在のブロックの開始位置。空行では -1。
+  let blockStart = -1;
+  while (lineStart < length) {
+    const newline = text.indexOf("\n", lineStart);
+    const lineEnd = newline === -1 ? length : newline;
+    if (isBlank(text, lineStart, lineEnd)) {
+      blockStart = -1;
+    } else {
+      if (blockStart === -1) blockStart = lineStart;
+      if (lineEnd - blockStart > limit) return true;
+    }
+    if (newline === -1) break;
+    lineStart = newline + 1;
+  }
+  return false;
+}
+
+/** 行が、空白とタブだけ（または空）かを返す。 */
+function isBlank(text: string, lineStart: number, lineEnd: number): boolean {
+  for (let index = lineStart; index < lineEnd; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code !== SPACE && code !== TAB) return false;
+  }
+  return true;
+}
 
 /**
  * リストの項目を数える。数え上げが `limit` を超えた時点で打ち切り、そのときの値を返す。

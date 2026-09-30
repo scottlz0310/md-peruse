@@ -446,13 +446,16 @@ describe("大きい・複雑な文書の書式なし表示（8.7）", () => {
   /** 文字数の上限を超える本文。1行にRaw HTMLと、書式の記法を含める。 */
   const longText = `# 見出し\n\n<script>alert(1)</script>\n\n![図](a.png)\n\n${"a\n".repeat(DOCUMENT_LIMITS.richMaxChars)}`;
   /** 文字数は上限内だが、リストの項目が多すぎる本文。 */
-  const manyItems = "- a\n".repeat(
-    Math.floor(Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / 4)) + 1,
+  const manyItems = "- a\n\n".repeat(
+    Math.floor(Math.sqrt(DOCUMENT_LIMITS.richMaxListItemChars / 5)) + 1,
   );
+  /** 文字数の上限内だが、空行のない1つの段落が長すぎる本文。 */
+  const longBlock = `# 見出し\n\n${"a\n".repeat(DOCUMENT_LIMITS.richMaxBlockChars)}`;
 
   test.each([
     // 説明, 本文, 理由
     ["文字数が上限を超える", longText, "tooLong"],
+    ["空行のない1つのまとまりが長い", longBlock, "tooLongBlock"],
     ["リストの項目が多い", manyItems, "tooManyListItems"],
   ] as const)(
     "%s ときは、パースせずにソースをそのまま示し、理由を添える",
