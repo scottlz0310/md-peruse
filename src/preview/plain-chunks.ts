@@ -43,19 +43,25 @@ function splitsSurrogatePair(text: string, index: number): boolean {
 }
 
 /**
- * `index` 以降で、最初の文字の境界を返す。`CLUSTER_SEARCH_CHARS` の範囲に無ければ、その範囲の
- * 端で切る（サロゲートペアの途中だけは避ける）。
+ * `index` 以降で、最初の文字の境界を返す。
+ *
+ * `from` は、文字の境界と分かっている位置（空白、または文字列の先頭）である。判定は、`from` から
+ * `index` の後ろ `CLUSTER_SEARCH_CHARS` までを `Intl.Segmenter` へ渡して行う。範囲の先頭が文字の
+ * 途中だと、`Intl.Segmenter` は前の文脈を知らず、偽の境界を返す（ZWJ でつながる絵文字の途中、
+ * 国旗の対の途中など）。そのため、開始位置は境界と分かっている所に限る。範囲の中に境界が無ければ
+ * （結合文字が続く場合）、範囲の端で切る（サロゲートペアの途中だけは避ける）。
  */
-function boundaryAtOrAfter(text: string, index: number): number {
-  const from = Math.max(0, index - CLUSTER_SEARCH_CHARS);
+function boundaryAtOrAfter(text: string, from: number, index: number): number {
   let to = Math.min(text.length, index + CLUSTER_SEARCH_CHARS);
-  // 範囲の端がサロゲートペアの途中なら、対を含める。範囲の端で切るときに、対を割らないためである
-  // （`Intl.Segmenter` が、対の前半だけを別の文字として返す実装に頼らない）。
+  // 範囲の端がサロゲートペアの途中なら、対を含める。範囲の端で切るときに、対を割らないためである。
   if (splitsSurrogatePair(text, to)) to += 1;
-  for (const { index: offset } of GRAPHEMES.segment(text.slice(from, to))) {
-    if (from + offset >= index) return from + offset;
-  }
-  return to;
+  const range = text.slice(from, to);
+  const containing = GRAPHEMES.segment(range).containing(index - from);
+  // 範囲の末尾（本文の末尾）に当たる。
+  if (containing === undefined) return to;
+  // `index` が、すでに境界である。
+  if (containing.index === index - from) return index;
+  return from + containing.index + containing.segment.length;
 }
 
 /**
@@ -63,22 +69,25 @@ function boundaryAtOrAfter(text: string, index: number): number {
  *
  * `chunkChars` 以上、その2倍までの範囲で、改行の直後、なければ空白の直後で切る。どちらもなければ
  * 範囲の上限で切る（1行が極端に長いテキストのため）。空白と上限で切るときは、文字を途中で
- * 切らない境界へ寄せる。探す範囲は `chunkChars` と `CLUSTER_SEARCH_CHARS` に限るため、
- * 走査は本文の長さに比例する。
+ * 切らない境界へ寄せる。改行の直後は、常に文字の境界である。空白の直後は、その空白から、上限で
+ * 切るときは、この文字列の先頭から数える（`boundaryAtOrAfter`）。探す範囲は `chunkChars` と
+ * `CLUSTER_SEARCH_CHARS` に限るため、走査は本文の長さに比例する。
  */
 function chunkEnd(text: string, start: number, chunkChars: number): number {
   const minEnd = start + chunkChars;
   if (minEnd >= text.length) return text.length;
   const maxEnd = Math.min(text.length, start + 2 * chunkChars);
 
-  let afterSpace = -1;
+  let space = -1;
   for (let index = minEnd; index < maxEnd; index++) {
     const code = text.charCodeAt(index);
     if (code === NEWLINE) return index + 1;
-    if (code === SPACE && afterSpace === -1) afterSpace = index + 1;
+    if (code === SPACE && space === -1) space = index;
   }
 
-  return boundaryAtOrAfter(text, afterSpace === -1 ? maxEnd : afterSpace);
+  return space === -1
+    ? boundaryAtOrAfter(text, start, maxEnd)
+    : boundaryAtOrAfter(text, space, space + 1);
 }
 
 /**

@@ -179,6 +179,34 @@ describe("splitPlainText", () => {
     }
   });
 
+  // 判定の範囲の先頭が、文字の途中だと、`Intl.Segmenter` は偽の境界を返す（レビュー指摘）。
+  // 既定の上限（10,000文字目）が、長い文字（結合文字が40個続く、ZWJでつながる絵文字。国旗の並び）の
+  // 途中に当たる位置を、前置の文字数を変えて試す。
+  test.each([
+    [
+      "結合文字が続くZWJの絵文字",
+      9_956,
+      9_987,
+      (padding: number) => `${"a".repeat(padding)}👩${"́".repeat(40)}‍👩x`,
+    ],
+    [
+      "続く国旗",
+      9_950,
+      9_999,
+      (padding: number) => `${"a".repeat(padding)}${"🇯🇵".repeat(20)}x`,
+    ],
+  ] as [string, number, number, (padding: number) => string][])(
+    "%s の途中に上限が当たっても、切れ目は書記素の境界である",
+    (_name, from, to, make) => {
+      for (let padding = from; padding <= to; padding++) {
+        const text = make(padding);
+        const chunks = splitPlainText(text);
+        expect(chunks.join("")).toBe(text);
+        expect(splitsOnlyAtGraphemeBoundaries(text, chunks)).toBe(true);
+      }
+    },
+  );
+
   // 文字の境界を探し続けると、1つの文字列が上限を超えて長くなる入力（レビュー指摘）。
   test.each([
     ["結合文字", "́"],
