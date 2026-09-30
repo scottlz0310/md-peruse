@@ -225,9 +225,21 @@ describe("plainDocumentReason", () => {
     ["番号とかっこ", "1) a\n", true],
     ["字下げした項目", "    - a\n", true],
     ["タブで字下げした項目", "\t- a\n", true],
+    // 引用の中のリストもパーサーは項目として処理する（レビュー指摘）。
+    ["引用の中のリスト", "> - a\n", true],
+    ["二重の引用の中のリスト", "> > - a\n", true],
+    ["空白のない引用の中のリスト", ">- a\n", true],
+    ["引用の中の番号付きリスト", "> 1. a\n", true],
+    ["字下げした引用の中のリスト", "  >   - a\n", true],
+    ["同じ行に連なるマーカー", "- - a\n", true],
+    ["番号付きとハイフンの連なり", "1. - a\n", true],
     ["マーカーの後に空白がない", "-a\n", false],
     ["強調（アスタリスク2つ）", "**a**\n", false],
     ["小数（番号ではない）", "1.5 a\n", false],
+    ["10桁の数字（番号は9桁まで）", "1234567890. a\n", false],
+    ["引用だけの行", "> a\n", false],
+    ["引用の本文の途中にあるハイフン", "> a - b\n", false],
+    ["ハイフンが連なるだけ（区切り線）", "---\n", false],
     ["段落", "aaa\n", false],
   ])("リスト項目の数え方: %s", (_name, unit, counted) => {
     // 1行の長さに応じて、上限を超えるのに要る行数を求め、それを超える行数を並べる。
@@ -237,6 +249,36 @@ describe("plainDocumentReason", () => {
     const text = lines(unit, overLimit + 1);
     expect(text.length).toBeLessThanOrEqual(DOCUMENT_LIMITS.richMaxChars);
     expect(plainDocumentReason(text)).toBe(counted ? "tooManyListItems" : null);
+  });
+
+  test("同じ行に連なるマーカーは、1つずつ数える", () => {
+    // `- - a\n` は6文字で、項目は2つ。1行1項目として数えると、2.5万行（15万文字、項目2.5万、
+    // 積 3.75×10⁹）は上限内になる。1つずつ数えると、項目5万、積 7.5×10⁹ で上限を超える。
+    expect(plainDocumentReason(lines("- - a\n", 25_000))).toBe(
+      "tooManyListItems",
+    );
+  });
+
+  test("引用の中のリストが上限を超えると、書式なしになる（レビュー指摘の再現）", () => {
+    // 7万項目・42万文字（文字数の上限内）。数えないと、パースだけで約19秒かかる。
+    expect(plainDocumentReason(lines("> - a\n", 70_000))).toBe(
+      "tooManyListItems",
+    );
+  });
+
+  test.each([
+    // 説明, 本文
+    ["マーカーだけが連なる1行", "- ".repeat(300_000)],
+    ["引用の記号だけが連なる1行", ">".repeat(600_000)],
+    ["引用とマーカーが交互に連なる1行", "> - ".repeat(150_000)],
+    ["空白だけの1行", " ".repeat(600_000)],
+    ["数字だけの1行", "1".repeat(600_000)],
+    ["改行だけ", "\n".repeat(600_000)],
+  ])("判定そのものが文書の長さに比例する時間で終わる: %s", (_name, text) => {
+    // 接頭辞を後読みで確かめる正規表現は、これらの行で二乗になる。
+    const started = performance.now();
+    plainDocumentReason(text);
+    expect(performance.now() - started).toBeLessThan(500);
   });
 
   test("長さの理由が先に判定される", () => {

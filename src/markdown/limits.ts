@@ -134,8 +134,8 @@ export type PlainDocumentReason = "tooLong" | "tooManyListItems";
  * 「項目数 × 文字数」の上限を超えた時点で打ち切る。上限は10 MiBのMarkdownでも一定時間で
  * 判定できる。
  *
- * 項目の数え方は、行頭のマーカー（`-`、`*`、`+`、`1.`、`1)`）と続く空白である。コードブロックの
- * 中の行も数えるが、多く見積もる側であり、書式なしへ倒れるだけで壊れない。
+ * 項目の数え方は {@link countListItems} による。コードブロックの中の行も数えるが、多く
+ * 見積もる側であり、書式なしへ倒れるだけで壊れない。
  */
 export function plainDocumentReason(text: string): PlainDocumentReason | null {
   const chars = text.length;
@@ -143,13 +143,81 @@ export function plainDocumentReason(text: string): PlainDocumentReason | null {
   const maxItems = Math.floor(
     DOCUMENT_LIMITS.richMaxListItemChars / Math.max(chars, 1),
   );
-  const marker = /^[ \t]*(?:[-*+]|\d{1,9}[.)])[ \t]/gm;
+  return countListItems(text, maxItems) > maxItems ? "tooManyListItems" : null;
+}
+
+const SPACE = 0x20;
+const TAB = 0x09;
+const QUOTE = 0x3e; // >、引用の接頭辞
+
+/**
+ * リストの項目を数える。数え上げが `limit` を超えた時点で打ち切り、そのときの値を返す。
+ *
+ * 各行で、行頭の接頭辞（空白、タブ、引用の `>`）を読み飛ばし、続くマーカー（`-`、`*`、`+`、
+ * `1.`、`1)`。番号は9桁まで）を1つずつ数える。引用の中のリスト（`> - a`）と、同じ行に連なる
+ * マーカー（`- - a`、`> 1. - a`）は、パーサーも項目として処理するため数える。
+ *
+ * 正規表現ではなく、文字列を1回走査する。接頭辞を後読みで確かめる正規表現は、マーカーが
+ * 連なる長い行で、候補ごとに行頭まで戻り二乗になる。判定そのものが固まらないよう、走査は
+ * 文字数に比例する。
+ */
+function countListItems(text: string, limit: number): number {
+  const length = text.length;
   let items = 0;
-  while (marker.exec(text) !== null) {
-    items += 1;
-    if (items > maxItems) return "tooManyListItems";
+  let lineStart = 0;
+  while (lineStart < length) {
+    let position = lineStart;
+    for (;;) {
+      const code = text.charCodeAt(position);
+      if (code !== SPACE && code !== TAB && code !== QUOTE) break;
+      position += 1;
+    }
+    for (;;) {
+      const width = listMarkerWidth(text, position);
+      if (width === 0) break;
+      items += 1;
+      if (items > limit) return items;
+      position += width;
+    }
+    const newline = text.indexOf("\n", position);
+    if (newline === -1) break;
+    lineStart = newline + 1;
   }
-  return null;
+  return items;
+}
+
+/**
+ * `position` にあるリストのマーカーと、続く空白（空白とタブの連なり）の長さを返す。
+ * マーカーでなければ0。行末までしか読まない。
+ */
+function listMarkerWidth(text: string, position: number): number {
+  const code = text.charCodeAt(position);
+  let end = position;
+  if (code === 0x2d || code === 0x2a || code === 0x2b) {
+    // - * +
+    end += 1;
+  } else if (code >= 0x30 && code <= 0x39) {
+    // 番号は9桁まで。10桁以上はリストの番号ではない。
+    while (
+      end - position < 9 &&
+      text.charCodeAt(end) >= 0x30 &&
+      text.charCodeAt(end) <= 0x39
+    ) {
+      end += 1;
+    }
+    const delimiter = text.charCodeAt(end);
+    // . )
+    if (delimiter !== 0x2e && delimiter !== 0x29) return 0;
+    end += 1;
+  } else {
+    return 0;
+  }
+  const gap = text.charCodeAt(end);
+  if (gap !== SPACE && gap !== TAB) return 0;
+  while (text.charCodeAt(end) === SPACE || text.charCodeAt(end) === TAB) {
+    end += 1;
+  }
+  return end - position;
 }
 
 /**
