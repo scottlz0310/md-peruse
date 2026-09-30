@@ -14,6 +14,7 @@
 ## [Unreleased]
 
 ### Added
+- `spec.md` の要件と、それを確かめるテスト・実機確認の対応表を加えた（`docs/test-matrix.md`）。機能要件（4.1〜4.4）、非機能要件（5章）、セキュリティ回帰との突き合わせ、Phase 4の完了条件との対応、確認できていない項目を示す
 - 不正なMarkdown入力でも、描画パイプラインが例外を出さず、時間内に描画できることを、テストで固定した（`src/markdown/malformed.test.tsx`）。記法の未閉じ、壊れた文字、極端な入れ子、壊れた表・脚注・front matter、危険なURL schemeなど29種を流す
 - Store向けカスタムイベントの実送信を加えた（[design-decisions.md](./docs/design-decisions.md) 11.4、13.5）。これまで何も送らなかった送信の口を、`StoreServicesCustomEventLogger` を呼ぶ実装（`StoreEventLogger`）に置き換えた。Storeから配布されたパッケージ（署名種別が `Store`）のときだけ、各イベントを1セッションに1回、イベント名だけを送る。開発用に署名したMSIXと、パッケージ化していない実行では送らない
   - **呼び出し方:** SDKのwinmdも、そこから生成したバインディングも使わない。ライセンス上の扱いに注意が要るため、呼ぶ2つのメソッド（`GetDefault` と `Log`）に必要な型名、IID、vtableの並びだけを手で書いた最小のABIで呼ぶ
