@@ -11,14 +11,45 @@
  * - `doc-lists-*`、`doc-onelist-*`、`doc-nested-*`: リストの項目が多い文書（8.7。二乗の確認用）
  * - `doc-edge-*`: 書式なしへ切り替わる上限（`src/markdown/limits.ts`）の内側と外側
  */
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
+import { join, parse, resolve, sep } from "node:path";
 
 const root = process.argv[2];
 if (!root)
   throw new Error("使い方: bun scripts/perf/gen-workspace.ts <出力先>");
-rmSync(root, { recursive: true, force: true });
+// 出力先は、削除して作り直す。誤って、既存の大事なフォルダーを指定しても消さないよう、空か、存在しないか、
+// このスクリプトが作った印（MARKER）のあるフォルダーだけを受け付ける。
+const MARKER = ".md-peruse-perf-workspace";
+const target = resolve(root);
+const refused = [resolve("."), homedir(), parse(target).root].some(
+  (path) => target === path || path.startsWith(`${target}${sep}`),
+);
+if (refused)
+  throw new Error(
+    `出力先に使えない（リポジトリ、ホーム、ドライブのルートを含む）: ${target}`,
+  );
+if (
+  existsSync(target) &&
+  readdirSync(target).length > 0 &&
+  !existsSync(join(target, MARKER))
+) {
+  throw new Error(
+    `出力先が空ではなく、このスクリプトが作ったものでもない: ${target}`,
+  );
+}
+rmSync(target, { recursive: true, force: true });
 mkdirSync(root, { recursive: true });
+writeFileSync(
+  join(root, MARKER),
+  "gen-workspace.ts が作った測定用のワークスペース\n",
+);
 
 const ONE_MIB = 1_048_000; // 1 MiB（1,048,576）にわずかに届かない大きさ
 

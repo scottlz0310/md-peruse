@@ -24,16 +24,24 @@ if ($Action -eq 'start') {
   if (Get-Process md-peruse -ErrorAction SilentlyContinue) { throw 'md-peruse が起動している' }
   Copy-Item -LiteralPath $settings -Destination $backup -Force
   "設定を退避した sha256=$((Get-FileHash -LiteralPath $backup -Algorithm SHA256).Hash)"
-  if ($Workspace) {
-    $json = Get-Content -LiteralPath $backup -Raw -Encoding utf8 | ConvertFrom-Json
-    $json.lastWorkspace = (Resolve-Path $Workspace).Path
-    $json.recentFolders = @()
-    [IO.File]::WriteAllText($settings, ($json | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+  try {
+    if ($Workspace) {
+      $json = Get-Content -LiteralPath $backup -Raw -Encoding utf8 | ConvertFrom-Json
+      $json.lastWorkspace = (Resolve-Path $Workspace).Path
+      $json.recentFolders = @()
+      [IO.File]::WriteAllText($settings, ($json | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
+    }
+    if ($Cdp) { $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222' }
+    $app = Start-Process -FilePath $Exe -WorkingDirectory $repo -PassThru
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $null
+    "起動した pid=$($app.Id)"
   }
-  if ($Cdp) { $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = '--remote-debugging-port=9222' }
-  $app = Start-Process -FilePath $Exe -WorkingDirectory $repo -PassThru
-  $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $null
-  "起動した pid=$($app.Id)"
+  catch {
+    # 起動に失敗したら、書き換えた設定を戻してから、エラーを伝える。
+    $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = $null
+    Copy-Item -LiteralPath $backup -Destination $settings -Force
+    throw
+  }
 }
 else {
   Get-Process md-peruse -ErrorAction SilentlyContinue | Stop-Process -Force

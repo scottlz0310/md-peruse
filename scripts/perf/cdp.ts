@@ -96,9 +96,14 @@ export function option(name: string, fallback: string): string {
   return index >= 0 ? (process.argv[index + 1] ?? fallback) : fallback;
 }
 
+/** 中央値。偶数件のときは、中央の2値の平均（上側の値だけを返すと、目標の判定が高めに偏る）。 */
 export function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
+  const middle = Math.floor(sorted.length / 2);
+  const upper = sorted[middle] ?? Number.NaN;
+  return sorted.length % 2 === 1
+    ? upper
+    : ((sorted[middle - 1] ?? Number.NaN) + upper) / 2;
 }
 
 export function quantile(values: number[], q: number): number {
