@@ -210,8 +210,9 @@ function isBlank(text: string, lineStart: number, lineEnd: number): boolean {
  * リストの項目を数える。数え上げが `limit` を超えた時点で打ち切り、そのときの値を返す。
  *
  * 各行で、行頭の接頭辞（空白、タブ、引用の `>`）を読み飛ばし、続くマーカー（`-`、`*`、`+`、
- * `1.`、`1)`。番号は9桁まで）を1つずつ数える。引用の中のリスト（`> - a`）と、同じ行に連なる
- * マーカー（`- - a`、`> 1. - a`）は、パーサーも項目として処理するため数える。
+ * `1.`、`1)`。番号は9桁まで）を1つずつ数える。引用の中のリスト（`> - a`）、同じ行に連なる
+ * マーカー（`- - a`、`> 1. - a`）、引用を挟んで連なるマーカー（`- > - a`）は、パーサーも項目
+ * として処理するため数える。
  *
  * 正規表現ではなく、文字列を1回走査する。接頭辞を後読みで確かめる正規表現は、マーカーが
  * 連なる長い行で、候補ごとに行頭まで戻り二乗になる。判定そのものが固まらないよう、走査は
@@ -222,24 +223,30 @@ function countListItems(text: string, limit: number): number {
   let items = 0;
   let lineStart = 0;
   while (lineStart < length) {
-    let position = lineStart;
-    for (;;) {
-      const code = text.charCodeAt(position);
-      if (code !== SPACE && code !== TAB && code !== QUOTE) break;
-      position += 1;
-    }
+    let position = skipContainerPrefix(text, lineStart);
     for (;;) {
       const width = listMarkerWidth(text, position);
       if (width === 0) break;
       items += 1;
       if (items > limit) return items;
-      position += width;
+      // マーカーの後に、引用の `>` を挟んで、さらにマーカーが連なる（`- > - a`）。
+      position = skipContainerPrefix(text, position + width);
     }
     const newline = text.indexOf("\n", position);
     if (newline === -1) break;
     lineStart = newline + 1;
   }
   return items;
+}
+
+/** `position` から、空白、タブ、引用の `>` を読み飛ばした位置を返す。行末では止まる（改行は読まない）。 */
+function skipContainerPrefix(text: string, position: number): number {
+  let end = position;
+  for (;;) {
+    const code = text.charCodeAt(end);
+    if (code !== SPACE && code !== TAB && code !== QUOTE) return end;
+    end += 1;
+  }
 }
 
 /**
