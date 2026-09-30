@@ -263,6 +263,15 @@ impl AppState {
             .map(|watcher| watcher.scope_id().to_owned())
     }
 
+    /// ワークスペースか、loose tabのスコープが1つでも開いているか。
+    ///
+    /// ワークスペースを据える切り替えは、開いているloose tabとその監視も破棄する（6.1）。
+    /// 起動時の復元が、利用者が開いたものを破棄しないかを判断するために使う（9.2）。
+    pub fn has_open_scope(&self) -> bool {
+        let scopes = self.lock_scopes();
+        scopes.workspace.is_some() || !scopes.loose.is_empty()
+    }
+
     /// 開いているワークスペースのルート。正規化済みの絶対パスである（`WorkspaceRoot::path`）。
     ///
     /// 最近使ったフォルダーと最後のワークスペースへ保存するのはこの値で、Frontendへは渡さない
