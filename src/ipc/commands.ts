@@ -100,6 +100,17 @@ export function getWorkspace(): Promise<WorkspaceOpenedEvent | null> {
 }
 
 /**
+ * Frontendの準備が済んだことを知らせる（design-decisions.md 9.2）。
+ *
+ * `open-document` を購読し、`getWorkspace` の応答を反映したあとに呼ぶ。関連付け起動で渡された
+ * ファイルは、この呼び出しまでRustが保留し、呼び出しのあとに `open-document` で届く。
+ * 購読より先に呼ぶと、届いた指示を受け取れない。何度呼んでもよい。
+ */
+export function notifyFrontendReady(): Promise<void> {
+  return invoke<void>("frontend_ready_command");
+}
+
+/**
  * 最近使ったフォルダーの項目をワークスペースとして開く。
  *
  * 成功は `workspace-opened` で届く（フォルダー選択と同じ経路）。`id` は `recent-folders-changed`

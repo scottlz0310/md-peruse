@@ -5,6 +5,7 @@ pub mod i18n;
 pub mod image;
 pub mod ipc;
 pub mod language;
+pub mod launch;
 pub mod limits;
 pub mod menu;
 pub mod menu_command;
@@ -35,7 +36,21 @@ use std::thread;
 use tauri::{Manager, RunEvent, WebviewWindowBuilder};
 
 pub fn run() {
+    // `env::args` は、Unicodeでない引数で異常終了するため使わない。
+    let argv: Vec<String> = std::env::args_os()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     let app = image::protocol::register(tauri::Builder::default())
+        // 関連付け起動の受け口。他のプラグインより先に登録する（プラグインの要件）。2つ目の
+        // プロセスは引数を渡して終了し、ここへ届く（design-decisions.md 9.2）。
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            launch::second_instance(app, argv, cwd);
+        }))
+        // プラグインは起動処理より先に引数を届けうるため、保留は他の状態に依存させず、
+        // ここで登録する。起動引数のファイルも、ここで保留へ入れる。復元とFrontendの準備が
+        // 済むまで開かれず、先に届いた2つ目のプロセスの引数に追い越されない（`launch` の
+        // モジュール文書）。
+        .manage(launch::LaunchQueue::started_with(&argv))
         .plugin(tauri_plugin_opener::init())
         // Rust側からだけ使う。capabilityへdialogの権限を加えないため、Frontendからは
         // 呼べない（design-decisions.md 5.5）。
@@ -47,6 +62,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ipc::commands::close_loose_scope_command,
+            ipc::commands::frontend_ready_command,
             ipc::commands::get_ui_settings_command,
             ipc::commands::get_workspace_command,
             ipc::commands::issue_image_resources_command,
@@ -126,7 +142,10 @@ fn setup(app: &mut tauri::App) -> tauri::Result<()> {
     drag_drop::track(&window);
 
     let restore_handle = app.handle().clone();
-    thread::spawn(move || open_folder::restore_last_workspace(&restore_handle));
+    thread::spawn(move || {
+        open_folder::restore_last_workspace(&restore_handle);
+        launch::restored(&restore_handle);
+    });
 
     let notice: &[ErrorCode] = match outcome {
         LoadOutcome::Loaded => &[],

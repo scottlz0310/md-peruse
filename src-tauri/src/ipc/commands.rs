@@ -25,6 +25,7 @@ use crate::ipc::types::{
     FileContent, ImageResource, ImageResourceRequest, LooseWatchRequest, ReadRequest, ScanRequest,
     ScanResult, WorkspaceOpenedEvent,
 };
+use crate::launch;
 use crate::open_folder;
 use crate::path_guard::{PathRejection, ResolveError};
 use crate::read::{ReadError, is_sharing_violation, read_file};
@@ -295,6 +296,21 @@ pub async fn get_workspace_command(app: AppHandle) -> Option<WorkspaceOpenedEven
     spawn_blocking(move || open_folder::current_workspace(&app))
         .await
         .expect("ワークスペースの問い合わせタスクの実行に失敗")
+}
+
+/// Frontendの準備が済んだことを知らせる（9.2）。
+///
+/// `open-document` を購読し、開いているワークスペースの問い合わせを終えたあとに呼ぶ。
+/// 関連付け起動で渡されたファイルは、この呼び出しまで開かれず、復元が済んでいれば、
+/// この呼び出しの中で開かれる。何度呼んでもよく、2回目以降は開くものがない。
+///
+/// 復元の完了を待たずに応答する。開くのはファイルシステムを伴うため、ブロッキング
+/// スレッドで実行する。
+#[tauri::command]
+pub async fn frontend_ready_command(app: AppHandle) {
+    spawn_blocking(move || launch::frontend_ready(&app))
+        .await
+        .expect("起動ファイルを開くタスクの実行に失敗");
 }
 
 /// 最近使ったフォルダーの項目をワークスペースとして開く（9.2、11.1）。

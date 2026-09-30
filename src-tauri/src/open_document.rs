@@ -54,6 +54,21 @@ pub fn open_document<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), 
     Ok(())
 }
 
+/// 複数のファイルを順に開く。開けなかったものの理由を、重複を除いて返す。
+///
+/// 1つが開けなくても、残りは開く。理由の示し方は呼び出し側が決める。
+pub fn open_documents<R: Runtime>(app: &AppHandle<R>, files: &[String]) -> Vec<ErrorCode> {
+    let mut failures: Vec<ErrorCode> = Vec::new();
+    for file in files {
+        if let Err(code) = open_document(app, Path::new(file))
+            && !failures.contains(&code)
+        {
+            failures.push(code);
+        }
+    }
+    failures
+}
+
 /// 開けなかった理由を `ErrorCode` へ写す。
 ///
 /// 見つからないことだけを分ける。ドロップから開くまでの間に移動・削除された場合であり、
@@ -191,6 +206,31 @@ mod tests {
         let events = events.lock().unwrap();
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].scope_id, events[1].scope_id);
+    }
+
+    /// 複数のファイルは、1つが開けなくても残りを開く。開けなかった理由は、重複を除いて
+    /// 現れた順に返す。
+    #[test]
+    fn opening_many_documents_continues_past_failures() {
+        let temp = TempDir::new("many");
+        fs::write(temp.0.join("a.md"), b"# a\n").unwrap();
+        fs::create_dir_all(temp.0.join("folder.md")).unwrap();
+        let app = app();
+        let events = collect(&app);
+        let files: Vec<String> = ["missing.md", "folder.md", "a.md", "missing-too.md"]
+            .iter()
+            .map(|name| temp.0.join(name).to_string_lossy().into_owned())
+            .collect();
+
+        let failures = open_documents(app.handle(), &files);
+
+        assert_eq!(
+            failures,
+            [ErrorCode::FileNotFound, ErrorCode::FileAccessDenied]
+        );
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].path, "a.md");
     }
 
     /// 開けないファイルは、理由を返して何も知らせない。見つからないことは分ける。
