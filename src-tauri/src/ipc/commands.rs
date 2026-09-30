@@ -290,7 +290,8 @@ pub fn get_ui_settings_command(
 /// 問い合わせ、購読後の変化はeventで受ける。WebViewを読み込み直したときも、Rust側に残る
 /// ワークスペースを取り戻せる。
 ///
-/// 開閉と同じロックを待つため、応答の遅いストレージを開いている最中はここも待つ。
+/// 開閉と同じロックを待つため、利用者が応答の遅いストレージを開いている最中はここも待つ。
+/// 起動時の復元は、フォルダーを開く間このロックを保持しないため、待たない（9.2）。
 /// ブロッキングスレッドで実行する。
 #[tauri::command]
 pub async fn get_workspace_command(app: AppHandle) -> Option<WorkspaceOpenedEvent> {

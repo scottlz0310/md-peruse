@@ -137,7 +137,18 @@ impl AppState {
     /// 構築する時点では手に入らないためである。後から差し込む形にすると、差し込み忘れが
     /// 「イベントが届かない」という静かな失敗になる。
     pub fn open_workspace(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> io::Result<()> {
-        let root = WorkspaceRoot::open(path)?;
+        self.install_workspace(WorkspaceRoot::open(path)?, sink)
+    }
+
+    /// 開いたルートを、ワークスペースとして据える。`open_workspace` の後半である。
+    ///
+    /// ルートを開く（`WorkspaceRoot::open`）のは、応答の遅いストレージで長く待ちうる。呼び出し側が
+    /// 開閉のロックの外でルートを開いてから据えられるよう、分けている（起動時の復元、9.2）。
+    pub fn install_workspace(
+        &self,
+        root: WorkspaceRoot,
+        sink: Arc<dyn ChangeSink>,
+    ) -> io::Result<()> {
         // 旧Watcherを停止してから状態を破棄する（6.4）。順序を逆にすると、停止前に届いた
         // イベントが新しいワークスペースの状態へ適用されうる。loose tabも破棄する（6.1）。
         self.close_workspace();

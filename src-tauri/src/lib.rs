@@ -150,9 +150,13 @@ fn setup(app: &mut tauri::App, launched_by_association: bool) -> tauri::Result<(
 
     let restore_handle = app.handle().clone();
     thread::spawn(move || {
-        open_folder::restore_last_workspace(&restore_handle);
+        open_folder::restore_last_workspace(&restore_handle, || {
+            launch::restore_may_commit(&restore_handle)
+        });
         launch::restored(&restore_handle);
     });
+    // 起動引数のファイルが復元を待つ間の上限（9.2）。
+    launch::limit_restore_wait(app.handle(), launch::RESTORE_WAIT_LIMIT);
 
     let notice: &[ErrorCode] = match outcome {
         LoadOutcome::Loaded => &[],
