@@ -3,13 +3,15 @@
 //! 送信経路は `StoreServicesCustomEventLogger` であり、packaged classic appから
 //! 呼べることを実測で確認している（13.5）。ここに置くのはイベントの集合、送信単位の規則、
 //! Store署名のときだけ送る判定、送信の口（`EventLogger`）である。発火点は各機能の側にあり、
-//! `Telemetry::record` を呼ぶ。WinRTでの実送信は `EventLogger` の実装として足す。それまでの
-//! 製品は何も送らない（`NullLogger`）。
+//! `Telemetry::record` を呼ぶ。WinRTでの実送信は `EventLogger` の実装（`StoreEventLogger`）である。
 //!
 //! 送信するのはイベント名だけで、パラメータを持たせない。`Log()` は文字列1つを受け取り、
 //! 名前以外を運ばない形がデータ最小化の要件（11.4）をそのまま満たす。
 
+mod store_logger;
+
 use std::sync::Mutex;
+pub use store_logger::StoreEventLogger;
 
 /// Store版で送信するカスタムイベント。
 ///
@@ -153,16 +155,6 @@ pub trait EventLogger: Send + Sync {
     fn log(&self, name: &str) -> Result<(), LogFailed>;
 }
 
-/// 何も送らない送信の口。WinRTでの実送信を足すまでの間、製品はこれを使う。
-#[derive(Debug, Clone, Copy, Default)]
-pub struct NullLogger;
-
-impl EventLogger for NullLogger {
-    fn log(&self, _name: &str) -> Result<(), LogFailed> {
-        Ok(())
-    }
-}
-
 /// カスタムイベントの発火点が呼ぶ入口。
 ///
 /// 次の3つを、発火点ごとに書かずここへ集める。
@@ -186,9 +178,13 @@ impl Telemetry {
         }
     }
 
-    /// このプロセスの署名種別で作る。送信の口は `NullLogger` のままで、何も送らない。
+    /// このプロセスの署名種別で作る。送信の口は `StoreEventLogger` で、最初に送るときまで
+    /// スレッドを立てない。Storeから配布されていない実行では `record` が手前で止める。
     pub fn for_this_process() -> Self {
-        Self::new(Box::new(NullLogger), package_signature_kind())
+        Self::new(
+            Box::new(StoreEventLogger::for_store()),
+            package_signature_kind(),
+        )
     }
 
     /// イベントを1つ記録する。送る条件を満たすときだけ送る。

@@ -24,13 +24,14 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 ts-rs = "12.0.1"
 # OSの表示言語の取得（design-decisions.md 10.5）、開いたhandleの最終パスの取得（7.1）、
-# パッケージの署名種別の取得（11.4）に使う。Tauriが依存する版と揃えており、重複して
-# コンパイルされない。
+# パッケージの署名種別の取得（11.4）、Store向けカスタムイベントのWinRT活性化（13.5）に使う。
+# Tauriが依存する版と揃えており、重複してコンパイルされない。
 windows = { version = "0.62.2", features = [
   "ApplicationModel",
   "Win32_Foundation",
   "Win32_Globalization",
   "Win32_Storage_FileSystem",
+  "Win32_System_WinRT",
   "Win32_UI_Input_KeyboardAndMouse",
   "Win32_UI_WindowsAndMessaging",
 ] }

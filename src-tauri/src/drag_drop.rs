@@ -255,7 +255,7 @@ mod tests {
             crate::settings::Settings::default(),
         ));
         app.manage(crate::telemetry::Telemetry::new(
-            Box::new(crate::telemetry::NullLogger),
+            Box::new(crate::telemetry::testing::RecordingLogger::default()),
             None,
         ));
         let documents: Arc<Mutex<Vec<OpenDocumentEvent>>> = collect(&app, OPEN_DOCUMENT_EVENT);
