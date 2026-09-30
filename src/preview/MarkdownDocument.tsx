@@ -79,7 +79,11 @@ export function MarkdownDocument({
   ref,
 }: Props) {
   const messages = useMessages();
-  const [content, setContent] = useState<ReactElement | null>(null);
+  // `key` は、表示している本文の文書のパス。別の文書へ替わるときだけ変わる（下の描画）。
+  const [content, setContent] = useState<{
+    element: ReactElement;
+    key: string;
+  } | null>(null);
   const [rendered, setRendered] = useState<string | null>(null);
 
   // 通知の関数は呼び出し側の描画ごとに替わる。effectの依存に入れると、通知の関数が替わるたびに
@@ -99,9 +103,12 @@ export function MarkdownDocument({
     // 数十秒かかり、その間WebViewが応答しなくなるため、パースの前に判定する。
     const plain = plainDocumentReason(text);
     if (plain !== null) {
-      setContent(
-        <PlainDocument text={text} notice={messages.plainDocument[plain]} />,
-      );
+      setContent({
+        element: (
+          <PlainDocument text={text} notice={messages.plainDocument[plain]} />
+        ),
+        key: path,
+      });
       setRendered(text);
       onRenderedRef.current();
       return;
@@ -114,7 +121,7 @@ export function MarkdownDocument({
     ).then(
       (element) => {
         if (!current) return;
-        setContent(element);
+        setContent({ element, key: path });
         setRendered(text);
         onRenderedRef.current();
       },
@@ -174,7 +181,14 @@ export function MarkdownDocument({
         if (linkOf(event) !== null) event.preventDefault();
       }}
     >
-      {content}
+      {/*
+        文書のパスで鍵を付けた要素で包む。別の文書へ替えるときは、新しい部分木を親へ付ける前に
+        作り、1回で挿入する。永続する `article` へ大量の兄弟要素を1件ずつ挿入すると、Reactが
+        挿入のたびに後続の兄弟をなめ、要素数nで二乗になる（4 MiBで約1.9秒、水平線が11.8万個の
+        文書で約2分。design-decisions.md 8.7）。同じ文書の再読込は鍵が変わらず、これまでどおり
+        差分で更新するため、Mermaidの図の状態は保たれる。
+      */}
+      {content && <div key={content.key}>{content.element}</div>}
     </article>
   );
 }

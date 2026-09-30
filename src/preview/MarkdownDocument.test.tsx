@@ -378,6 +378,70 @@ describe("MarkdownDocument", () => {
   });
 });
 
+describe("文書の切り替えでの部分木の作り直し（8.7）", () => {
+  /** 描画したあと、`rerender` で本文とパスを替えられるようにする。 */
+  function mountAt(path: string, text: string) {
+    const handlers = {
+      onNavigate: () => {},
+      issueImages: noImages,
+      imageRevision: 0,
+      scroller,
+      onRendered: () => {},
+      onRenderFailed: () => {},
+    };
+    const mounted = render(
+      <MarkdownDocument text={text} path={path} view={TOP} {...handlers} />,
+    );
+    return (nextPath: string, nextText: string) =>
+      mounted.rerender(
+        <MarkdownDocument
+          text={nextText}
+          path={nextPath}
+          view={TOP}
+          {...handlers}
+        />,
+      );
+  }
+
+  test("同じ文書の再読込は、DOMを作り直さず差分で更新する", async () => {
+    // 作り直すと、Mermaidの図などの状態が再読込のたびに失われる。
+    const rerender = mountAt("docs/a.md", "# 一つ目\n");
+    const before = await waitFor(() => screen.getByRole("heading"));
+
+    rerender("docs/a.md", "# 二つ目\n");
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading").textContent).toBe("二つ目"),
+    );
+    expect(screen.getByRole("heading")).toBe(before);
+  });
+
+  test("別の文書へ替えると、新しい部分木を作る", async () => {
+    // 永続する親へ大量の兄弟要素を1件ずつ挿入すると、Reactの挿入が二乗になる。
+    const rerender = mountAt("docs/a.md", "# 一つ目\n");
+    const before = await waitFor(() => screen.getByRole("heading"));
+
+    rerender("docs/b.md", "# 二つ目\n");
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading").textContent).toBe("二つ目"),
+    );
+    expect(screen.getByRole("heading")).not.toBe(before);
+    expect(document.querySelector("article")?.children).toHaveLength(1);
+  });
+
+  test("別の文書へ替えるとき、新しい本文が描画されるまでは前の本文を作り直さない", async () => {
+    // パスだけが先に替わる間、前の本文を新しいパスの鍵で作り直すと、無駄に作って捨てる。
+    const rerender = mountAt("docs/a.md", "# 一つ目\n");
+    const before = await waitFor(() => screen.getByRole("heading"));
+
+    rerender("docs/b.md", "# 一つ目\n");
+    // 描画が完了するまでの間も、前の部分木がそのまま残る。
+    expect(screen.getByRole("heading")).toBe(before);
+    await waitFor(() => expect(screen.getByRole("heading")).not.toBe(before));
+  });
+});
+
 describe("大きい・複雑な文書の書式なし表示（8.7）", () => {
   /** 文字数の上限を超える本文。1行にRaw HTMLと、書式の記法を含める。 */
   const longText = `# 見出し\n\n<script>alert(1)</script>\n\n![図](a.png)\n\n${"a\n".repeat(DOCUMENT_LIMITS.richMaxChars)}`;
