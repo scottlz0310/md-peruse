@@ -1,8 +1,8 @@
 //! ファイルの読込（design-decisions.md 6.3、7.1）。
 //!
 //! 読み込むのはワークスペース境界の内側にあるファイルに限る。境界の検証は
-//! `WorkspaceRoot::resolve` が行い、ここが担うのはサイズ上限の判定、文字コードの判定、
-//! 改行の正規化である。
+//! `WorkspaceRoot::open_file` が行い（解決に加えて、開いたhandleの最終パスでも確かめる。
+//! 7.1）、ここが担うのはサイズ上限の判定、文字コードの判定、改行の正規化である。
 //!
 //! 文字コードはBOMで判定できるものだけを扱い、CP932などの推測変換は行わない（6.3）。
 //! 推測が外れると、文字化けした本文を「読めた」として表示することになる。原因を示して
@@ -24,7 +24,6 @@
 
 use std::fs::File;
 use std::io::{self, Read};
-use std::path::Path;
 
 use crate::ipc::types::{FileContent, TextEncoding};
 use crate::limits::MAX_MARKDOWN_BYTES;
@@ -36,6 +35,8 @@ const UTF8_BOM: [u8; 3] = [0xEF, 0xBB, 0xBF];
 const UTF16_LE_BOM: [u8; 2] = [0xFF, 0xFE];
 /// UTF-16 BEのBOM。
 const UTF16_BE_BOM: [u8; 2] = [0xFE, 0xFF];
+/// UTF-32 LEのBOM。UTF-16 LEのBOMを前置しており、順序を誤るとUTF-16 LEとして読める。
+const UTF32_LE_BOM: [u8; 4] = [0xFF, 0xFE, 0x00, 0x00];
 
 /// `ERROR_SHARING_VIOLATION`。他のプロセスが共有を許さずに開いている。
 const ERROR_SHARING_VIOLATION: i32 = 32;
@@ -65,12 +66,13 @@ impl From<ResolveError> for ReadError {
 
 /// ワークスペース内のファイルを1件読み込む。
 ///
-/// `relative` はワークスペース相対パスであり、境界の検証は `WorkspaceRoot::resolve` が
-/// 行う（7.1）。返す `FileContent.path` は要求と同じ相対パスであり、ネイティブ絶対パスは
-/// 含めない。
+/// `relative` はワークスペース相対パスであり、境界の検証は `WorkspaceRoot::open_file` が
+/// 行う（7.1）。解決とオープンの間に経路上のフォルダーが差し替えられても、開いたhandleが
+/// 境界の外を指していれば読まない。返す `FileContent.path` は要求と同じ相対パスであり、
+/// ネイティブ絶対パスは含めない。
 pub fn read_file(root: &WorkspaceRoot, relative: &str) -> Result<FileContent, ReadError> {
-    let absolute = root.resolve(relative)?;
-    let bytes = read_bytes(&absolute)?;
+    let file = root.open_file(relative)?;
+    let bytes = read_bytes(file)?;
     // 上限の判定を通っているため `u32` へ収まる。
     let byte_size = u32::try_from(bytes.len()).expect("上限を超えたバイト列が読込を通った");
     let (text, encoding) = decode(&bytes)?;
@@ -83,8 +85,7 @@ pub fn read_file(root: &WorkspaceRoot, relative: &str) -> Result<FileContent, Re
 }
 
 /// ファイルの内容をバイト列として読む。上限を超えていれば読み切らずに失敗させる。
-fn read_bytes(path: &Path) -> Result<Vec<u8>, ReadError> {
-    let file = File::open(path).map_err(io_error)?;
+fn read_bytes(file: File) -> Result<Vec<u8>, ReadError> {
     let declared = file.metadata().map_err(io_error)?.len();
     if declared > u64::from(MAX_MARKDOWN_BYTES) {
         return Err(ReadError::TooLarge);
@@ -119,8 +120,13 @@ pub fn is_sharing_violation(error: &io::Error) -> bool {
 /// BOMで文字コードを判定し、本文をデコードする（6.3）。
 ///
 /// BOMを持たないファイルはUTF-8として検証する。判定できない並びを別の文字コードとして
-/// 読み替えることはしない。
+/// 読み替えることはしない。UTF-32は対応しないため、BOMが一致した時点で失敗させる。
 fn decode(bytes: &[u8]) -> Result<(String, TextEncoding), ReadError> {
+    // UTF-16 LEのBOMより先に判定する。後にすると、UTF-32 LEの本文（`41 00 00 00`）を
+    // UTF-16 LEとして読み、NUL文字が並んだ本文を「読めた」として返す。
+    if bytes.starts_with(&UTF32_LE_BOM) {
+        return Err(ReadError::Decode);
+    }
     if let Some(body) = bytes.strip_prefix(&UTF8_BOM) {
         return Ok((decode_utf8(body)?, TextEncoding::Utf8Bom));
     }
@@ -186,6 +192,7 @@ mod tests {
     use crate::path_guard::PathRejection;
     use std::fs;
     use std::os::windows::fs::OpenOptionsExt;
+    use std::path::Path;
 
     /// テスト用の一時フォルダー。終了時に削除する。
     struct TempDir(std::path::PathBuf);
@@ -280,6 +287,17 @@ mod tests {
             (
                 "対にならないサロゲート",
                 with_bom(&UTF16_LE_BOM, &[0x00, 0xD8]),
+            ),
+            // UTF-32は対応しない。LEのBOMはUTF-16 LEのBOMを前置しているため、UTF-16 LEとして
+            // 読むとNUL文字が並んだ本文が「読めた」ことになる。
+            (
+                "UTF-32 LEの本文",
+                with_bom(&UTF32_LE_BOM, &[0x41, 0x00, 0x00, 0x00]),
+            ),
+            ("BOMだけのUTF-32 LE", UTF32_LE_BOM.to_vec()),
+            (
+                "UTF-32 BEの本文",
+                vec![0x00, 0x00, 0xFE, 0xFF, 0x00, 0x00, 0x00, 0x41],
             ),
         ];
         for (label, bytes) in cases {
