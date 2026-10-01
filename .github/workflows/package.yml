@@ -9,8 +9,6 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
-    # 一時: 初回の実行確認用。default ブランチに無い間は手動起動できないため。確認後に外す。
-    branches: [ccr-71766141-y106ga]
 
 permissions:
   contents: read
@@ -79,9 +77,13 @@ jobs:
           New-Item -ItemType Directory -Path build/wack -Force | Out-Null
           & $appcert reset
           & $appcert test -appxpackagepath $msix -reportoutputpath (Join-Path (Get-Location) 'build/wack/wack-report.xml')
-          # 終了コードは、検査が完了したことと合否を区別しない。合否は報告書を見て判断する。
+          # 終了コードは、検査が完了したことと合否を区別しない。合否は報告書の OVERALL_RESULT で判断する。
           Write-Host "appcert exit $LASTEXITCODE"
-          if (-not (Test-Path build/wack/wack-report.xml)) { throw 'WACK の報告書が生成されませんでした' }
+          $report = 'build/wack/wack-report.xml'
+          if (-not (Test-Path $report)) { throw 'WACK の報告書が生成されませんでした' }
+          $result = ([xml](Get-Content $report -Raw)).REPORT.OVERALL_RESULT
+          Write-Host "WACK OVERALL_RESULT: $result"
+          if ($result -ne 'PASS') { throw "WACK が合格していません: $result（報告書は artifact に保存する）" }
 
       - name: MSIX のハッシュを記録
         shell: pwsh
@@ -90,7 +92,9 @@ jobs:
             ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
             Set-Content build/msix/SHA256SUMS.txt -Encoding utf8NoBOM
 
+      # WACK が不合格でも、報告書を読めるよう保存する。
       - name: artifact へ保存
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: md-peruse-msix-x64
