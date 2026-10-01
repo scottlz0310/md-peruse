@@ -187,6 +187,8 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
 | `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージがないことを検査する |
 
+`.github/workflows/package.yml`（`Package`）は必須CIに含めない。手動起動とリリースタグ（`v*`）で `windows-latest` 上に x64 版のMSIXを生成し、WACKを実行して、MSIX、SHA-256、WACKの報告書を artifact（`md-peruse-msix-x64`）へ保存する。署名は開発用の自己署名で、Store配布には使えない。
+
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
 ライセンス一覧 `public/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージがあれば失敗する。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
