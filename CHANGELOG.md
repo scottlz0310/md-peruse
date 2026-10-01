@@ -14,6 +14,7 @@
 ## [Unreleased]
 
 ### Added
+- 製品バージョンが `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` で一致していることを、CIとpre-commitで検査するようにした（`bun run check:versions`）。マニフェストテンプレートの Identity の Version が置換子のままであること、タグ実行時にタグの版と一致することも見る
 - 性能測定と実機確認の道具を、使い方とともに `scripts/` へ加えた（`scripts/README.md`）。`scripts/perf/` は、測定用のワークスペースの生成、Releaseのアプリを起動して設定を戻す実行、文書切り替え・ツリー展開・変更反映の測定（強制レイアウトと次のフレーム）、Chromiumのトレースによる内訳である。`scripts/devtools/` は、アプリを起動したままにする手順、フォーカスの順序とスクロールの照合、OSのハイコントラストの切り替え、WebView2の失敗の再現である。CIへは載せない
 - `spec.md` の要件と、それを確かめるテスト・実機確認の対応表を加えた（`docs/test-matrix.md`）。機能要件（4.1〜4.4）、非機能要件（5章）、セキュリティ回帰との突き合わせ、Phase 4の完了条件との対応、確認できていない項目を示す
 - 不正なMarkdown入力でも、描画パイプラインが例外を出さず、時間内に描画できることを、テストで固定した（`src/markdown/malformed.test.tsx`）。記法の未閉じ、壊れた文字、極端な入れ子、壊れた表・脚注・front matter、危険なURL schemeなど29種を流す

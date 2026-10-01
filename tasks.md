@@ -21,7 +21,7 @@
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
 | Phase 3 | 詳細設計 | 完了 |
 | Phase 4 | 機能実装 | 完了 |
-| Phase 5 | 配布パイプラインとStore公開 | 未着手 |
+| Phase 5 | 配布パイプラインとStore公開 | 進行中 |
 
 着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」、第5章「着手順」、第6章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
 
@@ -235,7 +235,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 - [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
 - [x] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
-- [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
+- [x] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する（`bun run check:versions`。`Frontend` ジョブとpre-commitで実行する）
 - [ ] MSIXの生成の前提。`scripts/build-msix.ps1` が固定する winapp CLI の版（0.6.1）と、開発機に導入されている版（0.7.0）が食い違い、スクリプトが実行前の照合で失敗する。固定値と、[design-decisions.md](./docs/design-decisions.md) 4.10、[README.md](./README.md) を 0.7.0 へ追従させるか、開発機を 0.6.1 へ戻すかを決める。追従する場合は、マニフェスト検証・PRI生成・署名の挙動が変わらないことを確かめてから固定値を更新する（Store向けカスタムイベントの実送信の検証で見つけた。検証は、版の照合だけを 0.7.0 に読み替えたスクリプトの写しで行った）
 - [ ] Storeの提出物のライセンス表記の確認（[spec.md](./docs/spec.md) 5.7）と合わせて扱う。JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める。足す場合は、受け入れ済みの EPL-2.0（`elkjs`）を列挙に含める
 - [ ] GitHub Actionsでx64版をビルドし、MSIXとWACK結果をartifactとして保存する

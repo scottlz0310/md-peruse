@@ -27,6 +27,11 @@ pre-commit:
       glob: "{assets/app-icon.png,src-tauri/icons/*}"
       run: bun run check:icons
 
+    # バージョンを持つファイルを触ったときだけ実行する。
+    - name: versions
+      glob: "{package.json,src-tauri/tauri.conf.json,src-tauri/Cargo.toml,src-tauri/Cargo.lock,packaging/Package.appxmanifest.template}"
+      run: bun run check:versions
+
     - name: rust-fmt
       glob: "*.rs"
       root: src-tauri/

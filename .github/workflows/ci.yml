@@ -55,6 +55,10 @@ jobs:
       - name: アイコンが原本と一致するか検査
         run: bun run check:icons
 
+      # 製品バージョンは複数のファイルに書かれる。Store へ出す MSIX の版との食い違いを防ぐ。
+      - name: バージョンが各ファイルで一致するか検査
+        run: bun run check:versions
+
   rust:
     name: Rust
     runs-on: windows-latest

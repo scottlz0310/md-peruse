@@ -95,6 +95,7 @@ bun install
 | `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
 | `bun run generate:licenses` | サードパーティライセンス一覧を `public/` へ生成する（`cargo-about` が必要） |
 | `bun run check:icons` | `src-tauri/icons` が原本 `assets/app-icon.png` と一致するか検査する |
+| `bun run check:versions` | `package.json`、`tauri.conf.json`、`Cargo.toml`、`Cargo.lock` の版が一致し、マニフェストテンプレートが置換子のままであることを検査する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -171,6 +172,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `frontend-test` | ステージした TS/TSX | `bun test` |
 | `rust-types` | ステージした Rust | `cargo test` の後に `src/types/generated` の差分を検査 |
 | `icons` | ステージした `assets/app-icon.png` と `src-tauri/icons` | `bun run check:icons` |
+| `versions` | ステージしたバージョンを持つファイル | `bun run check:versions` |
 | `rust-fmt` | ステージした Rust | `cargo fmt --check` |
 | `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |
 
@@ -180,7 +182,7 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 | ジョブ | ランナー | 内容 |
 | --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons` |
+| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons`、`bun run check:versions` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
 | `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージがないことを検査する |

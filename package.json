@@ -15,6 +15,7 @@
     "test": "bun test",
     "generate:licenses": "bun run scripts/generate-licenses.ts",
     "check:icons": "bun run scripts/check-icons.ts",
+    "check:versions": "bun run scripts/check-versions.ts",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov",
     "prepare": "lefthook install"
   },
