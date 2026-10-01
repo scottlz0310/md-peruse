@@ -45,7 +45,8 @@ if (-not (Get-Command winapp -ErrorAction SilentlyContinue)) {
     throw "winapp CLI が見つかりません。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で導入してください。"
 }
 
-$winappVersion = (& winapp --version 2>&1 | Out-String).Trim()
+# 初回起動の利用規約のバナーが出力へ混ざるため、版は最終行から取る。
+$winappVersion = ((& winapp --version 2>&1 | Out-String).Trim() -split '\r?\n' | Select-Object -Last 1).Trim()
 if ($winappVersion -ne $requiredWinappVersion) {
     throw "winapp CLI のバージョンが一致しません。期待値 $requiredWinappVersion、実際 '$winappVersion'。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で固定してください。"
 }

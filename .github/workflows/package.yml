@@ -15,6 +15,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # winapp CLI の初回起動バナーと利用状況の送信を止める。
+  WINAPP_CLI_TELEMETRY_OPTOUT: "1"
+
 jobs:
   msix:
     name: MSIX と WACK
