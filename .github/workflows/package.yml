@@ -50,6 +50,9 @@ jobs:
           $user = [Environment]::GetEnvironmentVariable('Path', 'User')
           "PATH=$machine;$user" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
+      # tauri build の beforeBuildCommand が、サードパーティライセンス一覧の生成（generate:licenses）に使う。
+      - uses: taiki-e/install-action@cargo-about
+
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
