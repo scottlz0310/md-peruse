@@ -9,6 +9,8 @@ on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+    # 一時: 初回の実行確認用。default ブランチに無い間は手動起動できないため。確認後に外す。
+    branches: [ccr-71766141-y106ga]
 
 permissions:
   contents: read
