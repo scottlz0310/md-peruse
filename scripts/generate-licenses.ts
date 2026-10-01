@@ -19,10 +19,14 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { LicensePackage, LicensesFile } from "../src/licenses/licenses";
+import { isLicenseAccepted, parseAcceptedLicenses } from "./license-policy";
 
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 // Viteが `public/` をビルドの出力へそのまま複写する。Frontendは `LICENSES_URL` で読む。
 const outputPath = join(repositoryRoot, "public", "third-party-licenses.json");
+
+// 許容ライセンスの正本。Rust（cargo-about）とJavaScriptで共有し、別の一覧は持たない。
+const aboutConfigPath = join(repositoryRoot, "src-tauri", "about.toml");
 
 // 上流が条文を同梱していないパッケージのために、手動配置した本文を置く場所。
 const overridesRoot = join(repositoryRoot, "licenses", "overrides");
@@ -160,6 +164,22 @@ function collectJavaScriptPackages(): CollectedPackage[] {
       sources: collectLicenseSources(name, packageDir),
     });
     pending.push(...Object.keys(manifest.dependencies ?? {}));
+  }
+
+  // 条文を取得できても、再配布条件の異なるライセンス（GPLなど）が黙って入らないようにする。
+  const accepted = parseAcceptedLicenses(
+    readFileSync(aboutConfigPath, "utf-8"),
+  );
+  const rejected = packages.filter(
+    (pkg) => !isLicenseAccepted(pkg.license, accepted),
+  );
+  if (rejected.length > 0) {
+    const list = rejected
+      .map((pkg) => `${pkg.name}@${pkg.version} (${pkg.license})`)
+      .join(", ");
+    throw new Error(
+      `許容されていないライセンスの依存があります: ${list}。再配布条件を確かめ、受け入れるなら src-tauri/about.toml の accepted へ加えてください`,
+    );
   }
 
   return packages;

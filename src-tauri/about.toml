@@ -1,11 +1,15 @@
 # cargo-about の設定。未列挙のライセンスを持つcrateが増えると生成が失敗するため、
 # 依存追加時にライセンスを確認する強制力を兼ねる。
+# この一覧は、scripts/generate-licenses.ts がJavaScript依存の検査にも読む（唯一の管理元）。
 accepted = [
   "Apache-2.0",
   "BSD-2-Clause",
   "BSD-3-Clause",
   "BSL-1.0",
   "CC0-1.0",
+  # JavaScript側の elkjs（Mermaid 12 の `layout: elk` 用）。受け入れの判断は
+  # design-decisions.md 11.3。ソースコードの入手先は licenses/overrides/elkjs/SOURCE-URL。
+  "EPL-2.0",
   "ISC",
   "MIT",
   "MIT-0",
