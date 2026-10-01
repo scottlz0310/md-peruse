@@ -21,7 +21,7 @@
 | Phase 2 | 開発基盤と品質ガードレール | 完了 |
 | Phase 3 | 詳細設計 | 完了 |
 | Phase 4 | 機能実装 | 完了 |
-| Phase 5 | 配布パイプラインとStore公開 | 未着手 |
+| Phase 5 | 配布パイプラインとStore公開 | 進行中 |
 
 着手順は [dev-flow.md](./docs/dev-flow.md) 「1.1 フェーズの着手順」、第5章「着手順」、第6章「着手順」を正本とし、本書では重複して定義しない。本書は各タスクの状態のみを追跡する。
 
@@ -235,10 +235,10 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 - [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
 - [x] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
-- [ ] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する
-- [ ] MSIXの生成の前提。`scripts/build-msix.ps1` が固定する winapp CLI の版（0.6.1）と、開発機に導入されている版（0.7.0）が食い違い、スクリプトが実行前の照合で失敗する。固定値と、[design-decisions.md](./docs/design-decisions.md) 4.10、[README.md](./README.md) を 0.7.0 へ追従させるか、開発機を 0.6.1 へ戻すかを決める。追従する場合は、マニフェスト検証・PRI生成・署名の挙動が変わらないことを確かめてから固定値を更新する（Store向けカスタムイベントの実送信の検証で見つけた。検証は、版の照合だけを 0.7.0 に読み替えたスクリプトの写しで行った）
+- [x] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する（`bun run check:versions`。`Frontend` ジョブとpre-commitで実行する）
+- [ ] MSIXの生成の前提。`scripts/build-msix.ps1` が固定する winapp CLI の版（0.6.1）と、開発機に導入されている版（0.7.0）が食い違っていた。固定値は 0.6.1 のまま維持すると決めた（Phase 1〜4で検証した生成経路を変えない。2026-10-01）。残りは開発機を戻す作業で、`winget install --id Microsoft.WinAppCli --version 0.6.1 --exact` を実行する。0.7.0 へ上げるときは、マニフェスト検証・PRI生成・署名の挙動が変わらないことを実機で確かめてから、スクリプトの固定値、[design-decisions.md](./docs/design-decisions.md) 4.10、[README.md](./README.md) を更新する
 - [ ] Storeの提出物のライセンス表記の確認（[spec.md](./docs/spec.md) 5.7）と合わせて扱う。JavaScript依存のライセンス種別にallowlistがない。Rust側は `about.toml` の `accepted` が未列挙のライセンスを検出するが、JavaScript側は条文を取得できれば通るため、GPLなど再配布条件の異なる依存が入っても気づけない。生成物のコミットをやめた（[design-decisions.md](./docs/design-decisions.md) 11.3）ことで、Pull Requestの差分から気づく経路もなくなった。`scripts/generate-licenses.ts` へ許容ライセンスの列挙を足すかを決める。足す場合は、受け入れ済みの EPL-2.0（`elkjs`）を列挙に含める
-- [ ] GitHub Actionsでx64版をビルドし、MSIXとWACK結果をartifactとして保存する
+- [x] GitHub Actionsでx64版をビルドし、MSIXとWACK結果をartifactとして保存する（`.github/workflows/package.yml`。手動起動とタグで動く。ブランチ上での実行（2026-10-01、run 5）で、MSIX（`md-peruse_0.1.0.0_x64.msix`、約3.4 MB）の生成、WACK（部分実行ではなく全24項目、`OVERALL_RESULT="PASS"`）、SHA-256の記録とartifactへの保存まで通った。初回の実行で見つかった3件を直した: winapp の版の照合が初回起動のバナーに影響される、npm と crate の `tauri-plugin-opener` の版が不一致、`cargo-about` が未導入。WACKが不合格のときは工程を失敗にする。署名は開発用の自己署名のため、Storeへ出す提出物はPartner Centerの署名に任せる。「Store提出物とCIで検証した成果物が一致している」の確認は、提出時に残る）
 - [ ] パッケージ化したMSIXの実機で、ファイル変更への追従（atomic replaceでの再読込、画像だけの書き換え、削除、rename、フォルダーの増減）と、ドラッグ＆ドロップで開いたloose tab（外部での書き換え、相対リンクでの移動）を確認する。Phase 4では `tauri dev`（パッケージ外）で確認した（[design-decisions.md](./docs/design-decisions.md) 6.4、6.5、5.4）
 - [ ] パッケージ化したMSIXの実機で、関連付け起動を確認する。別のアプリが前面にあるときにウィンドウが前面へ出るか、エクスプローラーで複数のファイルを選んで開いたときの引数の渡され方（1つのプロセスへ複数の引数か、ファイル数ぶんのプロセスか）、単一インスタンスの検出がパッケージ内でも成立するかを確かめる。Phase 4では `tauri dev`（パッケージ外）の、最小化したウィンドウで確認した（[design-decisions.md](./docs/design-decisions.md) 9.2）
 - [ ] MSIXインストール済みの実機で、起動（コールドスタート、ウォームスタート）とメモリを測り、[spec.md](./docs/spec.md) 5.1、5.2の目標を確かめる。描画に関わる指標は、Phase 4でReleaseの実機を測って目標を改めた（[design-decisions.md](./docs/design-decisions.md) 13.6）。起動とメモリは、Phase 1のスパイクの実測（スケルトン）から、描画機能を積んだ後の再測定が済んでいない
@@ -254,7 +254,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 ### 完了条件
 
-- [ ] x64版のMSIXが生成される
+- [x] x64版のMSIXが生成される
 - [ ] 対象MSIXについてWACKが完了している
 - [ ] Store提出物とCIで検証した成果物が一致している
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している

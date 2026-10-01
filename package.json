@@ -15,12 +15,13 @@
     "test": "bun test",
     "generate:licenses": "bun run scripts/generate-licenses.ts",
     "check:icons": "bun run scripts/check-icons.ts",
+    "check:versions": "bun run scripts/check-versions.ts",
     "test:coverage": "bun test --coverage --coverage-reporter=lcov",
     "prepare": "lefthook install"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",
-    "@tauri-apps/plugin-opener": "^2.6.0",
+    "@tauri-apps/plugin-opener": "^2.7.0",
     "dompurify": "^3.4.16",
     "github-slugger": "^2.0.0",
     "hast-util-from-html-isomorphic": "^2.0.0",

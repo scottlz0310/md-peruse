@@ -14,6 +14,8 @@
 ## [Unreleased]
 
 ### Added
+- x64版のMSIXを生成し、WACKの報告書とともに artifact へ保存するワークフローを加えた（`.github/workflows/package.yml`。手動起動とリリースタグで動く）
+- 製品バージョンが `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` で一致していることを、CIとpre-commitで検査するようにした（`bun run check:versions`）。マニフェストテンプレートの Identity の Version が置換子のままであること、タグ実行時にタグの版と一致することも見る
 - 性能測定と実機確認の道具を、使い方とともに `scripts/` へ加えた（`scripts/README.md`）。`scripts/perf/` は、測定用のワークスペースの生成、Releaseのアプリを起動して設定を戻す実行、文書切り替え・ツリー展開・変更反映の測定（強制レイアウトと次のフレーム）、Chromiumのトレースによる内訳である。`scripts/devtools/` は、アプリを起動したままにする手順、フォーカスの順序とスクロールの照合、OSのハイコントラストの切り替え、WebView2の失敗の再現である。CIへは載せない
 - `spec.md` の要件と、それを確かめるテスト・実機確認の対応表を加えた（`docs/test-matrix.md`）。機能要件（4.1〜4.4）、非機能要件（5章）、セキュリティ回帰との突き合わせ、Phase 4の完了条件との対応、確認できていない項目を示す
 - 不正なMarkdown入力でも、描画パイプラインが例外を出さず、時間内に描画できることを、テストで固定した（`src/markdown/malformed.test.tsx`）。記法の未閉じ、壊れた文字、極端な入れ子、壊れた表・脚注・front matter、危険なURL schemeなど29種を流す
@@ -393,7 +395,8 @@
   - ARM64実機での検証（[#8](https://github.com/scottlz0310/md-peruse/issues/8)）は廃案とした
 
 ### Fixed
-
+- `scripts/build-msix.ps1` の winapp CLI の版の照合が、初回起動時の利用規約のバナーが出力に混ざると、版が合っていても失敗するのを直した
+- `@tauri-apps/plugin-opener` を Rust 側の `tauri-plugin-opener`（2.7.0）に揃えた。`tauri build` が npm と crate の版の不一致で失敗していた。あわせて Renovate が、Tauri の npm パッケージと crate を1つの Pull Request で更新するようにした
 - アクセシビリティ木が有効な環境（スクリーンリーダーなど）で、書式なしで表示する大きい文書が応答しなくなる問題を直した（[design-decisions.md](./docs/design-decisions.md) 8.7、13.6）。本文を1つの巨大なテキストノードとして置いていたため、アクセシビリティ木の更新が長さの二乗に近く伸び、2 MiBで次のフレームまで6.6秒、10 MiBで150秒超かかっていた。1行が極端に長いテキストは、レイアウトも二乗に伸びた（109万文字の1行で約81秒）。本文を、改行または空白の直後で、5,000〜10,000文字ごとの隣り合うテキストノードに分けるようにした。文字（書記素）を途中で切らず（結合文字、肌色の修飾子、国旗など）、結合文字が続く入力でも、1つのテキストノードは10,033文字を超えない。表示、選択、コピー、文書内検索は変わらない。アクセシビリティを有効にした実機で、2 MiBが0.44〜0.49秒、10 MiBが2.10〜2.32秒、1行が109万文字のテキストが0.78〜0.95秒になった
 - WebView2 Runtimeが無い、または初期化できないとき、UI言語のダイアログで原因と公式の修復先を示すようにした（[spec.md](./docs/spec.md) 4.4、[design-decisions.md](./docs/design-decisions.md) 12章）。これまでは、Runtimeが見つからないときはTauri（wry）の英語のダイアログが出るだけで、利用者データのフォルダーを使えないときは、案内なしにpanicで異常終了していた。ウィンドウを作る処理（WebViewの設定のCOM呼び出しを含む）の失敗を捕まえ、案内（失敗の内容と、Microsoftの公式の入手先 https://developer.microsoft.com/microsoft-edge/webview2/）を示してから終了する。WebView2やwryが先に出すダイアログは、そのまま出る
 

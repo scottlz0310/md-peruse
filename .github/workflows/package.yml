@@ -1,0 +1,106 @@
+name: Package
+
+# x64 版の MSIX を生成し、WACK（Windows App Certification Kit）の結果とともに artifact へ保存する。
+# 必須CIには含めない（Store 提出前の検証用）。手動起動と、リリースタグで動かす。
+# ここで署名する証明書は、このジョブで作る開発用の自己署名であり、Store 配布には使えない。
+# Store へ出す提出物は Partner Center の署名に任せ、このジョブの MSIX は WACK と内容確認に使う。
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  # winapp CLI の初回起動バナーと利用状況の送信を止める。
+  WINAPP_CLI_TELEMETRY_OPTOUT: "1"
+
+jobs:
+  msix:
+    name: MSIX と WACK
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: 依存関係をインストール
+        run: bun install --frozen-lockfile
+
+      - name: バージョンの一致を検査
+        run: bun run check:versions
+
+      # winapp CLI の版は scripts/build-msix.ps1 が固定する（$requiredWinappVersion）。
+      # スクリプトが実行前に照合するため、ここの版とずれればビルドで失敗する。
+      - name: winapp CLI を導入
+        shell: pwsh
+        run: |
+          $required = ((Select-String -Path scripts/build-msix.ps1 -Pattern "^\`$requiredWinappVersion = '([^']+)'").Matches[0].Groups[1].Value)
+          winget install --id Microsoft.WinAppCli --version $required --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
+          if ($LASTEXITCODE -ne 0) { throw "winapp CLI の導入に失敗しました (exit $LASTEXITCODE)" }
+          # winget が更新した PATH を、以降のステップへ引き継ぐ。
+          $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+          $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+          "PATH=$machine;$user" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # tauri build の beforeBuildCommand が、サードパーティライセンス一覧の生成（generate:licenses）に使う。
+      - uses: taiki-e/install-action@cargo-about
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: MSIX を生成
+        shell: pwsh
+        run: ./scripts/build-msix.ps1 -Sign
+
+      # WACK は署名済みパッケージを導入して検査する。開発用証明書を信頼済みにしておく。
+      - name: 開発用証明書を信頼
+        shell: pwsh
+        run: |
+          $pfx = Get-ChildItem devcert.pfx
+          $password = ConvertTo-SecureString 'password' -AsPlainText -Force
+          Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\LocalMachine\TrustedPeople -Password $password | Out-Null
+
+      - name: WACK を実行
+        shell: pwsh
+        run: |
+          $msix = (Get-ChildItem build/msix -Filter '*.msix' | Select-Object -First 1).FullName
+          $appcert = "${env:ProgramFiles(x86)}\Windows Kits\10\App Certification Kit\appcert.exe"
+          if (-not (Test-Path $appcert)) { throw "appcert.exe が見つかりません: $appcert" }
+          New-Item -ItemType Directory -Path build/wack -Force | Out-Null
+          & $appcert reset
+          & $appcert test -appxpackagepath $msix -reportoutputpath (Join-Path (Get-Location) 'build/wack/wack-report.xml')
+          # 終了コードは、検査が完了したことと合否を区別しない。合否は報告書の OVERALL_RESULT で判断する。
+          Write-Host "appcert exit $LASTEXITCODE"
+          $report = 'build/wack/wack-report.xml'
+          if (-not (Test-Path $report)) { throw 'WACK の報告書が生成されませんでした' }
+          $result = ([xml](Get-Content $report -Raw)).REPORT.OVERALL_RESULT
+          Write-Host "WACK OVERALL_RESULT: $result"
+          if ($result -ne 'PASS') { throw "WACK が合格していません: $result（報告書は artifact に保存する）" }
+
+      - name: MSIX のハッシュを記録
+        shell: pwsh
+        run: |
+          Get-ChildItem build/msix -Filter '*.msix' | Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
+            Set-Content build/msix/SHA256SUMS.txt -Encoding utf8NoBOM
+
+      # WACK が不合格でも、報告書を読めるよう保存する。
+      - name: artifact へ保存
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: md-peruse-msix-x64
+          path: |
+            build/msix/*.msix
+            build/msix/SHA256SUMS.txt
+            build/wack/wack-report.xml
+          if-no-files-found: error
+          retention-days: 30
