@@ -185,13 +185,13 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 | `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons`、`bun run check:versions` |
 | `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
 | `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
-| `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージがないことを検査する |
+| `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージと、許容リストにないライセンスの依存がないことを検査する |
 
 `.github/workflows/package.yml`（`Package`）は必須CIに含めない。手動起動とリリースタグ（`v*`）で `windows-latest` 上に x64 版のMSIXを生成し、WACKを実行して、MSIX、SHA-256、WACKの報告書を artifact（`md-peruse-msix-x64`）へ保存する。署名は開発用の自己署名で、Store配布には使えない。
 
 依存関係は `bun install --frozen-lockfile` で導入し、`bun.lock` と不整合があれば失敗させる。Rustのツールチェーンは `rust-toolchain.toml` の指定をrustupが解決する。
 
-ライセンス一覧 `public/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージがあれば失敗する。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
+ライセンス一覧 `public/third-party-licenses.json` はリポジトリへコミットせず、`bun.lock` と `Cargo.lock` から都度生成する。`Licenses` ジョブは `bun run generate:licenses` の実行を検査し、条文を取得できないパッケージ、または `src-tauri/about.toml` の `accepted`（Rust と JavaScript で共有する許容ライセンスの一覧）にないライセンスの依存があれば失敗する。依存を足してこのジョブが落ちたときは、ライセンスの再配布条件を確かめ、受け入れるなら `accepted` へ加える。バージョンの正本をlockfileへ寄せることで、Renovateの依存更新で生成物が取り残されないようにしている（[design-decisions.md](./docs/design-decisions.md) 11.3）。
 
 一覧は、ヘルプメニューの「md-peruse について」が開くダイアログで表示する。`bun run tauri build`（`build-msix.ps1` を含む）は、`beforeBuildCommand` で先に一覧を生成してから同梱するため、`cargo-about` が要る。`bun run build` と `bun run tauri dev` は生成しない。開発中にダイアログで一覧を見るときは、先に `bun run generate:licenses` を実行する。
 
