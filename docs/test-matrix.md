@@ -73,8 +73,8 @@
 
 | 項目 | テスト | 実機・測定 |
 | --- | --- | --- |
-| 5.1 性能 | — | design-decisions.md 13.6（Release、パッケージ化しない）。起動時間とメモリは Phase 5（MSIX） |
-| 5.2 リソース効率 | `watch_runtime`（Watcher の破棄で通知が止まる）、`settings_store`（debounce と終了時の flush） | 終了後のプロセスの残存は未確認（Phase 5） |
+| 5.1 性能 | — | design-decisions.md 13.6（Release、パッケージ化しない）。起動時間とメモリは [MSIX実機確認](./msix-device-verification.md)（2026-10-02、測定条件・制限あり） |
+| 5.2 リソース効率 | `watch_runtime`（Watcher の破棄で通知が止まる）、`settings_store`（debounce と終了時の flush） | [MSIX実機確認](./msix-device-verification.md)で通常終了後の7プロセス消失・アンインストール後の設定削除を確認 |
 | 5.3 アクセシビリティ | `TreeView`（ARIA、キー）、`TabBar`、`SidebarLayout`（キーでの幅変更）、`Breadcrumb`、`DocumentFind`（`forced-colors`） | design-decisions.md 10.6（CDP で `forced-colors`）、tasks.md「Reduced Motion」。実 OS のハイコントラスト黒の実機で確認（10.6）。黒以外のテーマは未確認 |
 | 5.4 セキュリティ | 下の「セキュリティ回帰との突き合わせ」 | — |
 | 5.5 プライバシーとテレメトリ | `telemetry`（5種、1回だけ、Store 署名のときだけ）、`telemetry::store_logger`、`App`「文書の表示結果の通知（11.4）」 | tasks.md 4-2「実送信」「署名種別の判定」（開発用署名の MSIX で確認） |

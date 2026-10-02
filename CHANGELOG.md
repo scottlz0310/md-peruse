@@ -14,6 +14,8 @@
 ## [Unreleased]
 
 ### Added
+
+- MSIX実機確認の結果と測定条件を記録し、Store撮影に使える日本語Markdownサンプルを追加した。
 - プライバシーポリシーを GitHub Pages で公開する仕組みを加えた。`scripts/build-pages.ts`（`bun run build:pages`）が `docs/privacy-policy.md` から HTML を生成し、`.github/workflows/pages.yml` が `main` の更新で公開する。提示先は `https://scottlz0310.github.io/md-peruse/privacy-policy.html`。本文の正本は Markdown の1か所のまま。初回は、Settings > Pages で Source を「GitHub Actions」にする必要がある。HTML の生成のために、`rehype-stringify` を devDependencies へ加えた
 - Store提出物を `.msixupload` にして、PDB（シンボル）を同梱するようにした（`scripts/pack-msixupload.ps1`、[#144](https://github.com/scottlz0310/md-peruse/issues/144)）。WACKを通した `.msix` には手を加えず、外側をZIPで包む。内側のMSIXのSHA-256が元のファイルと一致することを、スクリプトが検査する。`Package` ワークフローは、WACKの後に `.msixupload` を作り、内側と外側のSHA-256を記録して、artifactへ保存する
 - Microsoft Storeへの提出の手順書を加えた（`docs/store-submission.md`）。初回は手動で提出して自動では公開せず、2回目以降はGitHub Releaseに連動して手動承認のゲートつきで提出する方針、提出物の同一性（タグ実行のartifactとSHA-256）、提出前の停止条件、掲載情報、審査ノートのたたき台、差戻しの手順、提出の記録表を記載する。方針は `docs/design-decisions.md` 13.7 に記録した。ARM64は、x64のみで提出することを確定した
