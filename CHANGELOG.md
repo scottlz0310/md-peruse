@@ -14,6 +14,7 @@
 ## [Unreleased]
 
 ### Added
+- プライバシーポリシーを加えた（`docs/privacy-policy.md`、日本語と英語）。Store版が送る5種類のイベント（イベント名だけ）、端末に保存する設定、外部リンクの扱い、連絡先を記載する。ポリシーのイベント名が `telemetry.rs` と一致することをテストで固定した（`scripts/privacy-policy.test.ts`）
 - JavaScript依存のライセンス種別を、`src-tauri/about.toml` の `accepted`（Rustと共有する許容リスト）で検査するようにした。GPLなど再配布条件の異なるライセンスの依存が入ると、ライセンス一覧の生成が失敗する（`scripts/license-policy.ts`）。SPDXのライセンス式（`OR`、`AND`、`WITH`）を判定する。`elkjs` のEPL-2.0を許容リストへ加えた
 - x64版のMSIXを生成し、WACKの報告書とともに artifact へ保存するワークフローを加えた（`.github/workflows/package.yml`。手動起動とリリースタグで動く）
 - 製品バージョンが `package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock` で一致していることを、CIとpre-commitで検査するようにした（`bun run check:versions`）。マニフェストテンプレートの Identity の Version が置換子のままであること、タグ実行時にタグの版と一致することも見る
