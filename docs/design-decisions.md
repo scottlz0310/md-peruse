@@ -1922,7 +1922,7 @@ Store向けカスタムイベント（11.4）の送信失敗は、本章の対�
 - Package Versionは `MAJOR.MINOR.PATCH.0` とし、第4要素はStoreの予約により常に0とする。バージョン規約は[spec.md](./spec.md)を正本とする。
 - 必要なvisual asset（各サイズのタイル、ストアロゴ、スプラッシュ）の一覧と生成方法をリポジトリで管理し、手作業での差し替えを避ける。
 - Partner Centerの予約名、Identity、Publisher、Publisher Display Nameがマニフェストと一致することを提出前に検証する。
-- データ収集を行わない旨の申告とプライバシーポリシーの提示先を、初回提出前に確定する。
+- プライバシーポリシーの正本は `docs/privacy-policy.md`（日本語と英語）とし、提示先は、公開リポジトリ上のそのファイルのURL（`https://github.com/scottlz0310/md-peruse/blob/main/docs/privacy-policy.md`）とする。Store向けカスタムイベント（11.4）を送るため、「データを収集しない」とは申告せず、イベント名だけを送ることをポリシーに書く。ポリシーのイベント名は `src-tauri/src/telemetry.rs` と `scripts/privacy-policy.test.ts` で一致を保つ。提出前に、URL、連絡先、発行元名をPartner Centerの登録内容と照合する。
 - Store Submission APIについては、利用するAPIのバージョン、認証方式、MSIXパッケージフローへの対応状況をPhase 5の着手時点で確認する。API仕様の変更を前提に、手動提出の手順書も維持する。
 - winapp CLIへの依存はCIで固定バージョンとする。4.5に記録したとおり、makeappxへ切り替え可能な状態を保つ。
 
