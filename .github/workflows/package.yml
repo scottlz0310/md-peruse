@@ -71,6 +71,16 @@ jobs:
         shell: pwsh
         run: ./scripts/build-msix.ps1 -Sign
 
+      # 調査用（#144）。strip = true のリリースビルドで、PDB が出るかを確かめる。
+      - name: PDB の有無を確認
+        shell: pwsh
+        run: |
+          Get-ChildItem src-tauri/target -Recurse -Filter *.pdb -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match 'release' -and $_.FullName -notmatch 'deps' } |
+            ForEach-Object { Write-Host "PDB: $($_.FullName) ($($_.Length) bytes)" }
+          Get-ChildItem src-tauri/target/x86_64-pc-windows-msvc/release -File -ErrorAction SilentlyContinue |
+            ForEach-Object { Write-Host "release: $($_.Name) ($($_.Length) bytes)" }
+
       # WACK は署名済みパッケージを導入して検査する。開発用証明書を信頼済みにしておく。
       - name: 開発用証明書を信頼
         shell: pwsh
