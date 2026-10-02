@@ -25,7 +25,7 @@
 - [ ] MSIX の SHA-256 を記録している（3章）
 - [ ] プライバシーポリシーの URL が、HTTPS で HTTP 200 を返す（5章）
 - [ ] 掲載情報（説明、スクリーンショット、年齢区分、言語）が揃っている（6章）
-- [ ] 審査ノートを用意している（7章）
+- [ ] 審査ノート（Notes for certification）と、制限付き Capability（`runFullTrust`）の用途の説明（Restricted capabilities）を用意している（7章）
 - [ ] 市場、価格（無料）、公開の方法（手動公開）を、あなたが確認した
 
 ## 3. 提出物の同一性
@@ -91,9 +91,20 @@ Partner Center のデータ収集の申告は、「データを収集しない�
 
 素材は、`docs/assets/store/`（Partner Center へそのまま渡せるフォルダー）へ置く。確定するまでは、リポジトリへ入れない。
 
-## 7. 審査ノート（Notes for Certification）
+## 7. 審査ノートと、制限付き Capability の申請
 
-`runFullTrust` は制限付きの Capability であり、審査ノートで用途を説明する。Capability の名前だけでなく、実際の用途と、ユーザーの操作との関係を書く。次は英語のたたき台である。提出の前に、実際の動作と合っているかを確かめる。
+`runFullTrust` は制限付き（restricted）の Capability である。Partner Center の Submission options には、次の2つの別の入力欄があり、**両方を入力する**。
+
+| 入力欄 | 役割 |
+| --- | --- |
+| Notes for certification | 審査員が、アプリを正しく試すための情報（7.1） |
+| Restricted capabilities | 制限付き Capability ごとの、用途と必要性の説明。**審査員が承認するかを判断する**（7.2） |
+
+Restricted capabilities の欄は、パッケージが制限付き Capability を宣言していることを Partner Center が検出したときに現れる。ここへの記入が漏れる、または説明が足りないと、Capability が承認されず、認定に失敗する（[Microsoft Learn](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/manage-submission-options)）。承認の確認の分だけ、認定に時間がかかることがある。一度承認されれば、更新の提出では、通常は繰り返さない（Capability を足したときを除く）。承認されなければ、Capability を宣言しないパッケージで出し直すか、指摘を直して、新しい申請で承認を求める。
+
+### 7.1 審査ノート（Notes for certification）
+
+Capability の名前だけでなく、実際の用途と、ユーザーの操作との関係を書く。次は英語のたたき台である。提出の前に、実際の動作と合っているかを確かめる。
 
 ```text
 md-peruse is a read-only Markdown viewer for Windows. It displays Markdown files and the folder tree the user opens, and never modifies those files.
@@ -110,16 +121,31 @@ No account or sign-in is required.
 
 審査用のアカウントは要らない。審査員が使える Markdown のサンプルが要るかは、提出時に判断する（要るなら、公開リポジトリのサンプルへのリンクを書く）。
 
+### 7.2 Restricted capabilities（`runFullTrust`）
+
+`runFullTrust` の欄に、なぜ宣言が要るのか、どう使うのかを、できるだけ具体的に書く。次は英語のたたき台である。7.1 の内容と矛盾しないようにする。
+
+```text
+md-peruse is a packaged desktop application (a Tauri application with a native Rust process that hosts a WebView2 view), launched through the Windows.FullTrustApplication entry point. Packaged classic desktop apps (Win32) cannot run without runFullTrust, so the capability is required for the app to start.
+
+How it is used: the process runs at medium integrity as the signed-in user. It reads only the Markdown and image files and folders that the user explicitly opens (File > Open Folder..., drag and drop, or opening a .md/.markdown file from File Explorer) and watches that folder for changes in order to refresh the preview. It never writes to or modifies those files. It stores only its own settings (theme, language, window layout, recent folders) in its app data folder.
+
+What it does not do: it does not declare broadFileSystemAccess or any other restricted capability, has no background service, does not start with Windows, does not install drivers, and makes no network connection other than opening a link in the default browser when the user clicks it and sending five event names (no paths, file names, or contents) to the Microsoft Store measurement platform in the Store version.
+```
+
 ## 8. 初回の提出（手動）
 
 1. Partner Center で `md-peruse` のアプリを開き、新しい申請（submission）を作る。
-2. **Pricing and availability**: 市場、価格（無料）、可視性を確認する。**公開の方法は「手動公開」にする**（審査に通っても自動で公開しない。画面の項目名は「Don't publish this submission until I select Publish now」に相当する）。
+2. **Pricing and availability**: 市場、価格（無料）、可視性、公開の予定（Schedule）を確認する。公開の方法（手動公開）は、7番の Submission options で選ぶ。
 3. **Properties**: カテゴリ、年齢区分、サポートの情報、プライバシーポリシーの URL（5章）を入力する。
 4. **Age ratings**: 質問票に答える。
 5. **Packages**: 3章の `.msix` をアップロードする。アップロード後の検証が終わるまで、先へ進まない。Package details で、Identity Name、Publisher、Version、x64、Capability（`runFullTrust` のみ）、警告とエラーを確認する。エラーや、確認できていない警告があれば、提出せず、パッケージを直して、タグを切り直す（10章）。
 6. **Store listings**: 6章の内容を、日本語と英語で入力する。プレビューで、言語を切り替えて、画像のぼけ、切り抜き、文字化けを目で確認する。
-7. **Submission options**: 7章の審査ノートを入力する。
-8. 概要のページで、パッケージ、掲載情報、価格と市場、プライバシーポリシー、審査ノート、公開の方法（手動公開）を確認し、**提出の操作は、あなたが行う**。
+7. **Submission options**: 次の3つを入力する。
+   - **Publishing hold options**: 「Don't publish this submission until I select Publish now」を選ぶ（手動公開。審査に通っても自動で公開しない）
+   - **Notes for certification**: 7.1 の審査ノート
+   - **Restricted capabilities**: `runFullTrust` の用途の説明（7.2）。この欄が出ているのに空のまま提出しない
+8. 概要のページで、パッケージ、掲載情報、価格と市場、プライバシーポリシー、審査ノートと Restricted capabilities、公開の方法（手動公開）を確認し、**提出の操作は、あなたが行う**。
 9. 提出した記録（11章）を残す。
 
 認定（審査）の結果は、通常数日で出る。通ったあと、公開の前に、次を確認する。
@@ -159,7 +185,7 @@ No account or sign-in is required.
 
 1. Certification report の検出の名前、対象のパッケージ、再現の条件を保存する。
 2. 原因を分類する（Required の失敗、Capability の説明の不足、掲載情報の不一致、テスト手順の不足）。
-3. 必要な修正をする（コード、マニフェスト、掲載情報、審査ノート）。
+3. 必要な修正をする（コード、マニフェスト、掲載情報、審査ノート、Restricted capabilities の説明）。
 4. バージョンを、提出済みより大きくし、新しいタグで `Package` を動かす。WACK を、新しい MSIX で通す。
 5. 修正の内容と、新しい SHA-256 を、新しい申請の記録へ紐づける。
 
