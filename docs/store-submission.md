@@ -112,6 +112,29 @@ Partner Center のデータ収集の申告は、「データを収集しない�
 
 素材は、`docs/assets/store/`（Partner Center へそのまま渡せるフォルダー）へ置く。確定するまでは、リポジトリへ入れない。
 
+現在の配置:
+
+```text
+docs/assets/store/
+├── listingData.csv
+└── store/
+    ├── screenshot1.png
+    ├── screenshot2.png
+    ├── screenshot3.png
+    └── screenshot4.png
+```
+
+[`listingData.csv`](./assets/store/listingData.csv) は、ユーザーがPartner Centerから新規エクスポートした形式を保ち、`default` 列へ日本語28項目を記入したもの。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録した。画像参照は `store/screenshot1.png` 等であり、手動インポートでは `docs/assets/store/` フォルダー全体を選ぶ。未記入の原本バックアップはローカルに保持し、リポジトリへは含めない。
+
+ロゴ、英語掲載文、年齢区分・カテゴリは未完了。`default` の対象言語とインポート後の表示をPartner Centerで確認する。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+
+公開後の保守:
+
+1. 公開された掲載情報をPartner Centerから手動でエクスポートする。
+2. 公開済みの内容を正として、リポジトリのCSVを差し替える。`Field`・`ID`・`Type` と言語列はエクスポートに合わせる。一時URLや申請固有の情報を確認し、画像はローカルに揃えて参照を相対パスへ戻す。
+3. 以後は必要な変更だけをCSV・画像へ反映し、PRで管理する。エクスポートの取得は自動化しない。
+4. 将来の自動提出では、このCSVと画像を掲載情報の正本とし、採用するAPI／CLIに合わせて変換する。現在のCSVだけで自動提出が実装済みとは扱わない。
+
 ## 7. 審査ノートと、制限付き Capability の申請
 
 `runFullTrust` は制限付き（restricted）の Capability である。Partner Center の Submission options には、次の2つの別の入力欄があり、**両方を入力する**。

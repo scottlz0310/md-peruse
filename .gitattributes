@@ -5,6 +5,9 @@
 
 * text=auto eol=lf
 
+# Partner Centerへの入力CSVはBOM・CRLFをバイト単位で保持する
+docs/assets/store/listingData.csv -text whitespace=cr-at-eol
+
 # Windows専用スクリプトはCRLFで扱う
 *.bat  text eol=crlf
 *.cmd  text eol=crlf

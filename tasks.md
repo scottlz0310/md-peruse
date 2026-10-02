@@ -249,7 +249,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] Store向けカスタムイベントのデータ収集申告とプライバシーポリシーを、送信するイベントの内容に合わせて更新する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [ ] 初回Store公開版でPartner Centerからカスタムイベントとパッケージバージョン別の集計を確認し、反映遅延とバージョン別フィルターの粒度を計測定義へ記録する。標準Sessions指標については、対応付けを行わない方針（[design-decisions.md](./docs/design-decisions.md) 11.4）のもとで観測した件数差を確認するにとどめ、照合方法の確定は行わない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [ ] 使用状況とカスタムイベントの計測母集団（診断データをオプトインした端末に限られること）を実データで確認し、率は読めてもインストール数へ接続できない制約を、反映遅延と並べて計測定義へ明記する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
-- [ ] Store掲載情報を準備する。[表示サンプル](./examples/README.md)を用意した。説明文と撮影素材はローカルで確認中。説明、スクリーンショット、年齢区分、言語の一覧と、CSVの扱いは [docs/store-submission.md](./docs/store-submission.md) 6章に書いた。素材（画像、説明文）はローカルで用意する（イラストの生成を含む）
+- [x] 日本語の掲載CSVと実機スクリーンショット4枚を [docs/assets/store/](./docs/assets/store/) に配置した。CSVのBOM・CRLFと画像の相対パスを保持し、公開後はPartner Centerのエクスポートを手動で取り込む運用を記録した（2026-10-03）
+- [ ] Store掲載情報を完成させる。[表示サンプル](./examples/README.md)と日本語CSV・実機画像は用意済み。英語掲載文、Storeロゴ、年齢区分、カテゴリ、Partner Center上での言語・表示確認が残る。[docs/store-submission.md](./docs/store-submission.md) 6章を参照する
 - [ ] Partner Centerで初回登録と審査申請を行う。初回は手動で提出し、審査に通っても自動では公開しない（[design-decisions.md](./docs/design-decisions.md) 13.7、[docs/store-submission.md](./docs/store-submission.md) 8章）
 - [ ] Store Submission API連携を構築し、実行前に手動承認ゲートを設ける。初回の審査に通ったあとに着手する（GitHub Releaseに連動。[docs/store-submission.md](./docs/store-submission.md) 9章）。着手時に、APIとMicrosoft Store Developer CLIの現在の版、認証方式、MSIXへの対応を確かめて決める
 - [x] 手動提出の手順書を作った（[docs/store-submission.md](./docs/store-submission.md)。2026-10-02）。先行する [PhotoGeoExplorer](https://github.com/scottlz0310/PhotoGeoExplorer) と [cloud-migrator](https://github.com/scottlz0310/cloud-migrator) の提出の経験を取り込んだ。提出のたびに保守する
