@@ -32,15 +32,28 @@
 
 「Store へ出す提出物」と「CI で検証した成果物」を同じものにするため、提出物は、**リリースのタグ（`vMAJOR.MINOR.PATCH`）を push したときの `Package` ワークフローの artifact**（`md-peruse-msix-x64`）とする。手元でビルドし直した MSIX は提出しない。MSIX はビルドごとにバイト列が変わるため、ビルドし直すと、WACK を通したものと別の成果物になる。
 
-1. タグを push する。`Package` ワークフローが動き、MSIX の生成、署名（開発用の自己署名）、WACK、SHA-256 の記録、artifact の保存まで行う。
+1. タグを push する。`Package` ワークフローが動き、MSIX の生成、署名（開発用の自己署名）、WACK、`.msixupload` の作成、SHA-256 の記録、artifact の保存まで行う。
 2. 実行の結果を確認する。`WACK OVERALL_RESULT: PASS` で、全工程が成功している。
-3. artifact `md-peruse-msix-x64` をダウンロードし、`SHA256SUMS.txt` と、ダウンロードした `.msix` の SHA-256 が一致することを確認する。
-4. この `.msix` を、Partner Center へアップロードする。
-5. 11章の記録表へ、実行の URL、コミットの SHA、SHA-256 を書く。
+3. artifact `md-peruse-msix-x64` をダウンロードし、`SHA256SUMS.txt` と、ダウンロードした `.msix` と `.msixupload` の SHA-256 が、それぞれ一致することを確認する。
+4. `.msixupload` を、Partner Center へアップロードする。
+5. 11章の記録表へ、実行の URL、コミットの SHA、`.msix` と `.msixupload` の SHA-256 を書く。
 
 開発用の自己署名は、Store の配布には使われない。Partner Center が、提出された MSIX を Store の証明書で署名し直す。このため、署名の違いは、成果物の同一性を損なわない。
 
-アップロードの形式は、`.msix` を使う。Microsoft の案内（[Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages)）は、Windows 10 以降の提出では、`.msix` より `.msixupload`（または `.appxupload`）のアップロードを推奨している。この推奨は UWP に限った記述ではない。ただし、受け付ける形式には `.msix` も含まれ、推奨の理由は案内に書かれていない。`.msix` を選ぶ理由は、`winapp` が生成するのが `.msix` であり、WACK を通したファイルをそのまま提出できる（3章の同一性を保てる）ことである。`.msixupload` は、Visual Studio のパッケージングが作る形式で、このリポジトリの工程は作らない。初回のアップロードで、Partner Center が `.msix` を受け付け、Identity、Version、x64、Capability を表示することを確認する。警告が出る、または受け付けられないときは、`.msixupload` へ包む方法を検討する（WACK を通した `.msix` の中身を変えない形で包めることを確かめてから行う）。
+アップロードの形式は、`.msixupload` を使う。Microsoft の案内（[Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages)）は、Windows 10 以降の提出では、`.msix` より `.msixupload`（または `.appxupload`）のアップロードを推奨している。`.msixupload` は、MSIX とシンボルファイルを同梱する ZIP で、シンボル（PDB）は、Partner Center のクラッシュ分析が、アドレスを読めるスタックトレースへ直すために使う。`.msix` だけを出すと、シンボルが失われる。
+
+`winapp` が出力する `.msix` には、Visual Studio のような `.msixupload` の作成機能がない。そこで、`scripts/pack-msixupload.ps1` が、**WACK を通した `.msix` に手を加えず（再ビルドも再署名もしない）、外側を ZIP で包む**。`Package` ワークフローは、WACK の後にこれを実行する（Issue #144）。
+
+```text
+md-peruse_<version>_x64.msixupload（実体は ZIP）
+├── md-peruse_<version>_x64.msix    ← winapp の出力そのもの（WACK を通したもの）
+└── md-peruse_<version>_x64.appxsym ← リリースビルドの md_peruse.pdb を1つ含む ZIP
+```
+
+- 内側の `.msix` の SHA-256 が、元のファイルと一致することを、スクリプトが検査し、食い違えば失敗する。外側の `.msixupload` は別の SHA-256 になる。記録表には、両方を書く。
+- PDB は、`strip = true` のリリースビルドでも出る（CI で確認。`src-tauri/target/x86_64-pc-windows-msvc/release/md_peruse.pdb`、約2.8 MB）。ただし、小さいため、公開シンボルだけで、行番号などの詳細を含まない可能性がある（確認していない）。スタックトレースに関数名が出ることは、初回の公開後に Partner Center で確認する。詳細が要るなら、`Cargo.toml` の `strip` の設定を見直す（バイナリの大きさへの影響も測る）。
+- シンボルファイルの拡張子は `.appxsym` にした。Microsoft の資料は `.appxsym` を説明しており、MSIX 向けに `.msixsym` とする記述もある。スクリプトの `-SymbolExtension` で変えられる。
+- Partner Center が、この手作りの `.msixupload`（ZIP の構成、シンボルの名前）を受け付けるかは、初回のアップロードまで確認できない。受け付けられない、または警告が出るときは、`.msix` だけを提出する（artifact には、`.msix` も入っている）。シンボルが認識されたかの確認は、Package details の表示と、初回の公開後のクラッシュ分析で行う。
 
 ## 4. バージョンとタグ
 
@@ -139,7 +152,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 2. **Pricing and availability**: 市場、価格（無料）、可視性、公開の予定（Schedule）を確認する。公開の方法（手動公開）は、7番の Submission options で選ぶ。
 3. **Properties**: カテゴリ、年齢区分、サポートの情報、プライバシーポリシーの URL（5章）を入力する。
 4. **Age ratings**: 質問票に答える。
-5. **Packages**: 3章の `.msix` をアップロードする。アップロード後の検証が終わるまで、先へ進まない。Package details で、Identity Name、Publisher、Version、x64、Capability（`runFullTrust` のみ）、警告とエラーを確認する。エラーや、確認できていない警告があれば、提出せず、パッケージを直して、タグを切り直す（10章）。
+5. **Packages**: 3章の `.msixupload` をアップロードする（受け付けられないときは `.msix`）。アップロード後の検証が終わるまで、先へ進まない。Package details で、Identity Name、Publisher、Version、x64、Capability（`runFullTrust` のみ）、警告とエラーを確認する。エラーや、確認できていない警告があれば、提出せず、パッケージを直して、タグを切り直す（10章）。
 6. **Store listings**: 6章の内容を、日本語と英語で入力する。プレビューで、言語を切り替えて、画像のぼけ、切り抜き、文字化けを目で確認する。
 7. **Submission options**: 次の3つを入力する。
    - **Publishing hold options**: 「Don't publish this submission until I select Publish now」を選ぶ（手動公開。審査に通っても自動で公開しない）

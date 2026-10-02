@@ -96,10 +96,25 @@ jobs:
           Write-Host "WACK OVERALL_RESULT: $result"
           if ($result -ne 'PASS') { throw "WACK が合格していません: $result（報告書は artifact に保存する）" }
 
+      # WACK を通した MSIX を変更せずに、シンボル（PDB）と一緒に .msixupload へ包む（Issue #144）。
+      # 内側の MSIX のバイト列は、WACK を通したものと同一で、スクリプトが一致を検査する。
+      - name: .msixupload を作成
+        shell: pwsh
+        run: ./scripts/pack-msixupload.ps1
+
+      - name: .msixupload の中身を表示
+        shell: pwsh
+        run: |
+          $upload = (Get-ChildItem build/msix -Filter '*.msixupload' | Select-Object -First 1).FullName
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($upload)
+          try { $zip.Entries | ForEach-Object { Write-Host "$($_.FullName) ($($_.Length) bytes)" } }
+          finally { $zip.Dispose() }
+
       - name: MSIX のハッシュを記録
         shell: pwsh
         run: |
-          Get-ChildItem build/msix -Filter '*.msix' | Get-FileHash -Algorithm SHA256 |
+          Get-ChildItem build/msix -File | Where-Object { $_.Extension -in '.msix', '.msixupload' } | Get-FileHash -Algorithm SHA256 |
             ForEach-Object { "$($_.Hash)  $(Split-Path $_.Path -Leaf)" } |
             Set-Content build/msix/SHA256SUMS.txt -Encoding utf8NoBOM
 
@@ -111,6 +126,7 @@ jobs:
           name: md-peruse-msix-x64
           path: |
             build/msix/*.msix
+            build/msix/*.msixupload
             build/msix/SHA256SUMS.txt
             build/wack/wack-report.xml
           if-no-files-found: error
