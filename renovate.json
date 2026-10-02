@@ -20,6 +20,13 @@
       "automerge": false
     },
     {
+      "description": "winapp CLI（MSIXの生成と署名）は、挙動の変化が生成物に直結するため、他の依存と束ねず、Package ワークフロー（winapp-cli ラベルの Renovate PR で動く）で MSIX の生成と WACK を確認してから手動でマージする（design-decisions.md 4.10）",
+      "matchPackageNames": ["@microsoft/winappcli"],
+      "groupName": "winapp CLI",
+      "addLabels": ["winapp-cli"],
+      "automerge": false
+    },
+    {
       "description": "Tauri の npm パッケージ（@tauri-apps/*）と crate（tauri、tauri-build、tauri-plugin-*）は、major.minor を揃える必要がある（tauri build が不一致で失敗する）。npm と Cargo の更新を1つのPull Requestにまとめ、片方だけが先に上がる状態を作らない。Cargo.toml と package.json の版指定を揃えるのも、この更新が担う",
       "matchManagers": ["npm", "bun", "cargo"],
       "matchPackageNames": [
