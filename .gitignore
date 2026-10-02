@@ -8,6 +8,9 @@ build/
 # Bun
 .bun/
 
+# GitHub Pages の生成物（scripts/build-pages.ts）
+site/
+
 # Rust / Tauri
 target/
 src-tauri/target/

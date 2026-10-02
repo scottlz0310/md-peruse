@@ -23,7 +23,7 @@
 - [ ] Partner Center の `md-peruse` の予約と、`packaging/Package.appxmanifest.template` の Identity が一致している（Name `scottlz0310.md-peruse`、Publisher `CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6`、PublisherDisplayName `scottlz0310`。Store ID `9P35BW61FN4W`。[design-decisions.md](./design-decisions.md) 13.1）
 - [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK が `PASS`（全項目）になっている（3章）
 - [ ] MSIX の SHA-256 を記録している（3章）
-- [ ] プライバシーポリシーの URL が、HTTPS で HTTP 200 を返す（5章）
+- [ ] プライバシーポリシーの URL（GitHub Pages）が、HTTPS で HTTP 200 を返す（5章。Pages の設定と、最初の公開が済んでいる）
 - [ ] 掲載情報（説明、スクリーンショット、年齢区分、言語）が揃っている（6章）
 - [ ] 審査ノート（Notes for certification）と、制限付き Capability（`runFullTrust`）の用途の説明（Restricted capabilities）を用意している（7章）
 - [ ] 市場、価格（無料）、公開の方法（手動公開）を、あなたが確認した
@@ -63,21 +63,27 @@ md-peruse_<version>_x64.msixupload（実体は ZIP）
 
 ## 5. プライバシーポリシーの提示先
 
-本文は [privacy-policy.md](./privacy-policy.md) である。Partner Center の「プライバシーポリシーの URL」には、公開リポジトリ上のこのファイルの URL を入れる。
+本文の正本は [privacy-policy.md](./privacy-policy.md) である。公開は GitHub Pages で行い、Partner Center の「プライバシーポリシーの URL」には、次を入れる。
 
 ```text
-https://github.com/scottlz0310/md-peruse/blob/main/docs/privacy-policy.md
+https://scottlz0310.github.io/md-peruse/privacy-policy.html
 ```
+
+ルートの `https://scottlz0310.github.io/md-peruse/` も、同じページへ転送する。
+
+**公開の仕組み。** `scripts/build-pages.ts` が、`docs/privacy-policy.md` から HTML を生成し（`bun run build:pages`。出力は `site/`。コミットしない）、`.github/workflows/pages.yml` が、`main` の更新で公開する（`docs/privacy-policy.md` などの変更のときに動く。手動起動もできる）。本文の正本は Markdown の1か所だけで、HTML に別の本文を持たない。日英の2言語を1ページに並べ、英語の節は `lang="en"` で囲む。
+
+**初回の設定（リポジトリの管理者が行う）。** リポジトリの Settings > Pages で、Source を **GitHub Actions** にする。これを設定していないと、`Pages` ワークフローの公開の job が失敗する。設定後に、`Pages` ワークフローを手動起動して、最初の公開を行う。
 
 入力する前に、ブラウザーで開いて表示を確認し、応答を確かめる。
 
 ```powershell
-$uri = "https://github.com/scottlz0310/md-peruse/blob/main/docs/privacy-policy.md"
+$uri = "https://scottlz0310.github.io/md-peruse/privacy-policy.html"
 $response = Invoke-WebRequest -Uri $uri
 if ($response.StatusCode -ne 200) { throw "HTTP $($response.StatusCode)" }
 ```
 
-先行する PhotoGeoExplorer は Cloudflare Pages、cloud-migrator は GitHub Pages で、HTML のポリシーを公開している。GitHub の `blob` の URL は、Markdown を描画して表示するが、Store の審査で受け付けられるかは、提出するまで確かめられない。差戻されたら、GitHub Pages（`docs/` を公開元にする）で公開した URL に差し替える（本文は同じファイルを使える）。
+先行する PhotoGeoExplorer は Cloudflare Pages、cloud-migrator は GitHub Pages で公開している。`md-peruse` は、認証情報などの設定を増やさずに済む GitHub Pages にした。ポリシーを変えるとき（送るイベントや保存する情報が変わるとき）は、`docs/privacy-policy.md` を直して、`main` へ入れる。公開は自動で更新される。
 
 Partner Center のデータ収集の申告は、「データを収集しない」とは申告しない。Store 版は、イベント名だけの5種類のカスタムイベントを送る（[privacy-policy.md](./privacy-policy.md)）。
 
