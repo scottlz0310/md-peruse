@@ -56,23 +56,29 @@ describe("renderPrivacyPolicyPage", () => {
   });
 });
 
+// 実際のポリシーを変換できることと、公開するリンクの種類だけを見る。本文の内容（送るイベントなど）は、
+// scripts/privacy-policy.test.ts が telemetry.rs との一致として確かめるため、ここでは縛らない。
 describe("実際のポリシー", () => {
-  test("イベント名と連絡先を含む", async () => {
+  test("変換でき、英語の節と連絡先を含む", async () => {
     const markdown = await Bun.file(
       new URL("../docs/privacy-policy.md", import.meta.url),
     ).text();
     const html = renderPrivacyPolicyPage(markdown);
-    for (const name of [
-      "session_start",
-      "open_md_ok",
-      "open_md_fail",
-      "open_folder",
-      "launch_by_association",
-    ]) {
-      expect(html).toContain(`<code>${name}</code>`);
-    }
-    expect(html).toContain("https://github.com/scottlz0310/md-peruse/issues");
     expect(html).toContain('<section lang="en">');
+    expect(html).toContain("https://github.com/scottlz0310/md-peruse/issues");
+  });
+
+  test("リンクは https か、同じページの目次だけである", async () => {
+    const markdown = await Bun.file(
+      new URL("../docs/privacy-policy.md", import.meta.url),
+    ).text();
+    const hrefs = [
+      ...renderPrivacyPolicyPage(markdown).matchAll(/href="([^"]*)"/g),
+    ].map((m) => m[1] ?? "");
+    expect(hrefs.length).toBeGreaterThan(0);
+    for (const href of hrefs) {
+      expect(href.startsWith("https://") || href.startsWith("#")).toBe(true);
+    }
   });
 });
 
