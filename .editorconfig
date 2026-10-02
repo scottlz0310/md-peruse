@@ -23,3 +23,7 @@ end_of_line = crlf
 
 [Makefile]
 indent_style = tab
+
+[docs/assets/store/listingData.csv]
+charset = utf-8-bom
+end_of_line = crlf
