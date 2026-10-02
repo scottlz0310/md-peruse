@@ -85,6 +85,19 @@ describe("isLicenseAccepted", () => {
     expect(isLicenseAccepted("MIT ISC", accepted)).toBe(false);
   });
 
+  test("`+` は `-or-later` として扱い、基底の版の許容では通さない", () => {
+    // GPL-2.0+ は v2 以降を許す。v2 だけの許容では通してはならない。
+    expect(isLicenseAccepted("GPL-2.0+", ["GPL-2.0"])).toBe(false);
+    expect(isLicenseAccepted("GPL-2.0+", ["GPL-2.0-only"])).toBe(false);
+    expect(isLicenseAccepted("GPL-2.0+", ["GPL-2.0-or-later"])).toBe(true);
+    expect(isLicenseAccepted("GPL-2.0-or-later", ["GPL-2.0+"])).toBe(true);
+    expect(isLicenseAccepted("GPL-2.0+", ["GPL-2.0+"])).toBe(true);
+    // 基底の許容が MIT でも、MIT+ は別の識別子として、許容リストに無ければ通さない。
+    expect(isLicenseAccepted("MIT+", ["MIT"])).toBe(false);
+    // OR の片方が許容されていれば、+ の側が許容されていなくても通る。
+    expect(isLicenseAccepted("GPL-2.0+ OR MIT", ["MIT"])).toBe(true);
+  });
+
   test("許容リストが空なら、何も許容しない", () => {
     expect(isLicenseAccepted("MIT", [])).toBe(false);
   });

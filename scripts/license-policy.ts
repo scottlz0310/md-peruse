@@ -39,18 +39,28 @@ function tokenize(expression: string): Token[] {
 }
 
 /**
+ * 識別子を比較用に正規化する。大文字小文字は区別しない（SPDXの規則）。
+ * 末尾の `+` は `-or-later`（その版、または後続版）を意味する非推奨の表記で、
+ * `GPL-2.0+` は `GPL-2.0-or-later` と同じである。`+` を削って基底の版と比べると、
+ * 後続版まで許す依存を、基底の版だけの許容で通してしまうため、削らない。
+ */
+function normalizeIdentifier(identifier: string): string {
+  return identifier.toLowerCase().replace(/\+$/, "-or-later");
+}
+
+/**
  * SPDXのライセンス式が、許容リストだけで満たせるかを返す。
  * - `A OR B` は、どちらか一方が許容されていればよい（利用者が選べるため）。
  * - `A AND B` は、両方が許容されていなければならない。
  * - `A WITH 例外` は、例外が権利を足すだけなので、`A` が許容されていればよい。
  * - 式として読めないもの（`SEE LICENSE IN ...` など）は、許容しない。
- * 識別子は大文字小文字を区別しない（SPDXの規則）。
+ * - 識別子は大文字小文字を区別しない。`X+` は `X-or-later` として比べる（`normalizeIdentifier`）。
  */
 export function isLicenseAccepted(
   expression: string,
   accepted: readonly string[],
 ): boolean {
-  const allowed = new Set(accepted.map((id) => id.toLowerCase()));
+  const allowed = new Set(accepted.map(normalizeIdentifier));
   const tokens = tokenize(expression);
   let position = 0;
 
@@ -86,9 +96,7 @@ export function isLicenseAccepted(
     }
     if (typeof token === "object") {
       position += 1;
-      // `MIT+` のような「以降の版」の表記は、`+` を除いた識別子でも判定する。
-      const id = token.id.toLowerCase();
-      const ok = allowed.has(id) || allowed.has(id.replace(/\+$/, ""));
+      const ok = allowed.has(normalizeIdentifier(token.id));
       if (tokens[position] === "WITH") {
         position += 1;
         if (typeof tokens[position] !== "object") {
