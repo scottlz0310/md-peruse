@@ -2194,6 +2194,20 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 - 起動とメモリは、MSIXインストール済みの条件で、Phase 5で測る。
 - 測定した端末は高性能である。遅い端末では、時間がおよそ比例して伸びる。目標は、この端末での実測に余裕を見た値である。
 
+### 13.7 Store提出の方針（Phase 5）
+
+提出の手順は [store-submission.md](./store-submission.md) を正本とし、ここには判断とその理由を残す（2026-10-02に決定）。
+
+- **x64だけで提出する。** ARM64は対応外のまま（3章）。ARM64端末のStoreでの表示と、x64版の動作は、保証も検証もしない。Store掲載情報のシステム要件には「x64のみ対応」と書く。Partner Centerで、パッケージの対象が `Windows.Desktop`・x64として表示されることは、初回の提出で確認する。
+- **初回は手動で提出し、審査に通っても自動では公開しない。** Partner Centerで公開の方法を手動公開にし、初回の提出物と掲載内容を確認してから、公開の操作を人が行う。初回の提出は、Partner Centerの入力項目（質問票、掲載情報）を人が確かめる機会でもあり、自動化の前に手順と落とし穴を知っておく。
+- **2回目以降は、GitHub Releaseに連動して提出する。** タグのpushで `Package`（生成とWACK）が動き、合格したときだけGitHub Releaseを作り、続けて同じartifactをStoreへ送る。送信の前に、手動承認（GitHubのEnvironmentの必須の承認者）のゲートを置く。提出に使う方法（Submission API、またはMicrosoft Store Developer CLI）は、実装の着手時に、版・認証・MSIXへの対応を確かめて決める（13章の「Store Submission APIについては…」）。提出のAPIが使えないときに備え、手動の手順書を維持する。
+- **提出物は、タグ実行の `Package` が生成したartifactとする。** 「Storeへ提出したartifactと、CIで検証したartifactを一致させる」（13章）ための方法である。MSIXはビルドごとにバイト列が変わるため、手元で作り直したMSIXは、WACKを通したものと別の成果物になる。artifactのSHA-256を記録し、アップロードしたファイルと照合する。署名は開発用の自己署名で、StoreがStoreの証明書で署名し直すため、成果物の同一性を損なわない。
+- **アップロードの形式は `.msix` とする。** Partner Centerは `.msix` を受け付ける。`.msixupload` は、Visual Studioのパッケージングで作る形式で、推奨はUWP向けである。`winapp` が作るのは `.msix` のため、このリポジトリでは `.msixupload` を作らない。Partner Centerが受け付けることは、初回のアップロードで確認する。
+- **プライバシーポリシーの提示先は、公開リポジトリ上の `docs/privacy-policy.md` のURLとする**（13章の補足）。先行する2つのリポジトリは、HTML版をCloudflare PagesとGitHub Pagesで公開している。GitHubの `blob` のURLが審査で受け付けられるかは、提出するまで確かめられない。差戻されたら、GitHub Pages（`docs/` を公開元にする）へ切り替える。
+- **掲載素材（画像、説明文）と、Partner Centerの登録内容との照合、実機でのMSIXの確認は、ローカルで行う。** 素材は、確定してから `docs/assets/store/` へ置く。
+
+先行する2つのリポジトリの経験から、手順書に取り込んだ点がある。掲載情報のCSVはPartner Centerのエクスポートを正としてインポートで上書きしないこと、UTF-8 BOMとCRLFで保存すること、画像を含むときはフォルダー単位でインポートすること、処理中の申請を自動で消さないこと、同じ入力の再提出をしないことである。
+
 ## 14. テスト方針
 
 ### 14.1 Frontend
