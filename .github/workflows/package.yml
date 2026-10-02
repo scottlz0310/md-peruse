@@ -13,9 +13,12 @@ on:
   # （renovate/patch-...、renovate/minor-...）ため、条件に使わない。ほかの PR では、下の job の if で
   # 起動しない（手動起動で足りる）。
   pull_request:
-    # Renovate は PR を作成した後に、別の API 呼び出しでラベルを付ける。opened のイベントには
-    # `winapp-cli` ラベルがないため、labeled も契機にする（types を省かない既定の3種類を明示する）。
-    types: [opened, synchronize, reopened, labeled]
+    # Renovate は PR を作成した後に、ラベルを1つずつ付ける。そのため、`winapp-cli` ラベルの
+    # labeled が、PR ごとに必ず1回起動する。opened は、ラベルがイベントに入る場合も、入らない場合も、
+    # labeled と重複するか、条件を満たさないため、契機にしない（実際の更新 PR #139 で、opened と
+    # labeled の両方が起動して、同じ検証が2回走った）。後続の push（synchronize）と、閉じた PR の
+    # 再オープン（reopened）は、ラベルが付いたまま起動するため、契機に含める。
+    types: [synchronize, reopened, labeled]
   push:
     tags: ["v*"]
 
