@@ -9,7 +9,7 @@
 | 項目 | 方針 |
 | --- | --- |
 | 対象アーキテクチャ | x64 のみ。ARM64 は対応外（[design-decisions.md](./design-decisions.md) 3章） |
-| 初回の提出 | 手動。Partner Center の画面で、あなたが入力し、あなたが提出する |
+| 初回の提出 | 準備とレビュー完了後、GitHub Releaseの公開より先に手動提出する。Partner Center の画面で、あなたが入力し、あなたが提出する |
 | 初回の公開 | 審査に通っても、自動では公開しない（手動公開）。公開の操作は、初回の提出物と掲載内容を確認してから行う |
 | 2回目以降 | GitHub Release に連動して提出する。提出の前に、手動承認のゲートを置く（9章） |
 | 掲載素材（画像、説明文） | ローカルで用意する（イラストの生成を含む）。リポジトリへは、確定した素材と一覧だけを置く（6章） |
@@ -203,6 +203,14 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 ## 9. 2回目以降の提出（GitHub Release に連動）
 
 初回の審査に通ったあとに、実装する。実装の前に、次を確かめる。
+
+進める順序は、次のとおりとする。
+
+1. 掲載情報・パッケージ・審査ノート等の準備とレビューを終え、GitHub Releaseを公開する前に初回の手動提出を行う。
+2. 初回の審査通過後、cloud-migrator／PhotoGeoExplorerで安定運用している提出フローを参照し、md-peruseの自動提出フローを実装・レビューする。
+3. 自動提出フローが整ったら、GitHub Releaseの公開と承認ゲートを経たStoreへの自動提出を連動させる。初回の手動申請が処理中の間に自動提出を重ねず、同じ提出済みバージョンを再提出しない。
+
+参照先の安定運用状況はユーザーによる確認に基づく。方式・認証・送信形式・公開設定は、実装時に両リポジトリの現行フローを確認して決める。
 
 - 提出に使う方法（Microsoft Store の Submission API、または Microsoft Store Developer CLI（`msstore`））の、現在の版、認証の方式、MSIX のパッケージへの対応。先行する PhotoGeoExplorer は Submission API（`manage.devcenter.microsoft.com/v1.0/my`、`Submit-ToPartnerCenter.ps1`）、cloud-migrator は `msstore` を使っている。`msstore` の GitHub Actions での更新は、無料のアプリが前提である（`md-peruse` は無料）。
 - 認証に必要な値（Entra ID のアプリ、テナント ID、クライアント ID、シークレット、Seller ID、Product ID）。値は、リポジトリへ書かず、GitHub の Environment の secret に置く。

@@ -2196,6 +2196,8 @@ Partner CenterのUsage reportが集計するカスタムイベントは、Micros
 
 ### 13.7 Store提出の方針（Phase 5）
 
+2026-10-03の合意: 掲載情報・パッケージ等の準備とレビューを終えたら、GitHub Releaseの公開前に初回の手動提出を行う。審査通過後、ユーザーが安定運用を確認しているcloud-migrator／PhotoGeoExplorerの現行フローを参照して自動提出を整備し、その後にGitHub Release公開とStore自動提出を連動させる。送信前の手動承認ゲートとStoreの手動公開方針は維持する。
+
 提出の手順は [store-submission.md](./store-submission.md) を正本とし、ここには判断とその理由を残す（2026-10-02に決定）。
 
 - **x64だけで提出する。** ARM64は対応外のまま（3章）。ARM64端末のStoreでの表示と、x64版の動作は、保証も検証もしない。Store掲載情報のシステム要件には「x64のみ対応」と書く。Partner Centerで、パッケージの対象が `Windows.Desktop`・x64として表示されることは、初回の提出で確認する。
