@@ -13,6 +13,9 @@ on:
   # （renovate/patch-...、renovate/minor-...）ため、条件に使わない。ほかの PR では、下の job の if で
   # 起動しない（手動起動で足りる）。
   pull_request:
+    # Renovate は PR を作成した後に、別の API 呼び出しでラベルを付ける。opened のイベントには
+    # `winapp-cli` ラベルがないため、labeled も契機にする（types を省かない既定の3種類を明示する）。
+    types: [opened, synchronize, reopened, labeled]
   push:
     tags: ["v*"]
 
@@ -26,11 +29,15 @@ env:
 jobs:
   msix:
     name: MSIX と WACK
+    # labeled は、ほかのラベルの追加でも起動する。`winapp-cli` ラベルの追加だけを対象にして、同じ PR の
+    # 実行が重複しないようにする（concurrency の cancel-in-progress は、skip になる実行でも、実行中の
+    # 検証を取り消すため使わない）。
     if: >-
       github.event_name != 'pull_request' || (
       github.event.pull_request.user.login == 'renovate[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      contains(github.event.pull_request.labels.*.name, 'winapp-cli'))
+      contains(github.event.pull_request.labels.*.name, 'winapp-cli') &&
+      (github.event.action != 'labeled' || github.event.label.name == 'winapp-cli'))
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
