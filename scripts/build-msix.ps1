@@ -36,19 +36,26 @@ $rustTarget = 'x86_64-pc-windows-msvc'
 # レイアウトのディレクトリ名とMSIXのファイル名に使う。
 $architecture = 'x64'
 
-# winapp CLI のバージョンはここを正本として固定する。マニフェスト検証、PRI生成、署名の
-# 挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。
-# 更新するときは docs/design-decisions.md 4.10 と README.md も併せて変更すること。
-$requiredWinappVersion = '0.6.1'
+# winapp CLI は npm パッケージ（@microsoft/winappcli）として package.json の devDependencies に
+# 固定する。版の正本はそこで、Renovate が更新する（docs/design-decisions.md 4.10）。マニフェスト
+# 検証、PRI生成、署名の挙動がバージョンで変わり得るため、生成経路では常に固定した版を使う。
+# npm パッケージは Windows 専用の自己完結の実行ファイルを同梱する。Node.js 経由の
+# ラッパー（dist/cli.js）は使わず、実行ファイルを直接呼ぶため、Node.js は要らない。
+$packageJson = Get-Content (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json
+$requiredWinappVersion = $packageJson.devDependencies.'@microsoft/winappcli'
+if (-not $requiredWinappVersion) {
+    throw "package.json の devDependencies に @microsoft/winappcli がありません。"
+}
 
-if (-not (Get-Command winapp -ErrorAction SilentlyContinue)) {
-    throw "winapp CLI が見つかりません。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で導入してください。"
+$winapp = Join-Path $repoRoot 'node_modules/@microsoft/winappcli/bin/win-x64/winapp.exe'
+if (-not (Test-Path $winapp)) {
+    throw "winapp CLI が見つかりません: $winapp。'bun install' を実行してください（Windows でのみ導入されます）。"
 }
 
 # 初回起動の利用規約のバナーが出力へ混ざるため、版は最終行から取る。
-$winappVersion = ((& winapp --version 2>&1 | Out-String).Trim() -split '\r?\n' | Select-Object -Last 1).Trim()
+$winappVersion = ((& $winapp --version 2>&1 | Out-String).Trim() -split '\r?\n' | Select-Object -Last 1).Trim()
 if ($winappVersion -ne $requiredWinappVersion) {
-    throw "winapp CLI のバージョンが一致しません。期待値 $requiredWinappVersion、実際 '$winappVersion'。'winget install --id Microsoft.WinAppCli --version $requiredWinappVersion --exact' で固定してください。"
+    throw "winapp CLI のバージョンが一致しません。期待値 $requiredWinappVersion（package.json）、実際 '$winappVersion'。'bun install' を実行して導入し直してください。"
 }
 
 # 開発用証明書のパスワード。ローカル検証専用のため既定値は winapp CLI に合わせる。
@@ -112,13 +119,13 @@ if ($Sign) {
     $certFullPath = if ([System.IO.Path]::IsPathRooted($CertPath)) { $CertPath } else { Join-Path $repoRoot $CertPath }
     if (-not (Test-Path $certFullPath)) {
         Write-Host "==> 開発用証明書の生成: $certFullPath"
-        winapp cert generate --manifest $manifestPath --output $certFullPath --password $certPassword
+        & $winapp cert generate --manifest $manifestPath --output $certFullPath --password $certPassword
         if ($LASTEXITCODE -ne 0) { throw "証明書の生成が失敗しました (exit $LASTEXITCODE)" }
     }
     $packageArgs += @('--cert', $certFullPath, '--cert-password', $certPassword)
 }
 
-winapp package @packageArgs
+& $winapp package @packageArgs
 if ($LASTEXITCODE -ne 0) { throw "winapp package が失敗しました (exit $LASTEXITCODE)" }
 
 Write-Host "==> 完了: $output"

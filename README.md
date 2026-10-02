@@ -70,7 +70,7 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | [Bun](https://bun.com/) | 1.4.0 | JavaScript依存関係の管理、Frontendのビルドとテスト |
 | [Rust](https://www.rust-lang.org/) | 1.98.0 | Tauri backendのビルド（`rust-toolchain.toml` で固定） |
 | [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | — | Visual Studio Build Tools、WebView2 Runtime |
-| winapp CLI | 0.6.1 | MSIXの生成と署名（WinGet `Microsoft.WinAppCli`） |
+| winapp CLI | `package.json` で固定 | MSIXの生成と署名（npm `@microsoft/winappcli`。`bun install` が導入する） |
 | Windows SDK | 10.0.26100.0 | `makeappx`、`signtool`、Windows App Certification Kit |
 
 各依存の初期バージョンは [design-decisions.md](./docs/design-decisions.md) の4.10に記載する。
@@ -115,13 +115,9 @@ CIはカバレッジ計測を兼ねて `cargo test` の代わりに `cargo llvm-
 
 MSIXは Tauri CLI ではなく winapp CLI で生成する。`tauri.conf.json` の `bundle.active` を `false` としているため、`tauri build` は実行ファイルのみを生成し、NSIS や MSI のインストーラーは作らない。
 
-前提として winapp CLI を導入する。
+winapp CLI は `package.json` の devDependencies（`@microsoft/winappcli`）に固定しており、`bun install` が導入する。npm パッケージは Windows 専用で、Linux や macOS では何も導入されない（エラーにもならない）。同梱の自己完結の実行ファイル（`node_modules/@microsoft/winappcli/bin/win-x64/winapp.exe`）を `scripts/build-msix.ps1` が直接呼ぶため、Node.js は要らない。WinGet での導入は不要である。
 
-```powershell
-winget install --id Microsoft.WinAppCli --version 0.6.1 --exact
-```
-
-`scripts/build-msix.ps1` は実行前に `winapp --version` を照合し、`$requiredWinappVersion`（現在は 0.6.1）と一致しなければ失敗する。マニフェスト検証、PRI生成、署名の挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。
+`scripts/build-msix.ps1` は実行前に、`package.json` に固定した版と、実行ファイルの `--version` を照合し、一致しなければ失敗する。マニフェスト検証、PRI生成、署名の挙動がバージョンで変わり得るため、生成経路では常に同じバージョンを使う。版の更新は Renovate が行い（更新 PR では `Package` ワークフローが MSIX の生成と WACK を検証する）、手動でマージする。
 
 `scripts/build-msix.ps1` がx64のReleaseビルドからパッケージレイアウトを組み立て、MSIXを生成する。
 

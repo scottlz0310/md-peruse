@@ -160,7 +160,9 @@ Phase 1のスケルトン配置時点で固定したバージョンを記録す�
 | TypeScript | 7.0.2 | `package.json` |
 | Biome | 2.5.11 | `package.json` |
 | Lefthook | 2.1.12 | `package.json` |
-| winapp CLI | 0.6.1 | `scripts/build-msix.ps1` の `$requiredWinappVersion`（WinGet `Microsoft.WinAppCli`） |
+| winapp CLI | `package.json` の devDependencies で固定 | npm `@microsoft/winappcli`（下記） |
+
+winapp CLIの導入経路は、当初のWinGet（`Microsoft.WinAppCli`）から、npmの `@microsoft/winappcli` へ変更した（Phase 5、2026-10-02）。依存ツールの更新をRenovateに任せ、壊れたらPull Requestで検出する運用に合わせるためである。WinGet版は、Renovateが追えるデータソースが無く、スクリプト内の版の固定が更新の対象外だった。npmパッケージは同じ版番号（0.6.1、0.7.0など）で公開され、`os` は `win32` に限られる。Linuxの `bun install` は何も導入せず、エラーにもならないため、ubuntuのジョブへ影響しない。パッケージは自己完結の実行ファイル（`bin/win-x64/winapp.exe`）を同梱し、Node.js経由のラッパー（`dist/cli.js`）は、この実行ファイルを呼ぶだけである。`scripts/build-msix.ps1` は実行ファイルを直接呼ぶため、MSIXの生成にNode.jsは不要という判断（13.2）は変わらない。固定は完全一致の版指定（`0.6.1`）とし、版の正本は `package.json` と `bun.lock` の1か所とする。更新のPull Requestは手動でマージし、`Package` ワークフローが（`renovate/winapp-cli` のブランチに限って）MSIXの生成とWACKを検証する。
 
 Rustのeditionは2024を採用する。新規プロジェクトであり、既存コードとの互換性制約がないため。MSRVは edition 2024 が要求する1.85とする。
 
