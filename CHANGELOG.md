@@ -358,6 +358,7 @@
 - CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する。RustのlcovはWindowsのジョブがartifactへ保存し、`Coverage` ジョブ（ubuntu）がアップロードする
 
 ### Changed
+- `Package` ワークフローを、winapp CLI の更新 Pull Request で動かす契機から、`opened` を外した（`synchronize`、`reopened`、`labeled`）。Renovate の最初の更新 Pull Request で、`opened` と `labeled` の両方が起動して、同じ検証が2回走ったため
 - winapp CLI の導入経路を、WinGet から npm（`@microsoft/winappcli`）へ変えた。`package.json` の devDependencies で `0.6.1` に固定し、`bun install` が導入する（Windowsのみ）。`scripts/build-msix.ps1` は同梱の実行ファイルを直接呼ぶ。版の更新はRenovateに任せ、更新Pull Requestでは `Package` ワークフローが MSIX の生成と WACK を検証する。開発機でのWinGetによる導入は不要になった
 
 - Phase 4（機能実装）を完了した。完了条件の12件を、テストと実機の確認で満たした（[docs/test-matrix.md](./docs/test-matrix.md)）。最後に、実機（Release）で次を確認した。①実際のOSのハイコントラスト黒で、タイトルバー、メニュー、ツリー、タブ、本文、Mermaidの図、検索バー、書式なしの文書の表示が判読できる（設定は元へ戻した）。②キーボードだけで、フォルダーを開く、ツリーの移動、文書を開く、タブの切り替え、検索、リンク、戻る・進む、表示の切り替え、メニュー、ワークスペースを閉じる、までを完了できる。③前面で操作する状態では、変更反映の約6秒の遅れは出ない（遅れは、無人・バックグラウンドの状態に固有）
