@@ -33,7 +33,7 @@
       "devDependencies": {
         "@biomejs/biome": "^2.5.15",
         "@happy-dom/global-registrator": "^20.14.5",
-        "@microsoft/winappcli": "0.6.1",
+        "@microsoft/winappcli": "0.6.2",
         "@tauri-apps/cli": "^2.12.1",
         "@testing-library/dom": "^10.4.2",
         "@testing-library/react": "^16.3.3",
@@ -117,7 +117,7 @@
 
     "@mermaid-js/parser": ["@mermaid-js/parser@2.0.0", "", { "dependencies": { "@chevrotain/types": "~11.1.2" } }, "sha512-K8BeapFUfrfxbRAUQAG5oBOCwo1+bNWzaVnPxTCutkfrTBn6T/j91FIhqxWJ32SUeQ9T3iy1zcmPZ5ROZEvDrg=="],
 
-    "@microsoft/winappcli": ["@microsoft/winappcli@0.6.1", "", { "os": "win32", "bin": { "winapp": "dist/cli.js" } }, "sha512-p9Ip+O/UIw2Uxq4bDA3IHjbWOJM1421oXka7DYunVHTa06hcfYIabQD/y8xAB1VYCz8H/qFImEKL7z3xEKh2qA=="],
+    "@microsoft/winappcli": ["@microsoft/winappcli@0.6.2", "", { "os": "win32", "bin": { "winapp": "dist/cli.js" } }, "sha512-cpA0BRuxTmrzv6+QddJO4/PeScqt9FHa2cW/1VbCLzJ4gDbBI9V4av4iCYQVRLxeZZMJap49XOBdHASQWdoGTg=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.151.0", "", {}, "sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA=="],
 
