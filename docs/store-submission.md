@@ -40,7 +40,7 @@
 
 開発用の自己署名は、Store の配布には使われない。Partner Center が、提出された MSIX を Store の証明書で署名し直す。このため、署名の違いは、成果物の同一性を損なわない。
 
-アップロードの形式は、`.msix` を使う（Partner Center は `.msix`、`.msixupload`、`.msixbundle` などを受け付ける）。`.msixupload` は、Visual Studio のパッケージングで作る形式であり、`winapp` を使うこのリポジトリでは作らない。初回のアップロードで、Partner Center が `.msix` を受け付け、Identity、Version、x64、Capability を表示することを確認する（確認する項目として残す）。
+アップロードの形式は、`.msix` を使う。Microsoft の案内（[Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages)）は、Windows 10 以降の提出では、`.msix` より `.msixupload`（または `.appxupload`）のアップロードを推奨している。この推奨は UWP に限った記述ではない。ただし、受け付ける形式には `.msix` も含まれ、推奨の理由は案内に書かれていない。`.msix` を選ぶ理由は、`winapp` が生成するのが `.msix` であり、WACK を通したファイルをそのまま提出できる（3章の同一性を保てる）ことである。`.msixupload` は、Visual Studio のパッケージングが作る形式で、このリポジトリの工程は作らない。初回のアップロードで、Partner Center が `.msix` を受け付け、Identity、Version、x64、Capability を表示することを確認する。警告が出る、または受け付けられないときは、`.msixupload` へ包む方法を検討する（WACK を通した `.msix` の中身を変えない形で包めることを確かめてから行う）。
 
 ## 4. バージョンとタグ
 
