@@ -7,8 +7,11 @@ name: Package
 
 on:
   workflow_dispatch:
-  # winapp CLI の更新 PR（Renovate の `renovate/winapp-cli`）だけで動かし、更新で生成と WACK が
-  # 壊れないことを PR で確かめる。ほかの PR では、下の job の if で、起動しない（手動起動で足りる）。
+  # winapp CLI の更新 PR だけで動かし、更新で生成と WACK が壊れないことを PR で確かめる。対象は、
+  # Renovate（renovate[bot]）が同じリポジトリのブランチから出し、`winapp-cli` ラベルを付けた PR に限る
+  # （renovate.json の winapp CLI のルールが付ける）。ブランチ名は、更新の種類で接頭辞が変わる
+  # （renovate/patch-...、renovate/minor-...）ため、条件に使わない。ほかの PR では、下の job の if で
+  # 起動しない（手動起動で足りる）。
   pull_request:
   push:
     tags: ["v*"]
@@ -23,7 +26,11 @@ env:
 jobs:
   msix:
     name: MSIX と WACK
-    if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'renovate/winapp-cli')
+    if: >-
+      github.event_name != 'pull_request' || (
+      github.event.pull_request.user.login == 'renovate[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      contains(github.event.pull_request.labels.*.name, 'winapp-cli'))
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
