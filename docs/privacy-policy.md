@@ -35,7 +35,7 @@ Microsoft Store から配布された版に限り、本アプリは、次の 5 �
 - 送信に失敗しても、本アプリの動作には影響しません。
 - 目的は、本アプリが実際に使われ、機能しているかを、件数として把握することです。個人の識別には使いません。
 
-イベントは Microsoft が受け取り、パッケージのバージョンごとの集計として、開発者が Microsoft Partner Center で見られます。Microsoft によるデータの取り扱いには、[Microsoft のプライバシーに関する声明](https://privacy.microsoft.com/privacystatement)が適用されます。これらの集計は、Windows の診断データの設定により、診断データの送信を許可した端末のものに限られることがあります。
+イベントは Microsoft が受け取り、パッケージのバージョンごとの集計として、開発者が Microsoft Partner Center で見られます。Microsoft によるデータの取り扱いには、[Microsoft のプライバシーに関する声明](https://privacy.microsoft.com/privacystatement)が適用されます。
 
 ### あなたの端末に保存される情報
 
@@ -95,7 +95,7 @@ Only in the version distributed through the Microsoft Store, the app sends the f
 - If sending fails, the app keeps working normally.
 - The purpose is to learn, as counts, whether the app is actually used and works. The events are not used to identify individuals.
 
-Microsoft receives the events, and the developer can see them in Microsoft Partner Center as counts per package version. Microsoft's handling of the data is governed by the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement). These counts may be limited to devices where Windows diagnostic data is enabled.
+Microsoft receives the events, and the developer can see them in Microsoft Partner Center as counts per package version. Microsoft's handling of the data is governed by the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement).
 
 ### Information stored on your device
 
