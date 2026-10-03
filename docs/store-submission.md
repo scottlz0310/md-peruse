@@ -21,7 +21,7 @@
 次がすべて揃うまで、Partner Center の提出画面で保存・提出を進めない。
 
 - [ ] Partner Center の `md-peruse` の予約と、`packaging/Package.appxmanifest.template` の Identity が一致している（Name `scottlz0310.md-peruse`、Publisher `CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6`、PublisherDisplayName `scottlz0310`。Store ID `9P35BW61FN4W`。[design-decisions.md](./design-decisions.md) 13.1）
-- [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK が `PASS`（全項目）になっている（3章）
+- [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK の `OVERALL_RESULT` が `PASS` になっている。必須テストはすべて PASS で、FAIL は [design-decisions.md](./design-decisions.md) 13.3 に記録した任意テスト「Blocked executables」の1件だけである（3章）
 - [ ] MSIX の SHA-256 を記録している（3章）
 - [ ] プライバシーポリシーの URL（GitHub Pages）が、HTTPS で HTTP 200 を返す（5章。Pages の設定と、最初の公開が済んでいる）
 - [ ] 掲載情報（説明、スクリーンショット、年齢区分、言語）が揃っている（6章）
@@ -107,26 +107,36 @@ Partner Center のデータ収集の申告は、「データを収集しない�
 
 - 最初に、Partner Center から、現在の掲載情報をエクスポートし、その形式（`Field`、`ID`、`Type`）を正とする。リポジトリの CSV を、確認なしにインポートで上書きしない。
 - UTF-8（BOM あり）と CRLF で保存する。LF だと、行が連結されて無効になる。Excel で開いたまま保存し直さない。
-- 画像を含むときは、フォルダー単位でインポートする。CSV 内の画像の参照は、フォルダー名を含む相対パス（例: `store/screenshot1.png`）にする。
+- 画像を含むときは、フォルダー単位でインポートする。CSV 単体では、画像の参照が失敗する（PhotoGeoExplorer の `docs/MicrosoftStore.md`「listingData.csv インポート手順」）。
+- インポートするフォルダーは、直下に `listingData.csv` と画像だけを**フラットに**置く。CSV 内の画像の参照は、**選ぶフォルダーの名前**を先頭にした相対パス（例: フォルダー名が `store` なら `store/screenshot1.png`）にする。画像用の入れ子のフォルダーは作らない（cloud-migrator の `docs/assets/store-source/README.md`「CSV の扱い」手順3。`docs/assets/store` を選び、直下に CSV と4画像だけを置き、パスは `store/...` で始める）。
+- 提出に使わない原本や下書きは、インポートするフォルダーの外に置く（cloud-migrator は `store-source/` に分けている）。
 - Partner Center がエクスポートした CSV にある、一時的な絶対 URL や、申請の識別子は、リポジトリへコピーしない。
 
 素材は、`docs/assets/store/`（Partner Center へそのまま渡せるフォルダー）へ置く。確定するまでは、リポジトリへ入れない。
 
-現在の配置:
+現在の配置（フォルダー名が `store` なので、CSV の画像の参照は `store/screenshot1.png` 等）:
 
 ```text
 docs/assets/store/
 ├── listingData.csv
-└── store/
-    ├── screenshot1.png
-    ├── screenshot2.png
-    ├── screenshot3.png
-    └── screenshot4.png
+├── screenshot1.png
+├── screenshot2.png
+├── screenshot3.png
+└── screenshot4.png
 ```
 
-[`listingData.csv`](./assets/store/listingData.csv) は、ユーザーがPartner Centerから新規エクスポートした形式を保ち、`default` 列へ日本語28項目を記入したもの。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録した。画像参照は `store/screenshot1.png` 等であり、手動インポートでは `docs/assets/store/` フォルダー全体を選ぶ。未記入の原本バックアップはローカルに保持し、リポジトリへは含めない。
+2026-10-03の初回提出までは、画像を `docs/assets/store/store/` の下に置いていた。これは上のフラットな構成とは違い、`docs/assets/store/` を選んでも、CSV の `store/screenshot1.png` が指す画像（選んだフォルダー直下）に当たらない。先例の構成に合わせて、画像をフォルダー直下へ移した。この構成での手動インポートは、まだ実機で確かめていない（次に下書きの申請ができるときに確かめる）。
 
-ロゴ、英語掲載文、年齢区分・カテゴリは未完了。`default` の対象言語とインポート後の表示をPartner Centerで確認する。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録し、画像参照は両言語とも `store/screenshot1.png` 等である（英語の掲載にも日本語UIの画像を使っている）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+
+初回提出（v0.1.0）の入力で分かったこと（2026-10-03）:
+
+- パッケージを追加する前のエクスポート（`default` 列だけ）を基にしたCSVは、パッケージを追加して言語（`ja-jp`、`en-us`）が現れた後は、インポートに失敗した。パッケージを追加した後に、必ずエクスポートし直して、その形式に合わせる。
+- 画像参照を含むCSVは、「.csv のアップロード」（CSV 単体）でも、フォルダー用のファイル入力へ個別にファイルを渡す自動操作でも、インポートに失敗した（`ja-jp` の保存途中で止まった）。CSV 単体の失敗は、先例（PhotoGeoExplorer）の記録と一致する。自動操作の失敗は、フォルダーの構造が渡らないためと推測しているが、確かめていない。あなたが手でフォルダーを選ぶインポートは、未検証である。
+- 初回は、画像参照を空にしたCSVを「.csv のアップロード」で取り込み（エラーなしで完了）、画像は掲載ページの入力欄へ1枚ずつ、字幕は画像ごとの「イメージの字幕の追加」から入力した。複数の画像を一度に渡すと、先頭の1枚だけが登録された。
+- 任意のStoreロゴ（9:16のポスターアート、1:1のボックスアート）は登録していない。認定を通った後のStore上の表示で、見え方を確認する。
+
+次回以降の掲載情報の更新は、公開済みの内容をエクスポートし直して、このCSVとの差を確かめてから行う。
 
 公開後の保守:
 
@@ -261,6 +271,32 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | プライバシーポリシーの URL の確認日時と結果 |  |
 | 認定の状態、差戻しの内容 |  |
 | 公開の方法と、公開の操作をした人 |  |
+
+### 11.1 初回の提出（v0.1.0）の記録
+
+| 項目 | 値 |
+| --- | --- |
+| 作業日時 | 2026-10-03（提出の時刻は記録していない） |
+| 操作した人 | 提出の操作は scottlz0310。入力は Claude in Chrome で行い、各項目はあなたの承認を得て保存した |
+| Partner Center のアプリ名、Store ID | md-peruse、`9P35BW61FN4W` |
+| Submission ID | `1152921505702030146`（Submission 1） |
+| パッケージの Version、アーキテクチャ | 0.1.0.0、x64（Windows.Desktop 10.0.22000.0 以上、言語 ja-jp・en-us） |
+| タグ、コミットの SHA | `v0.1.0`、`072d019f30abc1efec2aaf61026d5c8c76e333f6` |
+| `Package` の実行の URL | <https://github.com/scottlz0310/md-peruse/actions/runs/37124922688> |
+| MSIX の SHA-256 | `.msix`: `A35D303FA57CA1E80F5CF8B9209543A4DDBA1F02AB2B4972B92EC094007CC743`。アップロードした `.msixupload`（4,287,866 バイト）: `A1A35E978ED2155B7129A7D20907C765009B238E8544B6F7874E8DD871E36A55`。どちらも artifact の `SHA256SUMS.txt` と、ダウンロードして再計算した値が一致した |
+| WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `OVERALL_RESULT="PASS"`。24テスト中23 PASS、任意テスト（`OPTIONAL="TRUE"`）「Blocked executables」の1件が FAIL で、総合結果には影響しない（`CreateProcessW`、`ShellExecuteW` と `cmd.exe` などの文字列への参照。内訳と原因は [design-decisions.md](./design-decisions.md) 13.3。過去の実行でも同じ）。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
+| プライバシーポリシーの URL の確認日時と結果 | 2026-10-03、HTTP 200 |
+| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。結果は未確認 |
+| 公開の方法と、公開の操作をした人 | 手動公開（「今すぐ公開」を選ぶまで公開しない）。公開の操作は、まだしていない |
+
+提出時に分かったこと:
+
+- Partner Center は、アップロードしたパッケージのハッシュを表示しない。提出物と検証済みの成果物の一致は、artifact から取り出したファイルを、再ビルドせずにそのままアップロードした手順で担保している。
+- `.msixupload`（手作りのZIP、シンボル `.appxsym` 同梱）は、そのまま受理された（Validated）。シンボルが認識されたかの確認は、初回の公開後のクラッシュ分析で行う。
+- Package details の Capabilities には、`runFullTrust` のほかに `Microsoft.storeFilter.core.notSupported_8wekyb3d8bbwe` が表示された。マニフェストにはない（Partner Center 側の表示と思われるが、出所は確認していない）。
+- 「Restricted capabilities」の入力欄は、パッケージのアップロード後も、申請オプションに現れなかった。認定の過程で説明を求められたら、7.2 の英文を使う。
+- 年齢区分の IARC 質問票は、アプリの種類を「その他のすべてのアプリの種類」にして全問「いいえ」とし、IARC 3+（ESRB 全年齢、PEGI 3+、USK 全年齢）になった。公開元の表示名とメールアドレスが IARC と共有される。
+- プロパティの個人情報の質問には「はい」と答え、プライバシーポリシーの URL を入れた（Store 版がイベント名だけを Microsoft の計測基盤へ送るため）。
 
 ## 12. 初回の公開後に確認すること
 
