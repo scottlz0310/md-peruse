@@ -107,29 +107,32 @@ Partner Center のデータ収集の申告は、「データを収集しない�
 
 - 最初に、Partner Center から、現在の掲載情報をエクスポートし、その形式（`Field`、`ID`、`Type`）を正とする。リポジトリの CSV を、確認なしにインポートで上書きしない。
 - UTF-8（BOM あり）と CRLF で保存する。LF だと、行が連結されて無効になる。Excel で開いたまま保存し直さない。
-- 画像を含むときは、フォルダー単位でインポートする。CSV 内の画像の参照は、フォルダー名を含む相対パス（例: `store/screenshot1.png`）にする。
+- 画像を含むときは、フォルダー単位でインポートする。CSV 単体では、画像の参照が失敗する（PhotoGeoExplorer の `docs/MicrosoftStore.md`「listingData.csv インポート手順」）。
+- インポートするフォルダーは、直下に `listingData.csv` と画像だけを**フラットに**置く。CSV 内の画像の参照は、**選ぶフォルダーの名前**を先頭にした相対パス（例: フォルダー名が `store` なら `store/screenshot1.png`）にする。画像用の入れ子のフォルダーは作らない（cloud-migrator の `docs/assets/store-source/README.md`「CSV の扱い」手順3。`docs/assets/store` を選び、直下に CSV と4画像だけを置き、パスは `store/...` で始める）。
+- 提出に使わない原本や下書きは、インポートするフォルダーの外に置く（cloud-migrator は `store-source/` に分けている）。
 - Partner Center がエクスポートした CSV にある、一時的な絶対 URL や、申請の識別子は、リポジトリへコピーしない。
 
 素材は、`docs/assets/store/`（Partner Center へそのまま渡せるフォルダー）へ置く。確定するまでは、リポジトリへ入れない。
 
-現在の配置:
+現在の配置（フォルダー名が `store` なので、CSV の画像の参照は `store/screenshot1.png` 等）:
 
 ```text
 docs/assets/store/
 ├── listingData.csv
-└── store/
-    ├── screenshot1.png
-    ├── screenshot2.png
-    ├── screenshot3.png
-    └── screenshot4.png
+├── screenshot1.png
+├── screenshot2.png
+├── screenshot3.png
+└── screenshot4.png
 ```
+
+2026-10-03の初回提出までは、画像を `docs/assets/store/store/` の下に置いていた。これは上のフラットな構成とは違い、`docs/assets/store/` を選んでも、CSV の `store/screenshot1.png` が指す画像（選んだフォルダー直下）に当たらない。先例の構成に合わせて、画像をフォルダー直下へ移した。この構成での手動インポートは、まだ実機で確かめていない（次に下書きの申請ができるときに確かめる）。
 
 [`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録し、画像参照は両言語とも `store/screenshot1.png` 等である（英語の掲載にも日本語UIの画像を使っている）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
 
 初回提出（v0.1.0）の入力で分かったこと（2026-10-03）:
 
 - パッケージを追加する前のエクスポート（`default` 列だけ）を基にしたCSVは、パッケージを追加して言語（`ja-jp`、`en-us`）が現れた後は、インポートに失敗した。パッケージを追加した後に、必ずエクスポートし直して、その形式に合わせる。
-- 画像参照を含むCSVは、フォルダー用のファイル入力へファイルを個別に渡す自動操作では、インポートに失敗した（`ja-jp` の保存途中で止まった）。フォルダーの構造が渡らないためと推測しているが、確かめていない。あなたが手でフォルダーを選ぶインポートが通るかは、未検証である。
+- 画像参照を含むCSVは、「.csv のアップロード」（CSV 単体）でも、フォルダー用のファイル入力へ個別にファイルを渡す自動操作でも、インポートに失敗した（`ja-jp` の保存途中で止まった）。CSV 単体の失敗は、先例（PhotoGeoExplorer）の記録と一致する。自動操作の失敗は、フォルダーの構造が渡らないためと推測しているが、確かめていない。あなたが手でフォルダーを選ぶインポートは、未検証である。
 - 初回は、画像参照を空にしたCSVを「.csv のアップロード」で取り込み（エラーなしで完了）、画像は掲載ページの入力欄へ1枚ずつ、字幕は画像ごとの「イメージの字幕の追加」から入力した。複数の画像を一度に渡すと、先頭の1枚だけが登録された。
 - 任意のStoreロゴ（9:16のポスターアート、1:1のボックスアート）は登録していない。認定を通った後のStore上の表示で、見え方を確認する。
 
