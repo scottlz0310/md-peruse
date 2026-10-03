@@ -21,7 +21,7 @@
 次がすべて揃うまで、Partner Center の提出画面で保存・提出を進めない。
 
 - [ ] Partner Center の `md-peruse` の予約と、`packaging/Package.appxmanifest.template` の Identity が一致している（Name `scottlz0310.md-peruse`、Publisher `CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6`、PublisherDisplayName `scottlz0310`。Store ID `9P35BW61FN4W`。[design-decisions.md](./design-decisions.md) 13.1）
-- [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK の `OVERALL_RESULT` が `PASS` になっている。必須テストはすべて PASS で、FAIL は [design-decisions.md](./design-decisions.md) 13.3 に記録した任意テスト「Blocked executables」の1件だけである（3章）
+- [ ] 提出する MSIX は、リリースのコミット（タグ）で動かした `Package` ワークフローが生成した artifact であり、同じ実行で WACK の `OVERALL_RESULT` が `PASS` になっている。必須テストはすべて PASS で、FAIL は [design-decisions.md](./design-decisions.md) 13.3 に記録した任意テスト「Blocked executables」の1件だけである（3章）
 - [ ] MSIX の SHA-256 を記録している（3章）
 - [ ] プライバシーポリシーの URL（GitHub Pages）が、HTTPS で HTTP 200 を返す（5章。Pages の設定と、最初の公開が済んでいる）
 - [ ] 掲載情報（説明、スクリーンショット、年齢区分、言語）が揃っている（6章）
@@ -30,9 +30,9 @@
 
 ## 3. 提出物の同一性
 
-「Store へ出す提出物」と「CI で検証した成果物」を同じものにするため、提出物は、**リリースのタグ（`vMAJOR.MINOR.PATCH`）を push したときの `Package` ワークフローの artifact**（`md-peruse-msix-x64`）とする。手元でビルドし直した MSIX は提出しない。MSIX はビルドごとにバイト列が変わるため、ビルドし直すと、WACK を通したものと別の成果物になる。
+「Store へ出す提出物」と「CI で検証した成果物」を同じものにするため、提出物は、**リリースのタグ（`vMAJOR.MINOR.PATCH`）のコミットで動かした `Package` ワークフローの artifact**（`md-peruse-msix-x64`）とする。手元でビルドし直した MSIX は提出しない。MSIX はビルドごとにバイト列が変わるため、ビルドし直すと、WACK を通したものと別の成果物になる。
 
-1. タグを push する。`Package` ワークフローが動き、MSIX の生成、署名（開発用の自己署名）、WACK、`.msixupload` の作成、SHA-256 の記録、artifact の保存まで行う。
+1. タグを push してから、Actions の `Package` で「Run workflow」を押し、**そのタグを選んで**動かす（タグの push だけでは `Package` は起動しない。9.7）。MSIX の生成、署名（開発用の自己署名）、WACK、`.msixupload` の作成、SHA-256 の記録、artifact の保存まで行う。通常は、9.7 のリリースの流れ（`release.yml`）がこれを自動で行う。この手順は、API が使えないときの手動の経路である。
 2. 実行の結果を確認する。`WACK OVERALL_RESULT: PASS` で、全工程が成功している。
 3. artifact `md-peruse-msix-x64` をダウンロードし、`SHA256SUMS.txt` と、ダウンロードした `.msix` と `.msixupload` の SHA-256 が、それぞれ一致することを確認する。
 4. `.msixupload` を、Partner Center へアップロードする。
@@ -226,7 +226,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | --- | --- |
 | 方式 | **Submission API を TypeScript（bun）で一本化する。** `msstore` は使わない |
 | 理由 | パッケージの差し替えと、掲載情報（文章、スクリーンショット、イラスト）の更新を、同じ仕組みで扱うため。`msstore` の資料（2026-08-30 更新）には、掲載画像のアップロード方法の記載がない。Submission API は、画像を ZIP で送る方法を定めている |
-| 提出の種類 | ①**パッケージのリリース**（タグ実行の `Package` の artifact を送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
+| 提出の種類 | ①**パッケージのリリース**（リリースの流れ〔`release.yml`、9.7〕が動かした `Package` の artifact を送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
 | 掲載情報の元 | `docs/assets/store/`（`listingData.csv` と画像）。CSV にある項目のうち、許可リストの項目だけを上書きする。値が空の項目は、申請の値を変えない |
 | 既定の動作 | **dry-run**（読み取りだけ。何が変わるかを表示する）。`--apply` を付けたときだけ、書き込む |
 | 承認 | 資格情報を使う実行は、dry-run も含めて、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする（資格情報は Environment の secret で、承認の前は渡らない）。dry-run で差分を確かめてから、`apply` を別の実行として承認する |
@@ -278,7 +278,7 @@ GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`�
 | `mode` | `dry-run`（既定。読み取りだけ）／`clone-only`／`draft-only`（更新するが commit しない）／`apply`（提出する） |
 | `languages` | 反映する言語（既定は `ja-jp,en-us`） |
 | `replace_screenshots` | スクリーンショットを `docs/assets/store/` の内容で入れ替える |
-| `publish_mode` | 申請が引き継いでいる公開方法（`Manual`／`Immediate`）。違えば止まる |
+| `publish_mode` | 申請が引き継いでいる公開方法（`Immediate`／`Manual`）。違えば止まる。既定は `Immediate`（2026-10-04 に、公開済みの申請が `Immediate` であることを確認した） |
 
 結果は、実行の Step Summary に出る（何が変わるか、申請の ID と状態）。パッケージ（`.msixupload`）の提出は、このワークフローの対象外とする（GitHub Release との連動で別に扱う）。同時に 2 つの実行が動かないよう、実行は直列にしてある。
 
@@ -383,7 +383,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 | 段 | ワークフロー | 内容 |
 | --- | --- | --- |
 | 準備 | Prepare Release（`prepare-release.yml`、手動起動） | 版の更新と CHANGELOG の確定を、Bot（GitHub App）名義のリリース PR（`chore(release): vX.Y.Z`）にする |
-| 公開 | Release（`release.yml`、main への push で起動） | リリース PR のマージで、タグと GitHub Release、`Package`、Store への提出を進める（別の PR で追加する） |
+| 公開 | Release（`release.yml`、main への push で起動） | リリース PR のマージで、タグと GitHub Release、`Package`、Store への提出を進める |
 
 **版の更新に `tauri` 戦略を使う理由**: md-peruse の版は 4 か所（`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`）にあり、release-automate の既存の戦略（`npm`、`rust` など）は、1 回に 1 種類しか更新できない。release-automate に `tauri` 戦略を加えた（v2.1.0）。更新の前に、3 つのファイルの版が一致していることを確かめ、食い違っていれば何も書き換えずに失敗する（`bun run check:versions` と同じ不変条件）。JSON は版の値の文字列だけを置き換えるので、差分は版の 1 行ずつになる。
 
@@ -401,6 +401,32 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 
 - 組織の secret `RELEASE_BOT_APP_ID` と `RELEASE_BOT_PRIVATE_KEY` が、このリポジトリから使えること（2026-10-04に確認済み。リポジトリ単位の secret ではなく、組織単位の secret）。リリース Bot の GitHub App がこのリポジトリにインストールされていること。
 - 初めて使う前に、Prepare Release を 1 回実行して、PR の内容を確かめ、**マージせずに閉じる**ことを勧める（上記の差分が、実際のファイルで意図どおりになるかを、公開の前に確かめられる）。
+
+#### 公開の流れ（Release）
+
+リリース PR（`chore(release): vX.Y.Z (#N)`）を main に squash マージすると、Release（`release.yml`）が次の順に動く。リリース PR 以外の main への push では、最初のジョブが skip され、後続も動かない。
+
+| ジョブ | 内容 |
+| --- | --- |
+| `draft` | release-automate が、マージのコミットにタグ `vX.Y.Z` と、draft の GitHub Release（本文は CHANGELOG）を作る |
+| `package` | `Package`（MSIX と WACK）を、このコミットで動かす。ファイルの版がタグと一致することも検査する（`RELEASE_TAG`） |
+| `attach` | `.msixupload`、`SHA256SUMS.txt`、WACK の報告書を、draft の Release に添付する。Store に出すものと同じファイル。MSIX は開発用の自己署名で配布に使えないので、添付しない |
+| `verify` | Release から再取得して、`Package` の成果物と SHA-256 が一致することを確かめる |
+| `finalize` | draft の Release を公開する |
+| `store` | Environment `store-production` の**承認**の後に、同じ `.msixupload` を Store へ提出する（`--package`、`--publish-mode Immediate`）。認定の後に、自動で公開される |
+
+タグは `GITHUB_TOKEN` で作られ、`push: tags` の別のワークフローを起動しないので、`Package` は `package.yml` の `workflow_call` で呼ぶ。`package.yml` の `push: tags` の契機は外した（タグの上で手動で動かすときは、Run workflow でタグを選ぶ）。
+
+あなたの操作は、リリース PR のマージと、`store` ジョブの承認（実行画面の「Review deployments」）の 2 つ。承認の前に、Release が公開されていること（`finalize` の成功）と、`verify` が成功していることを確かめる。承認の後は、Partner Center で認定の結果を待つ（9.3）。
+
+失敗したとき:
+
+- 同じ実行の「Re-run failed jobs」で再実行する（新しいタグを切らない）。成功済みのジョブは再実行されず、その出力が引き継がれる。
+- `package`（WACK など）が失敗したら、draft の Release とタグが残る。ランナーの障害のような一時的な失敗なら、再実行すればよい（同じコミットの draft は再利用される）。コードやファイルの不具合なら、再実行しても同じコミットを使うので直らない。修正を main に入れ、**次の版**（例: `0.1.2`）で Prepare Release をやり直す。リリース PR のマージで、ファイルの版はすでに `0.1.1` になっているため、同じ版では Prepare Release が失敗する。前の draft の Release とタグ `v0.1.1` は、取り消せない操作なので、あなたが削除する。
+- `store` が失敗したら、公開済みの Release は変更されない。原因（処理中の申請が残っている、公開方法が `Immediate` と違う、など。メッセージで分かる）を直し、同じ実行の `store` だけを再実行する。処理中の申請があるときは、内容を確かめて、あなたが「送信の削除」で消す（9.3）。
+- 「Re-run all jobs」は、公開済みの Release を検知して、添付・照合・公開・Store を skip する。Store の再提出には使えない。
+
+公開方法が `Immediate` であることが前提。Partner Center の設定が `Manual` に戻っている場合、`store` は申請を作る前に止まる。
 
 提出の API が使えないときは、8章の手動の手順を、そのまま使う。
 

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { findVersionProblems, type VersionSources } from "./check-versions";
+import {
+  findVersionProblems,
+  resolveGitRef,
+  type VersionSources,
+} from "./check-versions";
 
 const base: VersionSources = {
   packageJson: JSON.stringify({ version: "1.2.3" }),
@@ -69,5 +73,28 @@ describe("findVersionProblems", () => {
     expect(findVersionProblems({ ...base, gitRef: "refs/heads/main" })).toEqual(
       [],
     );
+  });
+});
+
+describe("resolveGitRef", () => {
+  test.each([
+    [
+      "RELEASE_TAG があれば、タグの ref にする",
+      { RELEASE_TAG: "v1.2.3", GITHUB_REF: "refs/heads/main" },
+      "refs/tags/v1.2.3",
+    ],
+    [
+      "RELEASE_TAG が空なら、GITHUB_REF を使う",
+      { RELEASE_TAG: "", GITHUB_REF: "refs/tags/v1.2.3" },
+      "refs/tags/v1.2.3",
+    ],
+    [
+      "RELEASE_TAG が無ければ、GITHUB_REF を使う",
+      { GITHUB_REF: "refs/heads/main" },
+      "refs/heads/main",
+    ],
+    ["どちらも無ければ、未指定", {}, undefined],
+  ])("%s", (_name, env, expected) => {
+    expect(resolveGitRef(env)).toBe(expected);
   });
 });

@@ -1,12 +1,22 @@
 name: Package
 
 # x64 版の MSIX を生成し、WACK（Windows App Certification Kit）の結果とともに artifact へ保存する。
-# 必須CIには含めない（Store 提出前の検証用）。手動起動、リリースタグ、winapp CLI の更新 PR で動かす。
+# 必須CIには含めない（Store 提出前の検証用）。手動起動、リリース（release.yml が workflow_call で呼ぶ）、
+# winapp CLI の更新 PR で動かす。
 # ここで署名する証明書は、このジョブで作る開発用の自己署名であり、Store 配布には使えない。
 # Store へ出す提出物は Partner Center の署名に任せ、このジョブの MSIX は WACK と内容確認に使う。
 
 on:
   workflow_dispatch:
+  # リリースの流れ（release.yml）から、タグを付けた直後に呼ばれる。release-automate が作るタグは
+  # GITHUB_TOKEN で作られ、`push: tags` を起動しないため、タグの push ではなく、この呼び出しで動かす。
+  workflow_call:
+    inputs:
+      tag:
+        description: "リリースのタグ（例: v0.1.1）。指定すると、ファイルの版がタグと一致することを検査する"
+        required: false
+        type: string
+        default: ""
   # winapp CLI の更新 PR だけで動かし、更新で生成と WACK が壊れないことを PR で確かめる。対象は、
   # Renovate（renovate[bot]）が同じリポジトリのブランチから出し、`winapp-cli` ラベルを付けた PR に限る
   # （renovate.json の winapp CLI のルールが付ける）。ブランチ名は、更新の種類で接頭辞が変わる
@@ -19,8 +29,6 @@ on:
     # labeled の両方が起動して、同じ検証が2回走った）。後続の push（synchronize）と、閉じた PR の
     # 再オープン（reopened）は、ラベルが付いたまま起動するため、契機に含める。
     types: [synchronize, reopened, labeled]
-  push:
-    tags: ["v*"]
 
 permissions:
   contents: read
@@ -54,6 +62,8 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: バージョンの一致を検査
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
         run: bun run check:versions
 
       # winapp CLI は package.json の devDependencies（@microsoft/winappcli）に固定し、上の
