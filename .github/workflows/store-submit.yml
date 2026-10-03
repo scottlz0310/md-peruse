@@ -1,0 +1,87 @@
+name: Store Submit
+
+# Microsoft Store の掲載情報（文章・スクリーンショット）を、Submission API で更新して提出する。
+# 手動起動だけで動かし、Environment `store-production` の承認（Required reviewers）を通ってから、
+# 資格情報を使う。方針と運用は docs/store-submission.md 9章。
+#
+# 運用は段階を踏む: まず mode=dry-run で差分を確かめ（読み取りだけ）、問題がなければ mode=apply で
+# 提出する。どの mode でも承認を求める。初回だけ、clone-only と draft-only で実測してから apply へ進む。
+#   dry-run    : 読み取りだけ。Step Summary に、何が変わるかを出す
+#   clone-only : 申請（下書き）を作って、公開済みの申請との違いを出すだけ。更新も commit もしない
+#   draft-only : 申請を作り、変更して、ZIP をアップロードするが、commit しない
+#   apply      : 申請を作り、変更して、ZIP をアップロードし、commit する
+# clone-only と draft-only が作った下書きは、Partner Center で内容を見るだけにして（画面で変更しない）、
+# 確認後に「送信の削除」で消す（下書きが残ると、次の実行は止まる）。
+#
+# パッケージ（.msixupload）の提出は、このワークフローの対象外（GitHub Release との連動で別に扱う。
+# docs/design-decisions.md 13.7）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "dry-run: 差分を見るだけ / clone-only: 下書きを作って複製の違いを見るだけ / draft-only: 更新するが commit しない / apply: 提出する"
+        type: choice
+        options: [dry-run, clone-only, draft-only, apply]
+        default: dry-run
+      languages:
+        description: "更新する言語（カンマ区切り）"
+        type: string
+        default: ja-jp,en-us
+      replace_screenshots:
+        description: "スクリーンショットを docs/assets/store の内容で入れ替える"
+        type: boolean
+        default: false
+      publish_mode:
+        description: "申請が引き継いでいる公開方法（違えば止める）。Manual: 認定の後に人が公開 / Immediate: 認定の後にすぐ公開"
+        type: choice
+        options: [Manual, Immediate]
+        default: Manual
+
+permissions:
+  contents: read
+
+# 申請（下書き）は 1 つしか持てない。同時に 2 つ動かさない（実行中のものは取り消さない）。
+concurrency:
+  group: store-submit
+  cancel-in-progress: false
+
+jobs:
+  submit:
+    name: Store 提出（${{ inputs.mode }}）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: store-production
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # 資格情報を渡すジョブなので、依存関係をインストールしない。scripts/store は Bun の標準ライブラリだけで
+      # 動き、パッケージのインストール スクリプトを資格情報の近くで動かす理由がない。
+      # 入力は環境変数で受け、シェルのコマンドへ直接展開しない。
+      - name: 提出
+        env:
+          MODE: ${{ inputs.mode }}
+          LANGUAGES: ${{ inputs.languages }}
+          REPLACE_SCREENSHOTS: ${{ inputs.replace_screenshots }}
+          PUBLISH_MODE: ${{ inputs.publish_mode }}
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          args=(--listing docs/assets/store --languages "$LANGUAGES" --publish-mode "$PUBLISH_MODE")
+          if [ "$REPLACE_SCREENSHOTS" = "true" ]; then
+            args+=(--replace-screenshots)
+          fi
+          case "$MODE" in
+            dry-run) ;;
+            clone-only) args+=(--apply --clone-only) ;;
+            draft-only) args+=(--apply --no-commit) ;;
+            apply) args+=(--apply) ;;
+            *) echo "mode が不正です: $MODE" >&2; exit 1 ;;
+          esac
+          bun run store:submit "${args[@]}"

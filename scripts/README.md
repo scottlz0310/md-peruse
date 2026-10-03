@@ -63,7 +63,8 @@
 bun run store:submit --listing docs/assets/store
 ```
 
-- 既定は dry-run（読み取りだけ）。`--apply` を付けたときだけ書き込む。
+- 既定は dry-run（読み取りだけ）。`--apply` を付けたときだけ書き込む。`--apply --clone-only` は、申請（下書き）を作って複製の違いを表示するだけで止まり、`--no-commit` は更新まで行って commit しない（どちらも初回の確認用。作った下書きはあなたが「送信の削除」で消す）。
+- GitHub Actions の Store Submit（`.github/workflows/store-submit.yml`）から呼ぶ。手動起動で、Environment `store-production` の承認を通ってから資格情報を使う。
 - 認証の値は環境変数（`STORE_PRODUCT_ID`、`AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET`）で渡す。値はログに出さない。
 - API で作った申請は、以後 Partner Center の画面で変更しない。
 - テストは `bun test scripts/store`。`fetch` とファイルの読み込みは注入式で、ネットワークには出ない。
