@@ -357,16 +357,81 @@ describe("diffTopLevel", () => {
     expect(diffTopLevel(a, b)).toEqual([]);
   });
 
+  const submission = (patch: Record<string, unknown>): StoreSubmission => ({
+    ...base(),
+    ...patch,
+  });
+
   test.each([
-    ["価格が変わった", { pricing: { trialPeriod: "Unknown" } }, ["pricing"]],
+    [
+      "オブジェクトのキー順だけが違う（入れ子を含む）",
+      {
+        pricing: {
+          trialPeriod: "NoFreeTrial",
+          markets: ["US", "JP"],
+          sale: { start: 1, end: 2 },
+        },
+      },
+      {
+        pricing: {
+          sale: { end: 2, start: 1 },
+          markets: ["US", "JP"],
+          trialPeriod: "NoFreeTrial",
+        },
+      },
+    ],
+    [
+      "掲載情報のキー順だけが違う",
+      {
+        listings: {
+          "ja-jp": { baseListing: { title: "a", description: "b" } },
+        },
+      },
+      {
+        listings: {
+          "ja-jp": { baseListing: { description: "b", title: "a" } },
+        },
+      },
+    ],
+  ])("内容が同じなら、違いとして扱わない: %s", (_name, left, right) => {
+    expect(diffTopLevel(submission(left), submission(right))).toEqual([]);
+  });
+
+  test.each([
+    [
+      "価格が変わった",
+      { pricing: { trialPeriod: "NoFreeTrial" } },
+      { pricing: { trialPeriod: "Unknown" } },
+      ["pricing"],
+    ],
+    [
+      "配列の順序が違う（順序には意味がある）",
+      { pricing: { markets: ["US", "JP"] } },
+      { pricing: { markets: ["JP", "US"] } },
+      ["pricing"],
+    ],
+    [
+      "入れ子の値が違う",
+      { listings: { "ja-jp": { baseListing: { title: "a" } } } },
+      { listings: { "ja-jp": { baseListing: { title: "b" } } } },
+      ["listings"],
+    ],
+    [
+      "入れ子のキーが片方にだけある",
+      { pricing: { trialPeriod: "NoFreeTrial" } },
+      { pricing: { trialPeriod: "NoFreeTrial", extra: 1 } },
+      ["pricing"],
+    ],
+    ["オブジェクトと配列は別物", { pricing: {} }, { pricing: [] }, ["pricing"]],
     [
       "公開方法と価格が変わった（名前順）",
+      { targetPublishMode: "Manual", pricing: { trialPeriod: "NoFreeTrial" } },
       { targetPublishMode: "Immediate", pricing: null },
       ["pricing", "targetPublishMode"],
     ],
-    ["片方にだけ項目がある", { extra: 1 }, ["extra"]],
-  ])("違う項目の名前を返す: %s", (_name, patch, expected) => {
-    expect(diffTopLevel(base(), { ...base(), ...patch })).toEqual(expected);
+    ["片方にだけ項目がある", {}, { extra: 1 }, ["extra"]],
+  ])("違う項目の名前を返す: %s", (_name, left, right, expected) => {
+    expect(diffTopLevel(submission(left), submission(right))).toEqual(expected);
   });
 });
 

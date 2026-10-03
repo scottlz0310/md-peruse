@@ -120,6 +120,32 @@ const VOLATILE_KEYS = new Set([
 ]);
 
 /**
+ * JSON の値の構造比較。オブジェクトのキー順は問わず（API の応答で順序が変わっても同じ内容と
+ * みなす）、配列の順序は区別する（画像の並びなど、順序に意味があるため）。
+ */
+function deepEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || !a || !b) return false;
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return (
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every((value, index) => deepEqual(value, b[index]))
+    );
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = Object.keys(left);
+  return (
+    keys.length === Object.keys(right).length &&
+    keys.every(
+      (key) => Object.hasOwn(right, key) && deepEqual(left[key], right[key]),
+    )
+  );
+}
+
+/**
  * 2 つの申請で、内容が違うトップレベルの項目の名前を返す。作成した申請が、公開済みの申請の
  * 複製になっているかを確かめるために使う（価格など、扱わない項目の変化に気づくため）。
  */
@@ -127,7 +153,7 @@ export function diffTopLevel(a: StoreSubmission, b: StoreSubmission): string[] {
   const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
   return [...keys]
     .filter((key) => !VOLATILE_KEYS.has(key))
-    .filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]))
+    .filter((key) => !deepEqual(a[key], b[key]))
     .sort();
 }
 
