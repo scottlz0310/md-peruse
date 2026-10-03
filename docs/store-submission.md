@@ -1,6 +1,6 @@
 # Microsoft Store 提出の手順書
 
-`md-peruse` を Microsoft Store へ提出するための手順書である。初回は手動で提出し、審査に通ったあとは GitHub Release に連動した提出へ移る（方針の根拠は [design-decisions.md](./design-decisions.md) 13.7）。Store の画面名や項目は変わりうるため、画面上の最新の表示を優先する。
+`md-peruse` を Microsoft Store へ提出するための手順書である。初回は手動で提出し、審査に通ったあとは Submission API による自動提出へ移る（方針の根拠は [design-decisions.md](./design-decisions.md) 13.7）。Store の画面名や項目は変わりうるため、画面上の最新の表示を優先する。
 
 先行する2つのリポジトリの提出経験（[PhotoGeoExplorer](https://github.com/scottlz0310/PhotoGeoExplorer)、[cloud-migrator](https://github.com/scottlz0310/cloud-migrator)）に学んだ点は、該当する節に書く。
 
@@ -11,7 +11,7 @@
 | 対象アーキテクチャ | x64 のみ。ARM64 は対応外（[design-decisions.md](./design-decisions.md) 3章） |
 | 初回の提出 | 準備とレビュー完了後、GitHub Releaseの公開より先に手動提出する。Partner Center の画面で、あなたが入力し、あなたが提出する |
 | 初回の公開 | 審査に通っても、自動では公開しない（手動公開）。公開の操作は、初回の提出物と掲載内容を確認してから行う |
-| 2回目以降 | GitHub Release に連動して提出する。提出の前に、手動承認のゲートを置く（9章） |
+| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。書き込む実行の前に、手動承認のゲートを置く。GitHub Release との連動は、自動提出が安定してから行う（9章） |
 | 掲載素材（画像、説明文） | ローカルで用意する（イラストの生成を含む）。リポジトリへは、確定した素材と一覧だけを置く（6章） |
 | Partner Center の登録内容との照合 | ローカルで行う（2章の項目） |
 | 実機での確認（MSIX） | ローカルで行う（8章） |
@@ -216,43 +216,99 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 
 公開の操作（Publish now）は、あなたが行う。
 
-## 9. 2回目以降の提出（GitHub Release に連動）
+## 9. 2回目以降の提出（自動提出）
 
-初回の審査に通ったあとに、実装する。実装の前に、次を確かめる。
+初回の提出（8章）と審査を終えたので、2回目以降は、Submission API で提出する。方針の根拠は [design-decisions.md](./design-decisions.md) 13.7。提出のツールは `scripts/store/` にある。
+
+### 9.1 方針（2026-10-04に決定）
+
+| 項目 | 決定 |
+| --- | --- |
+| 方式 | **Submission API を TypeScript（bun）で一本化する。** `msstore` は使わない |
+| 理由 | パッケージの差し替えと、掲載情報（文章、スクリーンショット、イラスト）の更新を、同じ仕組みで扱うため。`msstore` の資料（2026-08-30 更新）には、掲載画像のアップロード方法の記載がない。Submission API は、画像を ZIP で送る方法を定めている |
+| 提出の種類 | ①**パッケージのリリース**（タグ実行の `Package` の artifact を送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
+| 掲載情報の元 | `docs/assets/store/`（`listingData.csv` と画像）。CSV にある項目のうち、許可リストの項目だけを上書きする。値が空の項目は、申請の値を変えない |
+| 既定の動作 | **dry-run**（読み取りだけ。何が変わるかを表示する）。`--apply` を付けたときだけ、書き込む |
+| 承認 | 書き込む実行は、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする |
+| 公開 | 申請が引き継いだ設定に従う。公開方法を `--publish-mode`（既定 `Manual`）で明示し、申請の設定と違えば止める |
 
 進める順序は、次のとおりとする。
 
-1. 掲載情報・パッケージ・審査ノート等の準備とレビューを終え、GitHub Releaseを公開する前に初回の手動提出を行う。
-2. 初回の審査通過後、cloud-migrator／PhotoGeoExplorerで安定運用している提出フローを参照し、md-peruseの自動提出フローを実装・レビューする。
-3. 自動提出フローが整ったら、GitHub Releaseの公開と承認ゲートを経たStoreへの自動提出を連動させる。初回の手動申請が処理中の間に自動提出を重ねず、同じ提出済みバージョンを再提出しない。
+1. **ツール**（`scripts/store/`、テスト、この章）を作る。dry-run で、実際の Partner Center の申請の JSON と突き合わせる。
+2. **承認ゲート付きのワークフロー**と、Environment の設定を整える。
+3. 最初の実走として、**英語版スクリーンショットの掲載情報だけの更新**を通す。
+4. 自動提出が安定したら、**GitHub Release の公開と連動**させる。`release-automate` の導入は、`tauri.conf.json` のバージョン更新への対応と、`GITHUB_TOKEN` が作るタグでは `push: tags` の `Package` が起動しない点を確かめてから決める。
 
-参照先の安定運用状況はユーザーによる確認に基づく。方式・認証・送信形式・公開設定は、実装時に両リポジトリの現行フローを確認して決める。
+### 9.2 使い方
+
+```text
+bun run store:submit --listing docs/assets/store
+```
+
+| オプション | 内容 |
+| --- | --- |
+| `--listing <フォルダー>` | `listingData.csv` と画像を直下に置いたフォルダー（6章のインポート用フォルダーと同じ） |
+| `--languages ja-jp,en-us` | 反映する言語（既定は `ja-jp,en-us`） |
+| `--replace-screenshots` | スクリーンショットを、CSV の内容で入れ替える。指定しなければ、画像は変えない |
+| `--package <.msixupload>` | パッケージを差し替える。既存のパッケージは `PendingDelete` にする |
+| `--publish-mode Manual／Immediate` | 申請が引き継いでいるはずの公開方法。違えば止める。既定は `Manual` |
+| `--apply` | 書き込む。指定しなければ dry-run |
+| `--no-commit` | `--apply` でも commit せず、下書きのまま止める（初回の確認用） |
+
+認証の値は、環境変数で渡す（GitHub の Environment の secret と変数。値はログに出さない）。
+
+| 名前 | 内容 |
+| --- | --- |
+| `STORE_PRODUCT_ID` | Store ID（`9P35BW61FN4W`） |
+| `AZURE_AD_TENANT_ID` | Entra ID のテナント ID |
+| `AZURE_AD_APPLICATION_CLIENT_ID` | Entra ID のアプリのクライアント ID |
+| `AZURE_AD_APPLICATION_SECRET` | Entra ID のアプリのシークレット |
+
+名前は、先例の cloud-migrator と同じにした。
+
+実行の流れは、①アプリの情報を読む（処理中の申請があれば止まる）、②公開済みの申請を読んで、変更の計画を作る（変更が無ければ、申請を作らずに終わる）、③（`--apply` のとき）申請を作り、計画と一致することを確かめてから更新する、④画像やパッケージがあれば ZIP を SAS URL へアップロードする、⑤commit し、受理されるまで待つ（認定の完了までは待たない）。
+
+### 9.3 運用の規則
+
+- **API で作った申請は、以後 Partner Center の画面で変更しない。** 画面で変更すると、その申請を API で変更も commit もできなくなり、エラーの状態で残ることがある。その場合は、申請を削除して作り直す。
+- **処理中の申請（下書き）が残っていると、ツールは止まる。** 自動では消さない。申請の削除は取り消せない操作なので、あなたが内容を確かめて、Partner Center の「送信の削除」で行う。
+- 認定の結果と、公開は、Partner Center（とメール）で確認する。公開方法が `Manual` なら、認定の後に、あなたが「今すぐ公開」を押す。
+- ログと Step Summary に、シークレットと、署名つきのアップロード URL は出さない。
+
+#### 公開方法を「手動」から「自動」に変える
+
+自動提出の公開方法は、公開済みの申請から引き継がれる。変えるには、Partner Center で、変更なしの提出を 1 回行う。
+
+1. 概要の「製品の更新」の「更新の開始」を押す（公開済みの内容を引き継いだ下書きができる）。
+2. 「申請オプション」の「公開の保留オプション」で、「認定されたらすぐに、（または [スケジュール] セクションで選択した日付に）この提出物を公開する」を選び、保存する。
+3. 概要に戻り、「送信して認定を受ける」を押す。
+
+以降のすべての申請は、認定の後に自動で公開される（人の確認は、送信前の承認ゲートだけになる）。そのとき、自動提出のツールには `--publish-mode Immediate` を指定する。
+
+### 9.4 あなたが用意するもの
+
+値は、リポジトリへ書かない。
+
+1. **Partner Center の Entra ID アプリ**（Azure AD アプリケーション）を登録し、テナント ID、クライアント ID、シークレットを控える。
+2. GitHub の Environment **`store-production`** を作り、必須レビュアーにあなたを指定する。
+3. その Environment の secret に、`AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET` を、変数に `STORE_PRODUCT_ID` を設定する。cloud-migrator の `scripts/Configure-StorePublishing.ps1`（`.env` から設定する）が使える。
+
+### 9.5 実測した引き継ぎ（手動の「更新の開始」）
 
 手動の「更新の開始」で作った下書き（Submission 2）で、公開済みの内容の引き継ぎを読み取りで確かめた（2026-10-04）:
 
 - 引き継がれたもの: 市場（全市場）、表示範囲（一般ユーザー）、見つかりやすさ（検索可）、基本価格（USD）、年齢区分（評価 ID つき、IARC 3+）、プロパティ、パッケージ（v0.1.0.0 の `.msixupload` と対象デバイス）、Store 登録情報、申請オプション（**「今すぐ公開を選択するまで、この提出物を公開しない」**）。「追加のテスト情報」（審査ノート）はアプリ単位で、申請とは別に残る。
 - パッケージは、新しい版を出すときに、古いものを「Remove」してアップロードする。段階的な展開と必須の更新のオプションが現れる。
-- 下書きの申請が残っていると、先例の自動提出は失敗する（pending submission の検出）。実測用の下書きは、確認後に削除した。申請の削除は、取り消せない操作なので、エージェントは行わず、あなたが「送信の削除」で行う。
-- これは手動での「更新の開始」の結果である。`msstore publish` や Submission API の新しい申請が、同じ内容を引き継ぐかは、未実測である（初回の自動提出で確かめる）。
+- 下書きの申請が残っていると、先例の自動提出は失敗する（pending submission の検出）。実測用の下書きは、確認後に、あなたが「送信の削除」で削除した。
+- これは手動での「更新の開始」の結果である。Submission API の新しい申請は、資料では「直近の公開のコピー」と定められている。実際に同じ内容を引き継ぐかは、最初の dry-run と実走で確かめる。
 
-- 提出に使う方法（Microsoft Store の Submission API、または Microsoft Store Developer CLI（`msstore`））の、現在の版、認証の方式、MSIX のパッケージへの対応。先行する PhotoGeoExplorer は Submission API（`manage.devcenter.microsoft.com/v1.0/my`、`Submit-ToPartnerCenter.ps1`）、cloud-migrator は `msstore` を使っている。`msstore` の GitHub Actions での更新は、無料のアプリが前提である（`md-peruse` は無料）。
-- 認証に必要な値（Entra ID のアプリ、テナント ID、クライアント ID、シークレット、Seller ID、Product ID）。値は、リポジトリへ書かず、GitHub の Environment の secret に置く。
-
-構成の方針:
-
-1. タグの push で、`Package` ワークフローが、MSIX の生成と WACK を行う（今のとおり）。
-2. WACK が合格したときだけ、GitHub Release を作り、同じ artifact の MSIX を添付する。
-3. その次に、`store-production` の Environment の job が、同じ MSIX を Store へ送る。**この job の前に、手動承認（required reviewer）のゲートを置く**。承認がなければ、送信しない。
-4. 送信の対象は、承認時点のコミットとタグに紐づく、WACK を通した artifact だけにする（再ビルドしない）。
-5. 公開の方法は、最初は手動公開のままにして、運用に慣れてから自動に変えるかを決める。
-6. GitHub Release の公開と、Store の提出・認定・公開は、別の状態として記録する。
-
-先行する2つのリポジトリの経験から、実装で次を押さえる。
+### 9.6 先例から押さえた点
 
 - 処理中の申請（pending submission）があるときは、自動で消さず、失敗にして、人が確認してから対応する。
 - 別のバージョンの申請が処理中のときは、上書きしない。
 - 実行の再試行は、新しいタグを切らず、同じ実行を再実行する。
 - 認証の値や、トークンを、ログへ出さない。
+- 先例の PhotoGeoExplorer（`Submit-ToPartnerCenter.ps1`）は Submission API を使い、cloud-migrator は `msstore` を使っている。エンドポイントと呼び出しの順序は、前者に合わせた。
 
 提出の API が使えないときは、8章の手動の手順を、そのまま使う。
 

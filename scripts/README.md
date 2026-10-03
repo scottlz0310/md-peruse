@@ -54,3 +54,16 @@
 キーボードだけでの操作を確認するときは、入力欄のクリックを使わない（文字は1文字ずつのキー入力で入れる）。フォルダー選択の
 ダイアログで長いパスを打たないよう、ダイアログが開くフォルダーの下に短い名前の一時フォルダー（ジャンクション）を置き、
 確認後に消す（Phase 4 の確認の手順。tasks.md）。
+
+## store（Store への提出）
+
+`scripts/store/` は、Microsoft Store へのパッケージの提出と、掲載情報の更新を、Submission API で行う。方針と使い方は [docs/store-submission.md](../docs/store-submission.md) 9章、判断の理由は [docs/design-decisions.md](../docs/design-decisions.md) 13.7。
+
+```text
+bun run store:submit --listing docs/assets/store
+```
+
+- 既定は dry-run（読み取りだけ）。`--apply` を付けたときだけ書き込む。
+- 認証の値は環境変数（`STORE_PRODUCT_ID`、`AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET`）で渡す。値はログに出さない。
+- API で作った申請は、以後 Partner Center の画面で変更しない。
+- テストは `bun test scripts/store`。`fetch` とファイルの読み込みは注入式で、ネットワークには出ない。
