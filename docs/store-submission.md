@@ -137,12 +137,12 @@ docs/assets/store/
 
 ## 7. 審査ノートと、制限付き Capability の申請
 
-`runFullTrust` は制限付き（restricted）の Capability である。Partner Center の Submission options には、次の2つの別の入力欄があり、**両方を入力する**。
+`runFullTrust` は制限付き（restricted）の Capability である。Partner Center には、次の2つの別の入力欄があり、**両方を入力する**。
 
-| 入力欄 | 役割 |
-| --- | --- |
-| Notes for certification | 審査員が、アプリを正しく試すための情報（7.1） |
-| Restricted capabilities | 制限付き Capability ごとの、用途と必要性の説明。**審査員が承認するかを判断する**（7.2） |
+| 入力欄 | 場所 | 役割 |
+| --- | --- | --- |
+| Notes for certification（画面名は「認定の注意書き」） | 左メニュー「追加のテスト情報」（`suppinfo/additionaltestinginfo`）の「説明」。申請ではなくアプリ単位で、「Save description」で保存する | 審査員が、アプリを正しく試すための情報（7.1） |
+| Restricted capabilities | 申請オプション。パッケージのアップロード前は欄がない（2026-10-03に確認）。現れる場所と文言は、初回のアップロード後に確認する | 制限付き Capability ごとの、用途と必要性の説明。**審査員が承認するかを判断する**（7.2） |
 
 Restricted capabilities の欄は、パッケージが制限付き Capability を宣言していることを Partner Center が検出したときに現れる。ここへの記入が漏れる、または説明が足りないと、Capability が承認されず、認定に失敗する（[Microsoft Learn](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/manage-submission-options)）。承認の確認の分だけ、認定に時間がかかることがある。一度承認されれば、更新の提出では、通常は繰り返さない（Capability を足したときを除く）。承認されなければ、Capability を宣言しないパッケージで出し直すか、指摘を直して、新しい申請で承認を求める。
 
@@ -180,14 +180,14 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 ## 8. 初回の提出（手動）
 
 1. Partner Center で `md-peruse` のアプリを開き、新しい申請（submission）を作る。
-2. **Pricing and availability**: 市場、価格（無料）、可視性、公開の予定（Schedule）を確認する。公開の方法（手動公開）は、7番の Submission options で選ぶ。
-3. **Properties**: カテゴリ、年齢区分、サポートの情報、プライバシーポリシーの URL（5章）を入力する。
-4. **Age ratings**: 質問票に答える。
+2. **Pricing and availability**: 市場、価格（無料）、可視性、公開の予定（Schedule）を確認する。公開の方法（手動公開）は、7番の Submission options で選ぶ。2026-10-03時点の下書きでは、価格が未設定で、画面に警告が出ている。
+3. **Properties**: カテゴリ、個人情報の取り扱いの回答、プライバシーポリシーの URL（5章）、サポートの情報、システム要件（x64のみ対応）を入力する。年齢区分は、次の別ページである。
+4. **Age ratings**: IARC の質問票に答える（アプリの種類は「その他のすべてのアプリの種類」）。
 5. **Packages**: 3章の `.msixupload` をアップロードする（受け付けられないときは `.msix`）。アップロード後の検証が終わるまで、先へ進まない。Package details で、Identity Name、Publisher、Version、x64、Capability（`runFullTrust` のみ）、警告とエラーを確認する。エラーや、確認できていない警告があれば、提出せず、パッケージを直して、タグを切り直す（10章）。
-6. **Store listings**: 6章の内容を、日本語と英語で入力する。プレビューで、言語を切り替えて、画像のぼけ、切り抜き、文字化けを目で確認する。
-7. **Submission options**: 次の3つを入力する。
+6. **Store listings**: 掲載の言語は、パッケージのアップロード後に「パッケージでサポートされている言語」として現れる（アップロード前は空。2026-10-03に確認）。6章の内容を、日本語と英語で入力する。プレビューで、言語を切り替えて、画像のぼけ、切り抜き、文字化けを目で確認する。
+7. **Submission options と審査ノート**: 次の3つを入力する。入力先は、前の2つが申請オプション、審査ノートは別ページである。
    - **Publishing hold options**: 「Don't publish this submission until I select Publish now」を選ぶ（手動公開。審査に通っても自動で公開しない）
-   - **Notes for certification**: 7.1 の審査ノート
+   - **Notes for certification**: 左メニュー「追加のテスト情報」の「説明」へ、7.1 の審査ノートを入力して保存する（資格情報の欄は使わない）
    - **Restricted capabilities**: `runFullTrust` の用途の説明（7.2）。この欄が出ているのに空のまま提出しない
 8. 概要のページで、パッケージ、掲載情報、価格と市場、プライバシーポリシー、審査ノートと Restricted capabilities、公開の方法（手動公開）を確認し、**提出の操作は、あなたが行う**。
 9. 提出した記録（11章）を残す。

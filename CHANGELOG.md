@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-03
+
 ### Added
 
 - MSIX実機確認の結果と測定条件を記録し、Store撮影に使える日本語Markdownサンプルを追加した。
@@ -366,6 +368,7 @@
 - CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する。RustのlcovはWindowsのジョブがartifactへ保存し、`Coverage` ジョブ（ubuntu）がアップロードする
 
 ### Changed
+- Store提出の手順書の入力先を、Partner Centerの画面で確認した内容に合わせた。審査ノートは申請オプションではなく、左メニュー「追加のテスト情報」（アプリ単位）の「説明」へ入力する。掲載言語はパッケージのアップロード後に現れる。年齢区分はプロパティと別のページである
 - `Package` ワークフローを、winapp CLI の更新 Pull Request で動かす契機から、`opened` を外した（`synchronize`、`reopened`、`labeled`）。Renovate の最初の更新 Pull Request で、`opened` と `labeled` の両方が起動して、同じ検証が2回走ったため
 - winapp CLI の導入経路を、WinGet から npm（`@microsoft/winappcli`）へ変えた。`package.json` の devDependencies で `0.6.1` に固定し、`bun install` が導入する（Windowsのみ）。`scripts/build-msix.ps1` は同梱の実行ファイルを直接呼ぶ。版の更新はRenovateに任せ、更新Pull Requestでは `Package` ワークフローが MSIX の生成と WACK を検証する。開発機でのWinGetによる導入は不要になった
 
@@ -430,4 +433,5 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.1.0...main
+[0.1.0]: https://github.com/scottlz0310/md-peruse/commits/v0.1.0
