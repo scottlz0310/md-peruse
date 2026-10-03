@@ -152,7 +152,7 @@ docs/assets/store/
 | 入力欄 | 場所 | 役割 |
 | --- | --- | --- |
 | Notes for certification（画面名は「認定の注意書き」） | 左メニュー「追加のテスト情報」（`suppinfo/additionaltestinginfo`）の「説明」。申請ではなくアプリ単位で、「Save description」で保存する | 審査員が、アプリを正しく試すための情報（7.1） |
-| Restricted capabilities | 申請オプション。パッケージのアップロード前は欄がない（2026-10-03に確認）。現れる場所と文言は、初回のアップロード後に確認する | 制限付き Capability ごとの、用途と必要性の説明。**審査員が承認するかを判断する**（7.2） |
+| Restricted capabilities | 申請オプション。パッケージのアップロード前は欄がない（2026-10-03に確認）。v0.1.0 では、アップロード後も欄は現れず、説明を入力しないまま認定を通過した（2026-10-04に確認）。Capability を足す更新では、欄が現れるかを確認する | 制限付き Capability ごとの、用途と必要性の説明。**審査員が承認するかを判断する**（7.2） |
 
 Restricted capabilities の欄は、パッケージが制限付き Capability を宣言していることを Partner Center が検出したときに現れる。ここへの記入が漏れる、または説明が足りないと、Capability が承認されず、認定に失敗する（[Microsoft Learn](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/manage-submission-options)）。承認の確認の分だけ、認定に時間がかかることがある。一度承認されれば、更新の提出では、通常は繰り返さない（Capability を足したときを除く）。承認されなければ、Capability を宣言しないパッケージで出し直すか、指摘を直して、新しい申請で承認を求める。
 
@@ -286,15 +286,15 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | MSIX の SHA-256 | `.msix`: `A35D303FA57CA1E80F5CF8B9209543A4DDBA1F02AB2B4972B92EC094007CC743`。アップロードした `.msixupload`（4,287,866 バイト）: `A1A35E978ED2155B7129A7D20907C765009B238E8544B6F7874E8DD871E36A55`。どちらも artifact の `SHA256SUMS.txt` と、ダウンロードして再計算した値が一致した |
 | WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `OVERALL_RESULT="PASS"`。24テスト中23 PASS、任意テスト（`OPTIONAL="TRUE"`）「Blocked executables」の1件が FAIL で、総合結果には影響しない（`CreateProcessW`、`ShellExecuteW` と `cmd.exe` などの文字列への参照。内訳と原因は [design-decisions.md](./design-decisions.md) 13.3。過去の実行でも同じ）。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
 | プライバシーポリシーの URL の確認日時と結果 | 2026-10-03、HTTP 200 |
-| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。結果は未確認 |
-| 公開の方法と、公開の操作をした人 | 手動公開（「今すぐ公開」を選ぶまで公開しない）。公開の操作は、まだしていない |
+| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。その後、認定は通過した（scottlz0310 が Partner Center で確認。通過の日時は記録していない）。差戻しはなかった。認定の過程で、追加の指摘や「Restricted capabilities」の説明の要求はなく、そのまま公開された（scottlz0310 の報告。WACK の任意テスト「Blocked executables」への指摘もなかった）。Partner Center から「Your submission is processed」の通知メールが届いた |
+| 公開の方法と、公開の操作をした人 | 手動公開。scottlz0310 が「今すぐ公開」を操作して公開した（操作の日時は記録していない）。2026-10-04に、Partner Center の製品の状態が「Microsoft Store で取り扱い中」（"currently available in the Microsoft Store"）であることと、公開ページ <https://apps.microsoft.com/detail/9P35BW61FN4W> が HTTP 200 を返し、タイトルが「md-peruse - Windows に無料でダウンロードしてインストールする \| Microsoft Store」であることを確認した |
 
 提出時に分かったこと:
 
 - Partner Center は、アップロードしたパッケージのハッシュを表示しない。提出物と検証済みの成果物の一致は、artifact から取り出したファイルを、再ビルドせずにそのままアップロードした手順で担保している。
 - `.msixupload`（手作りのZIP、シンボル `.appxsym` 同梱）は、そのまま受理された（Validated）。シンボルが認識されたかの確認は、初回の公開後のクラッシュ分析で行う。
 - Package details の Capabilities には、`runFullTrust` のほかに `Microsoft.storeFilter.core.notSupported_8wekyb3d8bbwe` が表示された。マニフェストにはない（Partner Center 側の表示と思われるが、出所は確認していない）。
-- 「Restricted capabilities」の入力欄は、パッケージのアップロード後も、申請オプションに現れなかった。認定の過程で説明を求められたら、7.2 の英文を使う。
+- 「Restricted capabilities」の入力欄は、パッケージのアップロード後も、申請オプションに現れなかった。v0.1.0 の認定では、説明を求められなかった。求められたら、7.2 の英文を使う。
 - 年齢区分の IARC 質問票は、アプリの種類を「その他のすべてのアプリの種類」にして全問「いいえ」とし、IARC 3+（ESRB 全年齢、PEGI 3+、USK 全年齢）になった。公開元の表示名とメールアドレスが IARC と共有される。
 - プロパティの個人情報の質問には「はい」と答え、プライバシーポリシーの URL を入れた（Store 版がイベント名だけを Microsoft の計測基盤へ送るため）。
 
