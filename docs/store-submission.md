@@ -11,7 +11,7 @@
 | 対象アーキテクチャ | x64 のみ。ARM64 は対応外（[design-decisions.md](./design-decisions.md) 3章） |
 | 初回の提出 | 準備とレビュー完了後、GitHub Releaseの公開より先に手動提出する。Partner Center の画面で、あなたが入力し、あなたが提出する |
 | 初回の公開 | 審査に通っても、自動では公開しない（手動公開）。公開の操作は、初回の提出物と掲載内容を確認してから行う |
-| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。書き込む実行の前に、手動承認のゲートを置く。GitHub Release との連動は、自動提出が安定してから行う（9章） |
+| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。資格情報を使う実行（dry-run を含む）の前に、手動承認のゲートを置く。GitHub Release との連動は、自動提出が安定してから行う（9章） |
 | 掲載素材（画像、説明文） | ローカルで用意する（イラストの生成を含む）。リポジトリへは、確定した素材と一覧だけを置く（6章） |
 | Partner Center の登録内容との照合 | ローカルで行う（2章の項目） |
 | 実機での確認（MSIX） | ローカルで行う（8章） |
@@ -229,7 +229,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | 提出の種類 | ①**パッケージのリリース**（タグ実行の `Package` の artifact を送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
 | 掲載情報の元 | `docs/assets/store/`（`listingData.csv` と画像）。CSV にある項目のうち、許可リストの項目だけを上書きする。値が空の項目は、申請の値を変えない |
 | 既定の動作 | **dry-run**（読み取りだけ。何が変わるかを表示する）。`--apply` を付けたときだけ、書き込む |
-| 承認 | 書き込む実行は、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする |
+| 承認 | 資格情報を使う実行は、dry-run も含めて、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする（資格情報は Environment の secret で、承認の前は渡らない）。dry-run で差分を確かめてから、`apply` を別の実行として承認する |
 | 公開 | 申請が引き継いだ設定に従う。公開方法を `--publish-mode`（既定 `Manual`）で明示し、申請の設定と違えば止める |
 
 進める順序は、次のとおりとする。
@@ -254,6 +254,7 @@ bun run store:submit --listing docs/assets/store
 | `--publish-mode Manual／Immediate` | 申請が引き継いでいるはずの公開方法。違えば止める。既定は `Manual` |
 | `--apply` | 書き込む。指定しなければ dry-run |
 | `--no-commit` | `--apply` でも commit せず、下書きのまま止める（初回の確認用） |
+| `--clone-only` | `--apply` と組み合わせる。申請（下書き）を作り、公開済みの申請との違いを表示するだけで止める（更新も commit もしない。初回の確認用） |
 
 認証の値は、環境変数で渡す（GitHub の Environment の secret と変数。値はログに出さない）。
 
@@ -266,7 +267,20 @@ bun run store:submit --listing docs/assets/store
 
 名前は、先例の cloud-migrator と同じにした。
 
-実行の流れは、①アプリの情報を読む（処理中の申請があれば止まる）、②公開済みの申請を読んで、変更の計画を作る（変更が無ければ、申請を作らずに終わる）、③（`--apply` のとき）申請を作り、計画と一致することを確かめてから更新する、④画像やパッケージがあれば ZIP を SAS URL へアップロードする、⑤commit し、受理されるまで待つ（認定の完了までは待たない）。
+実行の流れは、①アプリの情報を読む（処理中の申請があれば止まる）、②公開済みの申請を読んで、変更の計画を作る（変更が無ければ、申請を作らずに終わる）、③（`--apply` のとき）申請を作り、公開済みの申請の複製になっていることを確かめてから更新する（申請ごとに変わる項目を除いて、トップレベルの項目に違いがあれば、更新せずに止まる）、④画像やパッケージがあれば ZIP を SAS URL へアップロードする、⑤commit し、受理されるまで待つ（認定の完了までは待たない）。
+
+#### ワークフローから使う
+
+GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`）が、このツールを呼ぶ。手動起動だけで動き、起動のたびに Environment `store-production` の承認（必須レビュアー）を求める。承認されるまで、資格情報は使われない。
+
+| 入力 | 内容 |
+| --- | --- |
+| `mode` | `dry-run`（既定。読み取りだけ）／`clone-only`／`draft-only`（更新するが commit しない）／`apply`（提出する） |
+| `languages` | 反映する言語（既定は `ja-jp,en-us`） |
+| `replace_screenshots` | スクリーンショットを `docs/assets/store/` の内容で入れ替える |
+| `publish_mode` | 申請が引き継いでいる公開方法（`Manual`／`Immediate`）。違えば止まる |
+
+結果は、実行の Step Summary に出る（何が変わるか、申請の ID と状態）。パッケージ（`.msixupload`）の提出は、このワークフローの対象外とする（GitHub Release との連動で別に扱う）。同時に 2 つの実行が動かないよう、実行は直列にしてある。
 
 ### 9.3 運用の規則
 
@@ -274,6 +288,7 @@ bun run store:submit --listing docs/assets/store
 - **処理中の申請（下書き）が残っていると、ツールは止まる。** 自動では消さない。申請の削除は取り消せない操作なので、あなたが内容を確かめて、Partner Center の「送信の削除」で行う。
 - 認定の結果と、公開は、Partner Center（とメール）で確認する。公開方法が `Manual` なら、認定の後に、あなたが「今すぐ公開」を押す。
 - ログと Step Summary に、シークレットと、署名つきのアップロード URL は出さない。
+- **価格は、このツールで変えない。** Partner Center の「価格と提供状況」に「市場ごとの価格のレビュー」が出るアプリは Pricing Version 2 で、API は価格を不明な tier として返す（資料の定め）。申請の JSON をそのまま送り返すため、価格が意図せず変わらないかを、初回に実測で確かめる（9.4 の「初回の実走」）。ツールは、公開済みの申請と作成した申請の価格をログに出し、価格を含むトップレベルの項目に違いがあれば、更新せずに止める。
 
 #### 公開方法を「手動」から「自動」に変える
 
@@ -287,11 +302,60 @@ bun run store:submit --listing docs/assets/store
 
 ### 9.4 あなたが用意するもの
 
-値は、リポジトリへ書かない。
+テナント ID、クライアント ID、シークレットは、リポジトリへ書かない。画面の文言は、Partner Center と GitHub の更新で変わることがある（違っていたら、近い項目を探す）。
 
-1. **Partner Center の Entra ID アプリ**（Azure AD アプリケーション）を登録し、テナント ID、クライアント ID、シークレットを控える。
-2. GitHub の Environment **`store-production`** を作り、必須レビュアーにあなたを指定する。
-3. その Environment の secret に、`AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET` を、変数に `STORE_PRODUCT_ID` を設定する。cloud-migrator の `scripts/Configure-StorePublishing.ps1`（`.env` から設定する）が使える。
+#### ① Entra ID のアプリを、Partner Center のアカウントに結びつける
+
+Submission API は、Partner Center のアカウントに登録した Entra ID（旧 Azure AD）のアプリの資格情報で呼ぶ。**cloud-migrator が使っているアプリを、そのまま使う**（新しく作らなくてよい。同じ Partner Center のアカウントの製品なので、アプリも同じ）。
+
+1. Partner Center の右上の歯車（アカウント設定）から「ユーザー」を開き、Microsoft Entra アプリケーションの一覧を見る。
+2. cloud-migrator 用のアプリが一覧にあり、ロールが **Manager** なら、結びつけは済んでいる。アプリの名前を開き、**テナント ID** と **クライアント ID** が、控えた値と一致することを確かめる。
+3. 一覧に無いときだけ、「Microsoft Entra アプリケーションの追加」を押す。ディレクトリにある**既存のアプリ**を選び、**Manager** のロールを付けて保存する。新しいアプリを作るのは、既存のアプリが選べないときに限る。
+4. Entra ID のディレクトリとアカウントが関連付いていなければ、アカウント設定の組織のプロファイルで関連付ける（Entra ID のグローバル管理者が必要）。cloud-migrator で API を使えているなら、済んでいる。
+
+**シークレット（キー）**は、GitHub に保存した値を後から読み返せない。cloud-migrator のときに控えた値（`.env`、パスワード マネージャー）を使う。控えが無いときは、同じアプリの画面で「新しいキーの追加」を押す（値は、そのとき 1 回しか表示されない。既存のキーは失効しない）。リポジトリごとにキーを分けると、片方を失効させても、もう片方に影響しない（こちらを勧める）。
+
+#### ② GitHub の Environment `store-production`
+
+**ワークフローを起動する前に**作る。Environment が無いまま起動すると、GitHub が保護の無い Environment を自動で作るため。
+
+1. リポジトリの Settings の「Environments」で「New environment」を押し、名前を `store-production` にする。
+2. **Required reviewers** を有効にし、あなた（`scottlz0310`）を指定する。
+3. **Prevent self-review** は**オフ**にする。一人で開発しているため、オンだと、起動した本人が承認できず、実行が止まったままになる。
+4. **Deployment branches and tags** は「Selected branches and tags」にし、ブランチ `main` だけを追加する（Store Submit は `main` から起動する）。タグ `v*` は、パッケージの提出（GitHub Release との連動）を足すときに加える。
+5. Environment secrets に `AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET` を、Environment variables に `STORE_PRODUCT_ID`（`9P35BW61FN4W`）を登録する。
+
+登録は、画面のほかに、`gh` でもできる。secret は、値を対話で貼り付ける（コマンドの引数に値を書くと、シェルの履歴に残る）。
+
+```text
+gh secret set AZURE_AD_TENANT_ID --env store-production --repo scottlz0310/md-peruse
+gh secret set AZURE_AD_APPLICATION_CLIENT_ID --env store-production --repo scottlz0310/md-peruse
+gh secret set AZURE_AD_APPLICATION_SECRET --env store-production --repo scottlz0310/md-peruse
+gh variable set STORE_PRODUCT_ID --env store-production --repo scottlz0310/md-peruse --body 9P35BW61FN4W
+```
+
+cloud-migrator の `scripts/Configure-StorePublishing.ps1` は、そのままは使わない。作る Environment がタグ `v*` だけを許可し、必須レビュアーを付けず、`SELLER_ID` を必要とするため、この方針（承認ゲート、`main` から起動）と合わない。
+
+#### ③ 初回の実走（確認の手順）
+
+Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**下の順に、1 つずつ進める。**
+
+1. **`dry-run`**（読み取りだけ）。成功すれば、Entra ID のアプリの資格情報と権限が正しい。失敗の見分け方:
+   - 「アクセス トークンを取得できませんでした（HTTP 400／401）」: テナント ID、クライアント ID、シークレットのどれかが違う（シークレットの期限切れも）。
+   - 「Store API のエラー: GET applications/…（HTTP 401／403）」: アプリが、この Partner Center のアカウントに登録されていない、または Manager のロールが無い。
+   - 「処理中の申請が残っています」: 下書きが残っている。内容を確かめ、不要なら「送信の削除」で消す。
+
+   文章は公開済みの内容と一致しているはず（6章「公開後の保守」）なので、**「変更はありません」と出れば**、CSV の項目と API の項目の対応が合っている。差が出たら、改行コードなど、CSV と API の値の違いを確かめてから進む。ログの「価格（公開済み）」は、Pricing Version 2 の実測として控える。
+2. **`clone-only`**（下書きを作るだけ）。ログの「違い（トップレベル）」が「なし」で、「価格（作成した申請）」が公開済みと同じなら、複製として安全。違いがあれば、`apply` へ進まず、原因を調べる。終わったら、Partner Center で作られた下書きを**見るだけ**にして（画面で変更しない）、「送信の削除」で消す。
+3. **`draft-only` と `replace_screenshots`**（今ある画像のまま入れ替えて、commit しない）。更新と ZIP のアップロードまで通す。Partner Center で下書きを開いて、次を見る（変更はしない）。
+   - 「価格と提供状況」: 基本価格、市場、無料のままか（Pricing Version 2 で価格が変わっていないか）
+   - 年齢区分、プロパティ、パッケージ、申請オプション（公開方法が、期待どおりか）
+   - 「Store 登録情報」: 文章と、画像の**順序**（6章のとおり、インポートでは 3 番目と 4 番目が入れ替わったことがある）
+
+   変わっていなければ、「送信の削除」で消す。変わっていれば、`apply` へ進まない。
+4. **`apply`**（提出）。`publish_mode` は、公開済みの申請の設定に合わせる（手動公開なら `Manual`。9.3 の手順で自動に変えたなら `Immediate`）。`Manual` のときは、認定の後に、あなたが「今すぐ公開」を押す。
+
+申請の削除は取り消せない操作なので、毎回あなたが行う（9.3）。
 
 ### 9.5 実測した引き継ぎ（手動の「更新の開始」）
 

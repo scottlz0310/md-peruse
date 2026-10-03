@@ -28,6 +28,7 @@ import {
   assertNoPendingSubmission,
   assertPublishMode,
   describePlan,
+  diffTopLevel,
   type PlanInput,
   PUBLISH_MODES,
   type PublishMode,
@@ -46,6 +47,8 @@ export interface RunOptions {
   publishMode: PublishMode;
   apply: boolean;
   commit: boolean;
+  /** 申請（下書き）を作って、公開済みの申請との違いを表示するだけで止める（更新も commit もしない）。 */
+  cloneOnly: boolean;
 }
 
 export interface RunDeps {
@@ -66,7 +69,7 @@ export interface RunDeps {
 }
 
 export interface RunResult {
-  mode: "dry-run" | "no-changes" | "applied";
+  mode: "dry-run" | "no-changes" | "cloned" | "applied";
   plan: SubmissionPlan;
   submissionId?: string;
   /** commit した場合の、commit 受理後の状態。 */
@@ -78,6 +81,11 @@ const COMMIT_POLL = { intervalMs: 5_000, maxAttempts: 60 };
 function buildInput(options: RunOptions, deps: RunDeps): PlanInput {
   if (!options.listingDir && !options.packagePath) {
     throw new Error("--listing か --package の少なくとも一方が必要です");
+  }
+  if (options.cloneOnly && !options.apply) {
+    throw new Error(
+      "--clone-only は申請（下書き）を作るので、--apply が必要です",
+    );
   }
   if (options.replaceScreenshots && !options.listingDir) {
     throw new Error("--replace-screenshots には --listing が必要です");
@@ -131,21 +139,37 @@ export async function run(
   assertPublishMode(published, options.publishMode);
   const preview = planSubmission(published, input);
   log(describePlan(preview));
+  // Pricing Version 2 のアプリは、API が価格を unknown tier で返す（資料の定め）。実際の値を残す。
+  log(`価格（公開済み）: ${JSON.stringify(published.pricing ?? null)}`);
 
   if (!options.apply) return { mode: "dry-run", plan: preview };
-  if (preview.changes.length === 0) {
+  if (preview.changes.length === 0 && !options.cloneOnly) {
     return { mode: "no-changes", plan: preview };
   }
 
   const created = await client.createSubmission();
   assertPublishMode(created, options.publishMode);
-  const plan = planSubmission(created, input);
-  if (JSON.stringify(plan.changes) !== JSON.stringify(preview.changes)) {
+
+  // 作成した申請は、公開済みの申請の複製のはず。違う項目があれば、更新の前に止める
+  // （価格など、このツールが扱わない項目が、意図せず変わるのを防ぐ）。
+  const cloneDiff = diffTopLevel(published, created);
+  log(
+    `作成した申請（${created.id}）と公開済みの申請の違い（トップレベル）: ${cloneDiff.length > 0 ? cloneDiff.join(", ") : "なし"}`,
+  );
+  log(`価格（作成した申請）: ${JSON.stringify(created.pricing ?? null)}`);
+  if (options.cloneOnly) {
+    log(
+      `確認用に申請 ${created.id} を作りました。更新も commit もしていません。Partner Center の「送信の削除」で消してください`,
+    );
+    return { mode: "cloned", plan: preview, submissionId: created.id };
+  }
+  if (cloneDiff.length > 0) {
     throw new Error(
-      `作成した申請（${created.id}）の差分が、公開済みの申請に対する計画と一致しません。` +
-        "申請は残っています。Partner Center で内容を確認してください",
+      `作成した申請（${created.id}）が、公開済みの申請の複製ではありません（違う項目: ${cloneDiff.join(", ")}）。` +
+        "更新せずに止めます。申請は残っています。Partner Center で内容を確認し、不要なら削除してください",
     );
   }
+  const plan = planSubmission(created, input);
 
   await client.updateSubmission(plan.submission);
   log(`申請 ${created.id} を更新しました`);
@@ -203,6 +227,7 @@ if (import.meta.main) {
         "publish-mode": { type: "string", default: "Manual" },
         apply: { type: "boolean", default: false },
         "no-commit": { type: "boolean", default: false },
+        "clone-only": { type: "boolean", default: false },
       },
     });
 
@@ -230,6 +255,7 @@ if (import.meta.main) {
         publishMode: publishMode as PublishMode,
         apply: values.apply as boolean,
         commit: !(values["no-commit"] as boolean),
+        cloneOnly: values["clone-only"] as boolean,
       },
       {
         client: new StoreClient({

@@ -138,6 +138,7 @@ const listing: RunOptions = {
   publishMode: "Manual",
   apply: false,
   commit: true,
+  cloneOnly: false,
 };
 
 describe("dry-run（既定）", () => {
@@ -157,6 +158,61 @@ describe("dry-run（既定）", () => {
     const result = await run({ ...listing, replaceScreenshots: true }, s.deps);
     expect(result.plan.uploads).toHaveLength(2);
     expect(s.calls).toEqual(["getApplication", "getSubmission"]);
+  });
+});
+
+describe("--clone-only", () => {
+  test("申請を作るだけで、更新も commit もしない。変更が無くても作る", async () => {
+    const same = published();
+    (
+      same.listings["ja-jp"] as { baseListing: Record<string, unknown> }
+    ).baseListing.description = "新しい説明";
+    (
+      same.listings["en-us"] as { baseListing: Record<string, unknown> }
+    ).baseListing.description = "New description";
+    const s = setup({ published: same, created: same });
+    const result = await run(
+      { ...listing, apply: true, cloneOnly: true },
+      s.deps,
+    );
+    expect(result).toMatchObject({ mode: "cloned", submissionId: "new1" });
+    expect(s.calls).toEqual([
+      "getApplication",
+      "getSubmission",
+      "createSubmission",
+    ]);
+  });
+
+  test("複製に違いがあっても、止めずに違いを表示する（確認が目的）", async () => {
+    const s = setup({
+      published: { ...published(), pricing: { trialPeriod: "NoFreeTrial" } },
+      created: { ...published(), pricing: { trialPeriod: "Unknown" } },
+    });
+    const result = await run(
+      { ...listing, apply: true, cloneOnly: true },
+      s.deps,
+    );
+    expect(result.mode).toBe("cloned");
+    const log = s.logs.join("\n");
+    expect(log).toContain("違い（トップレベル）: pricing");
+    expect(log).toContain('価格（作成した申請）: {"trialPeriod":"Unknown"}');
+  });
+
+  test("--apply が無ければ、申請を作らずに止める", async () => {
+    const s = setup();
+    await expect(run({ ...listing, cloneOnly: true }, s.deps)).rejects.toThrow(
+      "--clone-only は申請（下書き）を作るので、--apply が必要です",
+    );
+    expect(s.calls).toEqual([]);
+  });
+
+  test("作成した申請の公開方法が期待と違えば、止める", async () => {
+    const s = setup({
+      created: { ...published(), targetPublishMode: "Immediate" },
+    });
+    await expect(
+      run({ ...listing, apply: true, cloneOnly: true }, s.deps),
+    ).rejects.toThrow("申請: Immediate、期待: Manual");
   });
 });
 
@@ -333,9 +389,28 @@ describe("apply", () => {
     ).baseListing.description = "新しい説明";
     const s = setup({ created: different });
     await expect(run({ ...listing, apply: true }, s.deps)).rejects.toThrow(
-      "差分が、公開済みの申請に対する計画と一致しません",
+      "公開済みの申請の複製ではありません（違う項目: listings）",
     );
     expect(s.calls).not.toContain("updateSubmission");
+  });
+
+  test("扱わない項目（価格）が複製で変わっていても、更新せずに止める", async () => {
+    const s = setup({
+      published: { ...published(), pricing: { trialPeriod: "NoFreeTrial" } },
+      created: { ...published(), pricing: { trialPeriod: "Unknown" } },
+    });
+    await expect(run({ ...listing, apply: true }, s.deps)).rejects.toThrow(
+      "違う項目: pricing",
+    );
+    expect(s.calls).not.toContain("updateSubmission");
+    expect(s.calls).not.toContain("commit");
+  });
+
+  test("申請ごとに変わる項目（id など）の違いは、複製として許す", async () => {
+    const s = setup();
+    const result = await run({ ...listing, apply: true }, s.deps);
+    expect(result.mode).toBe("applied");
+    expect(s.logs.join("\n")).toContain("違い（トップレベル）: なし");
   });
 
   test("アップロード先が無ければ、ZIP を送らずに止める", async () => {

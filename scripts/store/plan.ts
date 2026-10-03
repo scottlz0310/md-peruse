@@ -110,6 +110,27 @@ export function assertPublishMode(
   }
 }
 
+/** 申請ごとに変わる項目。複製の比較では無視する。 */
+const VOLATILE_KEYS = new Set([
+  "id",
+  "status",
+  "statusDetails",
+  "fileUploadUrl",
+  "resourceLocation",
+]);
+
+/**
+ * 2 つの申請で、内容が違うトップレベルの項目の名前を返す。作成した申請が、公開済みの申請の
+ * 複製になっているかを確かめるために使う（価格など、扱わない項目の変化に気づくため）。
+ */
+export function diffTopLevel(a: StoreSubmission, b: StoreSubmission): string[] {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys]
+    .filter((key) => !VOLATILE_KEYS.has(key))
+    .filter((key) => JSON.stringify(a[key]) !== JSON.stringify(b[key]))
+    .sort();
+}
+
 function preview(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const flat = value.replaceAll("\r\n", "↵").replaceAll("\n", "↵");

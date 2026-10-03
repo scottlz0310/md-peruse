@@ -4,6 +4,7 @@ import {
   assertNoPendingSubmission,
   assertPublishMode,
   describePlan,
+  diffTopLevel,
   type PlanInput,
   planSubmission,
   resolveImagePath,
@@ -340,6 +341,33 @@ describe("安全チェック", () => {
       ).not.toThrow();
     },
   );
+});
+
+describe("diffTopLevel", () => {
+  test("申請ごとに変わる項目（id・status・fileUploadUrl など）は無視する", () => {
+    const a = base();
+    const b = {
+      ...base(),
+      id: "sub2",
+      status: "CommitStarted",
+      statusDetails: { errors: [] },
+      fileUploadUrl: "https://blob.example/x",
+      resourceLocation: "applications/app/submissions/sub2",
+    };
+    expect(diffTopLevel(a, b)).toEqual([]);
+  });
+
+  test.each([
+    ["価格が変わった", { pricing: { trialPeriod: "Unknown" } }, ["pricing"]],
+    [
+      "公開方法と価格が変わった（名前順）",
+      { targetPublishMode: "Immediate", pricing: null },
+      ["pricing", "targetPublishMode"],
+    ],
+    ["片方にだけ項目がある", { extra: 1 }, ["extra"]],
+  ])("違う項目の名前を返す: %s", (_name, patch, expected) => {
+    expect(diffTopLevel(base(), { ...base(), ...patch })).toEqual(expected);
+  });
 });
 
 describe("describePlan", () => {
