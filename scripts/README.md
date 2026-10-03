@@ -5,6 +5,7 @@
 | 道具 | 用途 |
 | --- | --- |
 | `build-msix.ps1`、`generate-licenses.ts`、`check-icons.ts`、`generate-wide-logo.ps1` | ビルドとパッケージ（README の各節を参照） |
+| `capture-screen.ps1` | Store の掲載用スクリーンショットの撮影（ディスプレイの領域を PNG で保存する。手順は [docs/store-submission.md](../docs/store-submission.md) 6章） |
 | [`perf/`](#perf性能測定) | 描画に関わる性能目標（spec.md 5.1）の測定 |
 | [`devtools/`](#devtools実機の確認) | 実機での確認（ハイコントラスト、WebView2 の失敗、キーボード操作の照合） |
 
