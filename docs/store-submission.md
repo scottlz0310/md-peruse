@@ -119,15 +119,25 @@ Partner Center のデータ収集の申告は、「データを収集しない�
 ```text
 docs/assets/store/
 ├── listingData.csv
-├── screenshot1.png
-├── screenshot2.png
-├── screenshot3.png
-└── screenshot4.png
+├── screenshot1.png … screenshot4.png        日本語（ja-jp 列が参照する）
+└── screenshot1-en.png … screenshot4-en.png  英語（en-us 列が参照する）
 ```
+
+#### スクリーンショットの撮り方
+
+日本語版（2026-10-03）と英語版（2026-10-04）は、同じ条件で撮った。画像は実際のアプリの画面で、UI を合成しない。文書は、日本語が `examples/store-demo/`、英語が `examples/store-demo-en/`（`examples/README.md`）。
+
+- **画面**: 100% 表示のディスプレイ（1920x1080）で、ウィンドウを最大化する。作業領域の 1920x1032 を、そのまま撮る（日本語版も同じ寸法）。
+- **言語とテーマ**: 「表示」メニュー（英語では View）の「言語」と「テーマ」で切り替える。1・2枚目はダーク、3・4枚目はライト。
+- **タブ**: ツリーの項目を**ダブルクリック**して開く（シングルクリックはプレビュー表示で、タブの題名が斜体になる）。1枚目は 01 の 1 タブ、2枚目は 01〜02、3枚目は 01〜03、4枚目は 01〜04 の順に開き、そのつど撮る。
+- **マウス**: 本文の空白に置く（ツリーやタブの上に置くと、強調表示が写る）。
+- **撮影**: `pwsh scripts/capture-screen.ps1 -Path <出力.png>`。主ディスプレイの作業領域（0,0 から 1920x1032）を PNG で保存する。
+- **後始末**: 言語、テーマ、最後のワークスペース、最近使ったフォルダーは、アプリの設定（`%APPDATA%\com.scottlz0310.md-peruse\settings.json`）に保存される。撮影の前にこのファイルを退避し、アプリを終了してから戻す。
+- **反映**: 画像を `docs/assets/store/` に置き、`listingData.csv` の言語の列の画像の参照を差し替える。Partner Center へは、Store Submit（`languages` に反映する言語を、`replace_screenshots` を有効にする。9.4）で送る。画像の順序は、反映後に Partner Center で目で確かめる（`ja-jp` では、手動のインポートで 3 番目と 4 番目が入れ替わったことがある）。
 
 2026-10-03の初回提出までは、画像を `docs/assets/store/store/` の下に置いていた。これは上のフラットな構成とは違い、`docs/assets/store/` を選んでも、CSV の `store/screenshot1.png` が指す画像（選んだフォルダー直下）に当たらない。先例の構成に合わせて、画像をフォルダー直下へ移した。この構成での手動インポートは、2026-10-04に実機で確かめた（下の「公開後の実測」）。
 
-[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録し、画像参照は両言語とも `store/screenshot1.png` 等である（英語の掲載にも日本語UIの画像を使っている）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを、言語ごとに4枚収録する。画像参照は、`ja-jp` 列が日本語UIの `store/screenshot1.png`〜`4.png`、`en-us` 列が英語UIの `store/screenshot1-en.png`〜`4-en.png` である（2026-10-03の初回提出では、英語の掲載にも日本語UIの画像を使っていた。英語UIの画像は2026-10-04に加え、Partner Centerへの反映は9.4の初回の実走で行う）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
 
 初回提出（v0.1.0）の入力で分かったこと（2026-10-03）:
 

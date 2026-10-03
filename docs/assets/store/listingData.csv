@@ -25,10 +25,10 @@ ShortDescription,8,テキスト,,Markdownを、読むことに集中して。フ
 DevStudio,9,テキスト,,scottlz0310,scottlz0310
 CopyrightTrademarkInformation,12,テキスト,,Copyright (c) 2026 scottlz0310,Copyright (c) 2026 scottlz0310
 AdditionalLicenseTerms,13,テキスト,,,
-DesktopScreenshot1,100,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot1.png,store/screenshot1.png
-DesktopScreenshot2,101,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot2.png,store/screenshot2.png
-DesktopScreenshot3,102,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot3.png,store/screenshot3.png
-DesktopScreenshot4,103,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot4.png,store/screenshot4.png
+DesktopScreenshot1,100,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot1.png,store/screenshot1-en.png
+DesktopScreenshot2,101,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot2.png,store/screenshot2-en.png
+DesktopScreenshot3,102,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot3.png,store/screenshot3-en.png
+DesktopScreenshot4,103,相対パス (またはパートナー センターにあるファイルへの URL),,store/screenshot4.png,store/screenshot4-en.png
 DesktopScreenshot5,104,相対パス (またはパートナー センターにあるファイルへの URL),,,
 DesktopScreenshot6,105,相対パス (またはパートナー センターにあるファイルへの URL),,,
 DesktopScreenshot7,106,相対パス (またはパートナー センターにあるファイルへの URL),,,
