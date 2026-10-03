@@ -286,8 +286,8 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | MSIX の SHA-256 | `.msix`: `A35D303FA57CA1E80F5CF8B9209543A4DDBA1F02AB2B4972B92EC094007CC743`。アップロードした `.msixupload`（4,287,866 バイト）: `A1A35E978ED2155B7129A7D20907C765009B238E8544B6F7874E8DD871E36A55`。どちらも artifact の `SHA256SUMS.txt` と、ダウンロードして再計算した値が一致した |
 | WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `OVERALL_RESULT="PASS"`。24テスト中23 PASS、任意テスト（`OPTIONAL="TRUE"`）「Blocked executables」の1件が FAIL で、総合結果には影響しない（`CreateProcessW`、`ShellExecuteW` と `cmd.exe` などの文字列への参照。内訳と原因は [design-decisions.md](./design-decisions.md) 13.3。過去の実行でも同じ）。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
 | プライバシーポリシーの URL の確認日時と結果 | 2026-10-03、HTTP 200 |
-| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。結果は未確認 |
-| 公開の方法と、公開の操作をした人 | 手動公開（「今すぐ公開」を選ぶまで公開しない）。公開の操作は、まだしていない |
+| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。その後、認定は通過した（scottlz0310 が Partner Center で確認。通過の日時は記録していない）。差戻しはなかった。認定の過程で「Restricted capabilities」の説明を求められたかは、記録していない |
+| 公開の方法と、公開の操作をした人 | 手動公開。scottlz0310 が「今すぐ公開」を操作して公開した（操作の日時は記録していない）。2026-10-04に、Partner Center の製品の状態が「Microsoft Store で取り扱い中」（"currently available in the Microsoft Store"）であることと、公開ページ <https://apps.microsoft.com/detail/9P35BW61FN4W> が HTTP 200 を返し、タイトルが「md-peruse - Windows に無料でダウンロードしてインストールする \| Microsoft Store」であることを確認した |
 
 提出時に分かったこと:
 
