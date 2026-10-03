@@ -137,7 +137,7 @@ docs/assets/store/
 
 2026-10-03の初回提出までは、画像を `docs/assets/store/store/` の下に置いていた。これは上のフラットな構成とは違い、`docs/assets/store/` を選んでも、CSV の `store/screenshot1.png` が指す画像（選んだフォルダー直下）に当たらない。先例の構成に合わせて、画像をフォルダー直下へ移した。この構成での手動インポートは、2026-10-04に実機で確かめた（下の「公開後の実測」）。
 
-[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録し、画像参照は両言語とも `store/screenshot1.png` 等である（英語の掲載にも日本語UIの画像を使っている）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを、言語ごとに4枚収録する。画像参照は、`ja-jp` 列が日本語UIの `store/screenshot1.png`〜`4.png`、`en-us` 列が英語UIの `store/screenshot1-en.png`〜`4-en.png` である（2026-10-03の初回提出では、英語の掲載にも日本語UIの画像を使っていた。英語UIの画像は2026-10-04に加え、Partner Centerへの反映は9.4の初回の実走で行う）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
 
 初回提出（v0.1.0）の入力で分かったこと（2026-10-03）:
 
