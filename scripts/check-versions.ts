@@ -97,6 +97,17 @@ export function findVersionProblems(sources: VersionSources): string[] {
   return problems;
 }
 
+/**
+ * 照合するタグの ref を返す。リリースの流れ（release.yml）では、release-automate がタグを
+ * GITHUB_TOKEN で作るためタグの ref で動かず、`GITHUB_REF` は `refs/heads/main` になる。その場合は
+ * `RELEASE_TAG`（例: v0.1.1）で、照合するタグを渡す。
+ */
+export function resolveGitRef(
+  env: Record<string, string | undefined>,
+): string | undefined {
+  return env.RELEASE_TAG ? `refs/tags/${env.RELEASE_TAG}` : env.GITHUB_REF;
+}
+
 if (import.meta.main) {
   const root = join(dirname(fileURLToPath(import.meta.url)), "..");
   const read = (path: string) => readFileSync(join(root, path), "utf-8");
@@ -106,7 +117,7 @@ if (import.meta.main) {
     cargoToml: read("src-tauri/Cargo.toml"),
     cargoLock: read("src-tauri/Cargo.lock"),
     manifestTemplate: read("packaging/Package.appxmanifest.template"),
-    gitRef: process.env.GITHUB_REF,
+    gitRef: resolveGitRef(process.env),
   });
 
   if (problems.length > 0) {

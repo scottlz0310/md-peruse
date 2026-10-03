@@ -13,7 +13,7 @@ name: Store Submit
 # clone-only と draft-only が作った下書きは、Partner Center で内容を見るだけにして（画面で変更しない）、
 # 確認後に「送信の削除」で消す（下書きが残ると、次の実行は止まる）。
 #
-# パッケージ（.msixupload）の提出は、このワークフローの対象外（GitHub Release との連動で別に扱う。
+# パッケージ（.msixupload）の提出は、このワークフローの対象外（リリースの流れ release.yml が行う。
 # docs/design-decisions.md 13.7）。
 
 on:
@@ -33,10 +33,10 @@ on:
         type: boolean
         default: false
       publish_mode:
-        description: "申請が引き継いでいる公開方法（違えば止める）。Manual: 認定の後に人が公開 / Immediate: 認定の後にすぐ公開"
+        description: "申請が引き継いでいる公開方法（違えば止める）。Immediate: 認定の後にすぐ公開（現在の設定） / Manual: 認定の後に人が公開"
         type: choice
-        options: [Manual, Immediate]
-        default: Manual
+        options: [Immediate, Manual]
+        default: Immediate
 
 permissions:
   contents: read
