@@ -233,7 +233,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 ## Phase 5: 配布パイプラインとStore公開
 
-- [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる
+- [ ] MSIXのIdentity、Publisher、表示名、アイコンをPartner Centerの登録内容と一致させる。Identity の Name・Publisher・PublisherDisplayName とアプリ名の予約（md-peruse）は、2026-10-03にPartner Centerの画面で一致を確認した。アイコンと、アップロード後の Package details での再確認が残る
 - [x] 比率2.067のワイドロゴを用意し、`Wide310x150Logo` と `Square310x310Logo` をマニフェストへ追加する（[design-decisions.md](./docs/design-decisions.md) 13.1）
 - [x] バージョン番号を各マニフェストと設定ファイルで同期し、不一致をCIで検出する（`bun run check:versions`。`Frontend` ジョブとpre-commitで実行する）
 - [x] MSIXの生成の前提。`scripts/build-msix.ps1` が固定する winapp CLI の版（0.6.1）と、開発機の版（0.7.0）の食い違いは、固定を維持すると決めたうえで（2026-10-01）、固定の仕組みを変えて解消した（2026-10-02）。winapp CLI を WinGet から npm（`@microsoft/winappcli`）へ移し、`package.json` の devDependencies（完全一致の `0.6.1`）で固定する。依存ツールの更新をRenovateに任せ、壊れたらPull Requestで検出する運用に合わせるためである（[design-decisions.md](./docs/design-decisions.md) 4.10）。開発機は `bun install` で 0.6.1 が入り、WinGetでの導入は不要になった。0.7.0（npmでは0.7.1まで公開）への更新は、Renovateの更新Pull Request（`winapp-cli` ラベル付き）で、`Package` ワークフローが MSIX の生成と WACK を検証し、手動でマージする
