@@ -21,7 +21,7 @@
 次がすべて揃うまで、Partner Center の提出画面で保存・提出を進めない。
 
 - [ ] Partner Center の `md-peruse` の予約と、`packaging/Package.appxmanifest.template` の Identity が一致している（Name `scottlz0310.md-peruse`、Publisher `CN=39FB3D39-1F1A-4B82-B081-47469FD12CA6`、PublisherDisplayName `scottlz0310`。Store ID `9P35BW61FN4W`。[design-decisions.md](./design-decisions.md) 13.1）
-- [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK が `PASS`（全項目）になっている（3章）
+- [ ] 提出する MSIX は、タグ実行の `Package` ワークフローが生成した artifact であり、同じ実行で WACK の `OVERALL_RESULT` が `PASS` になっている。必須テストはすべて PASS で、FAIL は [design-decisions.md](./design-decisions.md) 13.3 に記録した任意テスト「Blocked executables」の1件だけである（3章）
 - [ ] MSIX の SHA-256 を記録している（3章）
 - [ ] プライバシーポリシーの URL（GitHub Pages）が、HTTPS で HTTP 200 を返す（5章。Pages の設定と、最初の公開が済んでいる）
 - [ ] 掲載情報（説明、スクリーンショット、年齢区分、言語）が揃っている（6章）
@@ -284,7 +284,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | タグ、コミットの SHA | `v0.1.0`、`072d019f30abc1efec2aaf61026d5c8c76e333f6` |
 | `Package` の実行の URL | <https://github.com/scottlz0310/md-peruse/actions/runs/37124922688> |
 | MSIX の SHA-256 | `.msix`: `A35D303FA57CA1E80F5CF8B9209543A4DDBA1F02AB2B4972B92EC094007CC743`。アップロードした `.msixupload`（4,287,866 バイト）: `A1A35E978ED2155B7129A7D20907C765009B238E8544B6F7874E8DD871E36A55`。どちらも artifact の `SHA256SUMS.txt` と、ダウンロードして再計算した値が一致した |
-| WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `PASS`、FAIL 0件。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
+| WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `OVERALL_RESULT="PASS"`。24テスト中23 PASS、任意テスト（`OPTIONAL="TRUE"`）「Blocked executables」の1件が FAIL で、総合結果には影響しない（`CreateProcessW`、`ShellExecuteW` と `cmd.exe` などの文字列への参照。内訳と原因は [design-decisions.md](./design-decisions.md) 13.3。過去の実行でも同じ）。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
 | プライバシーポリシーの URL の確認日時と結果 | 2026-10-03、HTTP 200 |
 | 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。結果は未確認 |
 | 公開の方法と、公開の操作をした人 | 手動公開（「今すぐ公開」を選ぶまで公開しない）。公開の操作は、まだしていない |
