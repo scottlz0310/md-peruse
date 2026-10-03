@@ -250,9 +250,10 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 - [ ] 初回Store公開版でPartner Centerからカスタムイベントとパッケージバージョン別の集計を確認し、反映遅延とバージョン別フィルターの粒度を計測定義へ記録する。標準Sessions指標については、対応付けを行わない方針（[design-decisions.md](./docs/design-decisions.md) 11.4）のもとで観測した件数差を確認するにとどめ、照合方法の確定は行わない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [ ] 使用状況とカスタムイベントの計測母集団（診断データをオプトインした端末に限られること）を実データで確認し、率は読めてもインストール数へ接続できない制約を、反映遅延と並べて計測定義へ明記する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）
 - [x] 日本語の掲載CSVと実機スクリーンショット4枚を [docs/assets/store/](./docs/assets/store/) に配置した。CSVのBOM・CRLFと画像の相対パスを保持し、公開後はPartner Centerのエクスポートを手動で取り込む運用を記録した（2026-10-03）
-- [ ] Store掲載情報を完成させる。[表示サンプル](./examples/README.md)と日本語CSV・実機画像は用意済み。英語掲載文、Storeロゴ、年齢区分、カテゴリ、Partner Center上での言語・表示確認が残る。[docs/store-submission.md](./docs/store-submission.md) 6章を参照する
+- [x] Store掲載情報を完成させた（2026-10-03）。日本語・英語の掲載文、実機画像4枚と字幕、カテゴリ（開発者ツール）、年齢区分（IARC 3+）をPartner Centerへ入力した。掲載CSVはパッケージ追加後のエクスポート形式（`ja-jp`／`en-us` 列）へ更新した。任意のStoreロゴ（9:16ポスター、1:1ボックスアート）は未登録で、認定通過後のStore上の表示で見え方を確認する。[docs/store-submission.md](./docs/store-submission.md) 6章を参照する
 - [x] Store提出の段階を合意した。準備・レビュー後にGitHub Release公開前の初回手動提出を行い、審査通過後にcloud-migrator／PhotoGeoExplorerの現行フローを参照して自動提出を整備し、その後にGitHub Releaseと連動させる（2026-10-03）
-- [ ] Partner Centerで初回登録と審査申請を行う。初回は手動で提出し、審査に通っても自動では公開しない（[design-decisions.md](./docs/design-decisions.md) 13.7、[docs/store-submission.md](./docs/store-submission.md) 8章）
+- [x] Partner Centerで初回の審査申請を行った（2026-10-03、Submission 1、v0.1.0.0。記録は [docs/store-submission.md](./docs/store-submission.md) 11.1）。公開は手動で、審査に通っても自動では公開しない（[design-decisions.md](./docs/design-decisions.md) 13.7）。送信直後は「認定中」で、結果は未確認
+- [ ] 初回の認定結果を確認する。差戻しや「Restricted capabilities」の説明の要求があれば、[docs/store-submission.md](./docs/store-submission.md) 7章と10章に従う。通った後は、掲載のプレビューを確認してから、ユーザーが「今すぐ公開」を選ぶ（8章）
 - [ ] Store Submission API連携を構築し、実行前に手動承認ゲートを設ける。初回の審査に通ったあとに着手する（GitHub Releaseに連動。[docs/store-submission.md](./docs/store-submission.md) 9章）。着手時に、APIとMicrosoft Store Developer CLIの現在の版、認証方式、MSIXへの対応を確かめて決める
 - [x] 手動提出の手順書を作った（[docs/store-submission.md](./docs/store-submission.md)。2026-10-02）。先行する [PhotoGeoExplorer](https://github.com/scottlz0310/PhotoGeoExplorer) と [cloud-migrator](https://github.com/scottlz0310/cloud-migrator) の提出の経験を取り込んだ。提出のたびに保守する
 
@@ -260,7 +261,7 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 
 - [x] x64版のMSIXが生成される
 - [ ] 対象MSIXについてWACKが完了している
-- [ ] Store提出物とCIで検証した成果物が一致している
+- [x] Store提出物とCIで検証した成果物が一致している。タグ実行（run 37124922688）のartifactの `.msixupload` を、再ビルドせずにそのままアップロードした。ダウンロードして再計算したSHA-256は `SHA256SUMS.txt` と一致した（2026-10-03）。Partner Centerはアップロード後のハッシュを表示しないため、一致は同一ファイルを指定した手順で担保している
 - [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる
 

@@ -124,9 +124,16 @@ docs/assets/store/
     └── screenshot4.png
 ```
 
-[`listingData.csv`](./assets/store/listingData.csv) は、ユーザーがPartner Centerから新規エクスポートした形式を保ち、`default` 列へ日本語28項目を記入したもの。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録した。画像参照は `store/screenshot1.png` 等であり、手動インポートでは `docs/assets/store/` フォルダー全体を選ぶ。未記入の原本バックアップはローカルに保持し、リポジトリへは含めない。
+[`listingData.csv`](./assets/store/listingData.csv) は、2026-10-03にパッケージのアップロード後のPartner Centerから取得したエクスポートの形式（`Field`、`ID`、`Type`、`default`、`ja-jp`、`en-us` の6列、454行）に合わせたもの。`ja-jp` へ日本語、`en-us` へ英語を記入し、`default` は空である（エクスポートと同じ構造）。画像は実際のMSIXで撮影した1920×1032 PNGを4枚収録し、画像参照は両言語とも `store/screenshot1.png` 等である（英語の掲載にも日本語UIの画像を使っている）。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
 
-ロゴ、英語掲載文、年齢区分・カテゴリは未完了。`default` の対象言語とインポート後の表示をPartner Centerで確認する。CSVのUTF-8 BOM・CRLFは、専用の `.gitattributes` と `.editorconfig` の設定で保持する。
+初回提出（v0.1.0）の入力で分かったこと（2026-10-03）:
+
+- パッケージを追加する前のエクスポート（`default` 列だけ）を基にしたCSVは、パッケージを追加して言語（`ja-jp`、`en-us`）が現れた後は、インポートに失敗した。パッケージを追加した後に、必ずエクスポートし直して、その形式に合わせる。
+- 画像参照を含むCSVは、フォルダー用のファイル入力へファイルを個別に渡す自動操作では、インポートに失敗した（`ja-jp` の保存途中で止まった）。フォルダーの構造が渡らないためと推測しているが、確かめていない。あなたが手でフォルダーを選ぶインポートが通るかは、未検証である。
+- 初回は、画像参照を空にしたCSVを「.csv のアップロード」で取り込み（エラーなしで完了）、画像は掲載ページの入力欄へ1枚ずつ、字幕は画像ごとの「イメージの字幕の追加」から入力した。複数の画像を一度に渡すと、先頭の1枚だけが登録された。
+- 任意のStoreロゴ（9:16のポスターアート、1:1のボックスアート）は登録していない。認定を通った後のStore上の表示で、見え方を確認する。
+
+次回以降の掲載情報の更新は、公開済みの内容をエクスポートし直して、このCSVとの差を確かめてから行う。
 
 公開後の保守:
 
@@ -261,6 +268,32 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | プライバシーポリシーの URL の確認日時と結果 |  |
 | 認定の状態、差戻しの内容 |  |
 | 公開の方法と、公開の操作をした人 |  |
+
+### 11.1 初回の提出（v0.1.0）の記録
+
+| 項目 | 値 |
+| --- | --- |
+| 作業日時 | 2026-10-03（提出の時刻は記録していない） |
+| 操作した人 | 提出の操作は scottlz0310。入力は Claude in Chrome で行い、各項目はあなたの承認を得て保存した |
+| Partner Center のアプリ名、Store ID | md-peruse、`9P35BW61FN4W` |
+| Submission ID | `1152921505702030146`（Submission 1） |
+| パッケージの Version、アーキテクチャ | 0.1.0.0、x64（Windows.Desktop 10.0.22000.0 以上、言語 ja-jp・en-us） |
+| タグ、コミットの SHA | `v0.1.0`、`072d019f30abc1efec2aaf61026d5c8c76e333f6` |
+| `Package` の実行の URL | <https://github.com/scottlz0310/md-peruse/actions/runs/37124922688> |
+| MSIX の SHA-256 | `.msix`: `A35D303FA57CA1E80F5CF8B9209543A4DDBA1F02AB2B4972B92EC094007CC743`。アップロードした `.msixupload`（4,287,866 バイト）: `A1A35E978ED2155B7129A7D20907C765009B238E8544B6F7874E8DD871E36A55`。どちらも artifact の `SHA256SUMS.txt` と、ダウンロードして再計算した値が一致した |
+| WACK の結果（`OVERALL_RESULT`、報告書の保存先） | `PASS`、FAIL 0件。報告書は artifact `md-peruse-msix-x64` の `wack/wack-report.xml` |
+| プライバシーポリシーの URL の確認日時と結果 | 2026-10-03、HTTP 200 |
+| 認定の状態、差戻しの内容 | 送信直後の2026-10-03は「認定中」（申請と前処理中まで完了）。結果は未確認 |
+| 公開の方法と、公開の操作をした人 | 手動公開（「今すぐ公開」を選ぶまで公開しない）。公開の操作は、まだしていない |
+
+提出時に分かったこと:
+
+- Partner Center は、アップロードしたパッケージのハッシュを表示しない。提出物と検証済みの成果物の一致は、artifact から取り出したファイルを、再ビルドせずにそのままアップロードした手順で担保している。
+- `.msixupload`（手作りのZIP、シンボル `.appxsym` 同梱）は、そのまま受理された（Validated）。シンボルが認識されたかの確認は、初回の公開後のクラッシュ分析で行う。
+- Package details の Capabilities には、`runFullTrust` のほかに `Microsoft.storeFilter.core.notSupported_8wekyb3d8bbwe` が表示された。マニフェストにはない（Partner Center 側の表示と思われるが、出所は確認していない）。
+- 「Restricted capabilities」の入力欄は、パッケージのアップロード後も、申請オプションに現れなかった。認定の過程で説明を求められたら、7.2 の英文を使う。
+- 年齢区分の IARC 質問票は、アプリの種類を「その他のすべてのアプリの種類」にして全問「いいえ」とし、IARC 3+（ESRB 全年齢、PEGI 3+、USK 全年齢）になった。公開元の表示名とメールアドレスが IARC と共有される。
+- プロパティの個人情報の質問には「はい」と答え、プライバシーポリシーの URL を入れた（Store 版がイベント名だけを Microsoft の計測基盤へ送るため）。
 
 ## 12. 初回の公開後に確認すること
 
