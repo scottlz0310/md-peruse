@@ -336,6 +336,8 @@ gh variable set STORE_PRODUCT_ID --env store-production --repo scottlz0310/md-pe
 
 cloud-migrator の `scripts/Configure-StorePublishing.ps1` は、そのままは使わない。作る Environment がタグ `v*` だけを許可し、必須レビュアーを付けず、`SELLER_ID` を必要とするため、この方針（承認ゲート、`main` から起動）と合わない。
 
+**`SELLER_ID` は要らない。** cloud-migrator が使う `msstore` CLI はセットアップでセラー ID を求めるが、Submission API は、テナント ID、クライアント ID、シークレットで認証し、`applications/{Store ID}` を呼ぶだけで、セラー ID を使わない。cloud-migrator の `.env` から値を移すときも、`SELLER_ID` は登録しなくてよい（登録しても使われない）。
+
 #### ③ 初回の実走（確認の手順）
 
 Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**下の順に、1 つずつ進める。**
