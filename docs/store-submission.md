@@ -11,7 +11,7 @@
 | 対象アーキテクチャ | x64 のみ。ARM64 は対応外（[design-decisions.md](./design-decisions.md) 3章） |
 | 初回の提出 | 準備とレビュー完了後、GitHub Releaseの公開より先に手動提出する。Partner Center の画面で、あなたが入力し、あなたが提出する |
 | 初回の公開 | 審査に通っても、自動では公開しない（手動公開）。公開の操作は、初回の提出物と掲載内容を確認してから行う |
-| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。資格情報を使う実行（dry-run を含む）の前に、手動承認のゲートを置く。GitHub Release との連動は、自動提出が安定してから行う（9章） |
+| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。資格情報を使う実行（dry-run を含む）の前に、手動承認のゲートを置く。リリースの流れ（版上げ、タグ、GitHub Release、`Package`、Store への提出）は、`release-automate` で自動化する（9.7） |
 | 掲載素材（画像、説明文） | ローカルで用意する（イラストの生成を含む）。リポジトリへは、確定した素材と一覧だけを置く（6章） |
 | Partner Center の登録内容との照合 | ローカルで行う（2章の項目） |
 | 実機での確認（MSIX） | ローカルで行う（8章） |
@@ -237,7 +237,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 1. **ツール**（`scripts/store/`、テスト、この章）を作る。dry-run で、実際の Partner Center の申請の JSON と突き合わせる。
 2. **承認ゲート付きのワークフロー**と、Environment の設定を整える。
 3. 最初の実走として、**英語版スクリーンショットの掲載情報だけの更新**を通す。
-4. 自動提出が安定したら、**GitHub Release の公開と連動**させる。`release-automate` の導入は、`tauri.conf.json` のバージョン更新への対応と、`GITHUB_TOKEN` が作るタグでは `push: tags` の `Package` が起動しない点を確かめてから決める。
+4. **リリースの流れを `release-automate` で自動化**する（2026-10-04に採用を決定。9.7）。版の更新とリリース PR の作成（Prepare Release）、タグと GitHub Release の公開、`Package`、Store への提出を、1 つの流れにつなぐ。
 
 ### 9.2 使い方
 
@@ -375,6 +375,32 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 - 実行の再試行は、新しいタグを切らず、同じ実行を再実行する。
 - 認証の値や、トークンを、ログへ出さない。
 - 先例の PhotoGeoExplorer（`Submit-ToPartnerCenter.ps1`）は Submission API を使い、cloud-migrator は `msstore` を使っている。エンドポイントと呼び出しの順序は、前者に合わせた。
+
+### 9.7 リリースの自動化（release-automate）
+
+リリース（版上げ → タグ → GitHub Release → `Package` → Store）の流れは、あなたの [release-automate](https://github.com/scottlz0310/release-automate)（v2.1.0 以降）の reusable workflow でつなぐ（2026-10-04に決定）。同じ作者の先例 squirrel-notifier が、同じ構成で動いている。
+
+| 段 | ワークフロー | 内容 |
+| --- | --- | --- |
+| 準備 | Prepare Release（`prepare-release.yml`、手動起動） | 版の更新と CHANGELOG の確定を、Bot（GitHub App）名義のリリース PR（`chore(release): vX.Y.Z`）にする |
+| 公開 | Release（`release.yml`、main への push で起動） | リリース PR のマージで、タグと GitHub Release、`Package`、Store への提出を進める（別の PR で追加する） |
+
+**版の更新に `tauri` 戦略を使う理由**: md-peruse の版は 4 か所（`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`）にあり、release-automate の既存の戦略（`npm`、`rust` など）は、1 回に 1 種類しか更新できない。release-automate に `tauri` 戦略を加えた（v2.1.0）。更新の前に、3 つのファイルの版が一致していることを確かめ、食い違っていれば何も書き換えずに失敗する（`bun run check:versions` と同じ不変条件）。JSON は版の値の文字列だけを置き換えるので、差分は版の 1 行ずつになる。
+
+#### 準備の手順（Prepare Release）
+
+1. GitHub の Actions で **Prepare Release** を開き、「Run workflow」を押す（ブランチは `main`）。`target_version` に、リリースする版を **`MAJOR.MINOR.PATCH`** で入れる（例: `0.1.1`。先頭に `v` は付けない）。プレリリース版は受け付けない（MSIX の Package Version が 4 つの整数で、プレリリースを持てないため）。
+2. Bot 名義で、`chore(release): v0.1.1` という PR が出る。次を確かめる。
+   - 4 つのファイル（上記）の差分が、版の 1 行ずつであること。
+   - `CHANGELOG.md` の `[Unreleased]` が、`[0.1.1] - 日付` の見出しに確定し、比較リンクが更新されていること。**`[Unreleased]` にこのリリースの変更を書いておく**（空だと、中身のない見出しになる。CHANGELOG の方針どおり、利用者から見える変更だけを書く）。
+   - CI（`ci.yml`）が通っていること。
+3. 問題がなければ、あなたが **squash** でマージする。マージのコミットの題名（`chore(release): v0.1.1 (#N)`）が、公開の段の起動条件になる。題名を変えない。
+4. 取りやめるときは、PR を閉じて、ブランチ `release/v0.1.1` を削除する（Prepare Release を再び実行すれば、作り直せる）。
+
+前提:
+
+- 組織の secret `RELEASE_BOT_APP_ID` と `RELEASE_BOT_PRIVATE_KEY` が、このリポジトリから使えること（2026-10-04に確認済み。リポジトリ単位の secret ではなく、組織単位の secret）。リリース Bot の GitHub App がこのリポジトリにインストールされていること。
+- 初めて使う前に、Prepare Release を 1 回実行して、PR の内容を確かめ、**マージせずに閉じる**ことを勧める（上記の差分が、実際のファイルで意図どおりになるかを、公開の前に確かめられる）。
 
 提出の API が使えないときは、8章の手動の手順を、そのまま使う。
 
