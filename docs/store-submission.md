@@ -313,6 +313,6 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 
 ## 12. 初回の公開後に確認すること
 
-- Store の掲載の表示、インストール、起動、ファイルの関連付け、アンインストールを、実機で確認する。2026-10-04に確認した範囲: インストール済みのパッケージは `SignatureKind: Store`（v0.1.0.0、x64、開発モードではない。実体は `C:Program FilesWindowsAppsscottlz0310.md-peruse_0.1.0.0_x64__r99jq8jxntmymmd-peruse.exe`）。`.md` の関連付けで文書を開くと Store 版が起動し、本文、ツリー、タブ、Mermaid の図、表が表示された。2つ目の文書を開いても同じプロセスのタブで開いた（単一インスタンス）。パッケージ専用の領域が存在する。未確認: Store からのインストール操作そのもの、アンインストール（破壊的なため行っていない）、Store へ送るイベントの観測。
+- Store の掲載の表示、インストール、起動、ファイルの関連付け、アンインストールを、実機で確認する。2026-10-04に確認した範囲: インストール済みのパッケージは `SignatureKind: Store`（v0.1.0.0、x64、開発モードではない。実体は `C:\Program Files\WindowsApps\scottlz0310.md-peruse_0.1.0.0_x64__r99jq8jxntmym\md-peruse.exe`）。`.md` の関連付けで文書を開くと Store 版が起動し、本文、ツリー、タブ、Mermaid の図、表が表示された。2つ目の文書を開いても同じプロセスのタブで開いた（単一インスタンス）。パッケージ専用の領域が存在する。未確認: Store からのインストール操作そのもの、アンインストール（破壊的なため行っていない）、Store へ送るイベントの観測。
 - Partner Center の Usage レポートで、カスタムイベント（5種類）と、パッケージのバージョン別の集計を確認し、反映の遅延と、バージョン別のフィルターの粒度を、計測の定義へ記録する（[design-decisions.md](./design-decisions.md) 11.4。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 - Microsoft の資料で確かめられなかった、診断データの設定との関係（母集団の偏り）を、実データで確かめる。
