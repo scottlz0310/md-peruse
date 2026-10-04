@@ -13,6 +13,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 利用者から見える変更はない。リリースの流れ（Prepare Release、`Package`、GitHub Release、Storeへの提出）を、本番で通しで確かめるための版である。
+
 ## [0.1.0] - 2026-10-03
 
 ### Added
