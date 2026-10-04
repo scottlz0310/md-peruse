@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   type FetchLike,
+  isFailureStatus,
   StoreApiError,
   StoreClient,
   type StoreClientOptions,
-  waitForCommit,
+  waitForIngestion,
 } from "./client";
 
 interface Call {
@@ -394,44 +395,122 @@ describe("エラーの本文に秘密値が含まれる場合（発生源で取�
   });
 });
 
-describe("waitForCommit", () => {
-  function statuses(...sequence: string[]) {
+describe("isFailureStatus", () => {
+  test.each([
+    ["CommitFailed", true],
+    ["PreProcessingFailed", true],
+    ["CertificationFailed", true],
+    ["ReleaseFailed", true],
+    ["PublishFailed", true],
+    ["Canceled", true],
+    ["CommitStarted", false],
+    ["PreProcessing", false],
+    ["Certification", false],
+    ["Published", false],
+  ])("%s は、失敗を示す状態か: %p", (status, expected) => {
+    expect(isFailureStatus(status)).toBe(expected);
+  });
+});
+
+describe("waitForIngestion", () => {
+  /** 呼ぶたびに、次の状態を返す。最後の状態は、以降も返し続ける。 */
+  function statuses(
+    ...sequence: Array<string | { status: string; statusDetails: unknown }>
+  ) {
     let index = 0;
     return {
-      getStatus: async () => ({
-        status: sequence[Math.min(index++, sequence.length - 1)] as string,
-      }),
+      getStatus: async () => {
+        const item = sequence[Math.min(index++, sequence.length - 1)];
+        return typeof item === "string"
+          ? { status: item }
+          : (item as { status: string; statusDetails: unknown });
+      },
       reads: () => index,
     };
   }
-  const options = (sleeps: number[]) => ({
+  const clock = () => {
+    let minute = 0;
+    return () => new Date(Date.UTC(2026, 9, 4, 1, minute++, 0));
+  };
+  const options = (sleeps: number[], maxAttempts = 5) => ({
     sleep: async (ms: number) => {
       sleeps.push(ms);
     },
-    intervalMs: 5000,
-    maxAttempts: 3,
+    intervalMs: 10_000,
+    maxAttempts,
+    now: clock(),
   });
 
-  test("CommitStarted を抜けたら、その状態を返す", async () => {
+  test("CommitStarted と PreProcessing を抜けるまで読み、抜けた状態を返す", async () => {
     const sleeps: number[] = [];
-    const client = statuses("CommitStarted", "CommitStarted", "PreProcessing");
-    expect(await waitForCommit(client, "s1", options(sleeps))).toEqual({
-      status: "PreProcessing",
+    const client = statuses(
+      "CommitStarted",
+      "PreProcessing",
+      "PreProcessing",
+      "Certification",
+    );
+    const result = await waitForIngestion(client, "s1", options(sleeps));
+    expect(result.status).toEqual({ status: "Certification" });
+    expect(result.timedOut).toBe(false);
+    expect(sleeps).toEqual([10_000, 10_000, 10_000]);
+  });
+
+  test("読み取るたびに、時刻つきで記録する（タイムライン）", async () => {
+    const client = statuses("CommitStarted", "PreProcessing", "Certification");
+    const result = await waitForIngestion(client, "s1", options([]));
+    expect(result.timeline).toEqual([
+      {
+        at: "2026-10-04T01:00:00.000Z",
+        status: "CommitStarted",
+        statusDetails: undefined,
+      },
+      {
+        at: "2026-10-04T01:01:00.000Z",
+        status: "PreProcessing",
+        statusDetails: undefined,
+      },
+      {
+        at: "2026-10-04T01:02:00.000Z",
+        status: "Certification",
+        statusDetails: undefined,
+      },
+    ]);
+  });
+
+  test("onStatus を、読み取るたびに呼ぶ", async () => {
+    const seen: string[] = [];
+    await waitForIngestion(statuses("PreProcessing", "Certification"), "s1", {
+      ...options([]),
+      onStatus: (entry) => seen.push(entry.status),
     });
-    expect(sleeps).toEqual([5000, 5000]);
+    expect(seen).toEqual(["PreProcessing", "Certification"]);
   });
 
-  test("最初から CommitStarted でなければ、待たない", async () => {
+  test("最初から取り込みの途中でなければ、待たない（失敗の状態も、そのまま返す）", async () => {
     const sleeps: number[] = [];
-    await waitForCommit(statuses("CommitFailed"), "s1", options(sleeps));
+    const details = { errors: [{ code: "X" }] };
+    const result = await waitForIngestion(
+      statuses({ status: "PreProcessingFailed", statusDetails: details }),
+      "s1",
+      options(sleeps),
+    );
+    expect(result.status.status).toBe("PreProcessingFailed");
+    expect(result.status.statusDetails).toEqual(details);
+    expect(result.timeline[0]?.statusDetails).toEqual(details);
     expect(sleeps).toEqual([]);
   });
 
-  test("上限まで待っても抜けなければ、例外にする", async () => {
+  test("上限まで待っても取り込みの途中なら、例外にせず、timedOut で返す（最後の状態と記録つき）", async () => {
     const sleeps: number[] = [];
-    await expect(
-      waitForCommit(statuses("CommitStarted"), "s1", options(sleeps)),
-    ).rejects.toThrow("CommitStarted のままです（申請 s1）");
-    expect(sleeps).toHaveLength(3);
+    const result = await waitForIngestion(
+      statuses("PreProcessing"),
+      "s1",
+      options(sleeps, 3),
+    );
+    expect(result.timedOut).toBe(true);
+    expect(result.status.status).toBe("PreProcessing");
+    expect(result.timeline).toHaveLength(3);
+    // 最後の読み取りの後は、待たない。
+    expect(sleeps).toEqual([10_000, 10_000]);
   });
 });

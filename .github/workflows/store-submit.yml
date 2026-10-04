@@ -9,7 +9,10 @@ name: Store Submit
 #   dry-run    : 読み取りだけ。Step Summary に、何が変わるかを出す
 #   clone-only : 申請（下書き）を作って、公開済みの申請との違いを出すだけ。更新も commit もしない
 #   draft-only : 申請を作り、変更して、ZIP をアップロードするが、commit しない
-#   apply      : 申請を作り、変更して、ZIP をアップロードし、commit する
+#   apply      : 申請を作り、変更して、ZIP をアップロードし、commit する。commit の後は、取り込み
+#                （PreProcessing）の結果まで状態を追い、取り込みの後の申請を CSV と照合する
+#   inspect    : 読み取りだけ。処理中（無ければ公開済み）の申請の状態と JSON を証跡に残し、CSV と照合する。
+#                apply の後や、公開の後に、反映を証跡で確かめるために使う
 # clone-only と draft-only が作った下書きは、Partner Center で内容を見るだけにして（画面で変更しない）、
 # 確認後に「送信の削除」で消す（下書きが残ると、次の実行は止まる）。
 #
@@ -20,9 +23,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "dry-run: 差分を見るだけ / clone-only: 下書きを作って複製の違いを見るだけ / draft-only: 更新するが commit しない / apply: 提出する"
+        description: "dry-run: 差分を見るだけ / clone-only: 下書きを作って複製の違いを見るだけ / draft-only: 更新するが commit しない / apply: 提出する / inspect: 申請の状態を読んで CSV と照合する（読み取りだけ）"
         type: choice
-        options: [dry-run, clone-only, draft-only, apply]
+        options: [dry-run, clone-only, draft-only, apply, inspect]
         default: dry-run
       languages:
         description: "更新する言語（カンマ区切り）"
@@ -82,6 +85,7 @@ jobs:
             clone-only) args+=(--apply --clone-only) ;;
             draft-only) args+=(--apply --no-commit) ;;
             apply) args+=(--apply) ;;
+            inspect) args+=(--inspect) ;;
             *) echo "mode が不正です: $MODE" >&2; exit 1 ;;
           esac
           bun run store:submit "${args[@]}"

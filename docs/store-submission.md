@@ -264,6 +264,7 @@ bun run store:submit --listing docs/assets/store
 | `--publish-mode Manual／Immediate` | 申請が引き継いでいるはずの公開方法。違えば止める。既定は `Manual` |
 | `--apply` | 書き込む。指定しなければ dry-run |
 | `--no-commit` | `--apply` でも commit せず、下書きのまま止める（初回の確認用） |
+| `--inspect` | 読み取りだけ。処理中の申請（無ければ公開済みの申請）を読み、状態と JSON を証跡に残して、`--listing` があれば、掲載情報（CSV）と照合する（画像の順序と字幕、取り込みの状態、文章）。`--apply` とは同時に使えない。`apply` の後や、公開の後に、反映を証跡で確かめるために使う（9.8） |
 | `--clone-only` | `--apply` と組み合わせる。申請（下書き）を作り、公開済みの申請との違いを表示するだけで止める（更新も commit もしない。初回の確認用） |
 
 認証の値は、環境変数で渡す（GitHub の Environment の secret と変数。値はログに出さない）。
@@ -277,7 +278,7 @@ bun run store:submit --listing docs/assets/store
 
 名前は、先例の cloud-migrator と同じにした。
 
-実行の流れは、①アプリの情報を読む（処理中の申請があれば止まる）、②公開済みの申請を読んで、変更の計画を作る（変更が無ければ、申請を作らずに終わる）、③（`--apply` のとき）申請を作り、公開済みの申請の複製になっていることを確かめてから更新する（申請ごとに変わる項目を除いて、トップレベルの項目に違いがあれば、更新せずに止まる）、④画像やパッケージがあれば ZIP を SAS URL へアップロードする、⑤commit し、受理されるまで待つ（認定の完了までは待たない）。
+実行の流れは、①アプリの情報を読む（処理中の申請があれば止まる）、②公開済みの申請を読んで、変更の計画を作る（変更が無ければ、申請を作らずに終わる）、③（`--apply` のとき）申請を作り、公開済みの申請の複製になっていることを確かめてから更新する（申請ごとに変わる項目を除いて、トップレベルの項目に違いがあれば、更新せずに止まる）、④画像やパッケージがあれば ZIP を SAS URL へアップロードする、⑤commit し、**取り込み（`PreProcessing`）を抜けるまで、状態を読み続ける**（約 10 分が上限。認定の完了までは待たない）。`PreProcessingFailed` などの失敗の状態なら、詳細つきで失敗にする。⑥取り込みの後の申請を読み、掲載情報（CSV）と照合して、結果（画像の順序と字幕、取り込みの状態、文章）を、ログと Step Summary に出す。
 
 #### ワークフローから使う
 
@@ -285,7 +286,7 @@ GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`�
 
 | 入力 | 内容 |
 | --- | --- |
-| `mode` | `dry-run`（既定。読み取りだけ）／`clone-only`／`draft-only`（更新するが commit しない）／`apply`（提出する） |
+| `mode` | `dry-run`（既定。読み取りだけ）／`clone-only`／`draft-only`（更新するが commit しない）／`apply`（提出する）／`inspect`（申請の状態を読んで、CSV と照合する。読み取りだけ） |
 | `languages` | 反映する言語（既定は `ja-jp,en-us`） |
 | `replace_screenshots` | スクリーンショットを `docs/assets/store/` の内容で入れ替える |
 | `publish_mode` | 申請が引き継いでいる公開方法（`Immediate`／`Manual`）。違えば止まる。既定は `Immediate`（2026-10-04 に、公開済みの申請が `Immediate` であることを確認した） |
@@ -457,7 +458,11 @@ Store の API は、実走でしか分からない拒否が多い（初回の実
 | `05-put-request.json` | PUT で送った本文（デバイス ファミリーの初期化などを反映した後）。**PUT が失敗しても残る** |
 | `06-put-response.json` | PUT の応答（更新後の申請） |
 | `07-upload.json` | ZIP のバイト数と、中身のファイル名とバイト数 |
-| `08-commit-response.json`、`09-status.json` | commit の応答と、受理された後の状態 |
+| `08-commit-response.json` | commit の応答 |
+| `09-status-timeline.json` | commit の後、取り込み（`PreProcessing`）を抜けるまでの状態の変化（時刻つき。`statusDetails` を含む） |
+| `10-submission-after-ingestion.json` | 取り込みの後の申請の JSON（画像の `fileStatus` と ID、順序） |
+| `11-verification.json` | 取り込みの後の申請と、掲載情報（CSV）の照合の結果（検査ごとの、期待と実際） |
+| `inspect-submission.json`、`inspect-status.json`、`inspect-verification.json` | `inspect` モードの、読み取った申請と状態、照合の結果 |
 | `result.json` | 終了の状態（`mode`、申請の ID、状態） |
 | `error.json` | 失敗したときだけ。メッセージ、HTTP の状態コード、**相関 ID**、応答の本文 |
 
@@ -471,6 +476,14 @@ Store の API は、実走でしか分からない拒否が多い（初回の実
 2. `run.log` の最後のトレースで、どの呼び出しで止まったかを見る。
 3. 拒否された PUT なら、`05-put-request.json`（送った本文）と、`04-created-submission.json`（API が返した申請）を比べる。エラーの `target`（例: `allowTargetFutureDeviceFamilies`）の項目を、両方で見る。
 4. Microsoft に問い合わせるときは、`error.json` の相関 ID（`MS-CV` など）と、申請の ID、時刻（`run.log`）を伝える。
+
+**画面（Partner Center）と API の見え方は、同じとは限らない**: API で行った変更は、commit するまで、画面に反映されない。`draft-only` の実走（2026-10-04、申請 `1152921505702036713`）では、PUT の応答の画像が、既存 4 枚が `PendingDelete`、新規 4 枚が `PendingUpload`（ID なし）で、Partner Center の画面は、変更前のままだった（ユーザーの確認）。これは API の状態と矛盾しない（資料の手順では、ZIP のアップロードの後に commit して、取り込みが始まる）。画面の見え方では、反映を確かめない。**取り込みの後と公開の後に、API が返す申請の JSON を、CSV と照合して、証跡で確かめる**（`apply` が自動で行う。あとから確かめるときは、`inspect`）。公開された Store のページへの反映は、API の `Published` の後に、別に確かめる。
+
+**反映を証跡で確かめる手順**:
+
+1. `apply` の実行の Step Summary と、artifact の `09-status-timeline.json` で、取り込み（`PreProcessing`）の結果（`Certification` なら成功、`PreProcessingFailed` なら失敗）を見る。
+2. `11-verification.json`（Step Summary の照合の表）で、画像の取り込み（すべて `Uploaded` で ID がある）、順序と字幕、文章が、CSV のとおりかを見る。`❌` があれば、期待と実際を見て、原因を調べる。
+3. 認定と公開は、Partner Center の画面とメールで待つ。公開の後、Store Submit の `mode=inspect`（`--listing` つき）を実行し、公開済みの申請が、CSV のとおりかを、`inspect-verification.json` で確かめる。
 
 **運用**: 実走（`dry-run` を除く）のたびに、結果と、artifact の実行 ID を、ハンドオフの進捗ログに書く。失敗した実走の証跡は、原因を直した PR から、実行 ID で参照する。
 
