@@ -344,11 +344,12 @@ describe("安全チェック", () => {
 });
 
 describe("diffTopLevel", () => {
-  test("申請ごとに変わる項目（id・status・fileUploadUrl など）は無視する", () => {
-    const a = base();
+  test("申請ごとに変わる項目（id・friendlyName・status・fileUploadUrl など）は無視する", () => {
+    const a = { ...base(), friendlyName: "Submission 1" };
     const b = {
       ...base(),
       id: "sub2",
+      friendlyName: "Submission 3",
       status: "CommitStarted",
       statusDetails: { errors: [] },
       fileUploadUrl: "https://blob.example/x",
