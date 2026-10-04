@@ -1,6 +1,6 @@
 # プライバシーポリシー / Privacy Policy
 
-最終更新日 / Last updated: 2026-10-02
+最終更新日 / Last updated: 2026-10-04
 
 - [日本語](#日本語)
 - [English](#english)
@@ -36,6 +36,12 @@ Microsoft Store から配布された版に限り、本アプリは、次の 5 �
 - 目的は、本アプリが実際に使われ、機能しているかを、件数として把握することです。個人の識別には使いません。
 
 イベントは Microsoft が受け取り、パッケージのバージョンごとの集計として、開発者が Microsoft Partner Center で見られます。Microsoft によるデータの取り扱いには、[Microsoft のプライバシーに関する声明](https://privacy.microsoft.com/privacystatement)が適用されます。
+
+### Windows と Microsoft Store が収集する診断情報
+
+本アプリは、クラッシュの情報を集めたり、送ったりしません。ただし、あなたの Windows の診断データの設定によっては、本アプリが異常終了したときなどの情報を、Windows（Windows エラー報告）が Microsoft へ送ることがあります。Microsoft Store から配布された版では、この情報を、開発者が Microsoft Partner Center で、集計された形で見られる場合があります。
+
+これは Windows と Microsoft Store の機能で、本アプリが送るものではありません。送るかどうかは、Windows の「設定」の「プライバシーとセキュリティ」にある「診断とフィードバック」で決まります。開発者は、この情報を、本アプリの不具合の原因を調べるためにだけ使い、個人の識別には使いません。Microsoft によるデータの取り扱いには、[Microsoft のプライバシーに関する声明](https://privacy.microsoft.com/privacystatement)が適用されます。
 
 ### あなたの端末に保存される情報
 
@@ -96,6 +102,12 @@ Only in the version distributed through the Microsoft Store, the app sends the f
 - The purpose is to learn, as counts, whether the app is actually used and works. The events are not used to identify individuals.
 
 Microsoft receives the events, and the developer can see them in Microsoft Partner Center as counts per package version. Microsoft's handling of the data is governed by the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement).
+
+### Diagnostic information collected by Windows and the Microsoft Store
+
+The app does not collect or send crash information. However, depending on the diagnostic data setting of your Windows, Windows (Windows Error Reporting) may send information, such as when the app stops unexpectedly, to Microsoft. For the version distributed through the Microsoft Store, the developer may be able to see this information in Microsoft Partner Center in aggregated form.
+
+This is a feature of Windows and the Microsoft Store, not something the app sends. Whether it is sent depends on "Diagnostics & feedback" under "Privacy & security" in Windows Settings. The developer uses this information only to investigate problems in the app, and never to identify individuals. Microsoft's handling of the data is governed by the [Microsoft Privacy Statement](https://privacy.microsoft.com/privacystatement).
 
 ### Information stored on your device
 

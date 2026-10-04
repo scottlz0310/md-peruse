@@ -26,7 +26,7 @@
 
 .PARAMETER SymbolExtension
     シンボルファイルの拡張子。Microsoft の資料は .appxsym を説明しており、MSIX 向けに
-    .msixsym とする記述もある。Partner Center が受け付ける形は、初回のアップロードで確認する。
+    .msixsym とする記述もある。Partner Center は、.appxsym の形を、2026-10-03 の初回のアップロードで受理した。
 
 .EXAMPLE
     ./scripts/pack-msixupload.ps1
