@@ -110,9 +110,13 @@ export function assertPublishMode(
   }
 }
 
-/** 申請ごとに変わる項目。複製の比較では無視する。 */
+/**
+ * 申請ごとに変わる項目。複製の比較では無視する。`friendlyName` は、申請を作るたびに API が
+ * 付ける表示名で、初回の実走（2026-10-04）で、公開済みの申請との唯一の違いとして見つかった。
+ */
 const VOLATILE_KEYS = new Set([
   "id",
+  "friendlyName",
   "status",
   "statusDetails",
   "fileUploadUrl",
