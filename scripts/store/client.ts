@@ -4,7 +4,10 @@
 // 順序は、運用実績のある PhotoGeoExplorer の `Submit-ToPartnerCenter.ps1` と、公式の資料
 // （Manage app submissions）に合わせた。
 //
-// シークレットと、SAS URL（署名つき）は、ログとエラーメッセージに出さない。
+// シークレットと、SAS URL（署名つき）、テナント ID は、ログとエラーメッセージ、トレースに出さない。
+// 呼び出しごとの記録（メソッド、パス、状態コード、所要時間、相関 ID）は、`trace` で渡す。Microsoft
+// の API は、実走でしか分からない拒否（HTTP 400 など）が多いので、失敗の調査に使える情報
+// （応答の本文と相関 ID）を、例外にも持たせる（`StoreApiError`）。
 
 import type { StoreApplication, StoreSubmission } from "./plan";
 
@@ -22,31 +25,67 @@ export interface StoreClientOptions {
   appId: string;
   baseUrl?: string;
   tokenUrl?: string;
+  /** 呼び出しごとの記録を受け取る。資格情報と署名つき URL は渡さない。 */
+  trace?: (line: string) => void;
+  /** 所要時間の計測に使う時刻（ミリ秒）。テストで差し替える。 */
+  now?: () => number;
 }
 
 export const DEFAULT_BASE_URL =
   "https://manage.devcenter.microsoft.com/v1.0/my";
 const RESOURCE = "https://manage.devcenter.microsoft.com";
 
+/** 問い合わせ（Microsoft への調査の依頼）に使える、応答の相関 ID の見出し。 */
+const CORRELATION_HEADERS = [
+  "MS-CV",
+  "MS-CorrelationId",
+  "MS-RequestId",
+  "x-ms-request-id",
+  "x-ms-correlation-request-id",
+  "request-id",
+];
+
 export interface SubmissionStatus {
   status: string;
   statusDetails?: unknown;
 }
 
+export interface StoreApiErrorDetail {
+  /** 応答の本文（先頭 1000 文字）。資格情報は含まれない。 */
+  responseBody?: string;
+  /** 相関 ID（`見出し=値` をカンマで区切る）。無ければ空。 */
+  correlation?: string;
+}
+
 export class StoreApiError extends Error {
+  readonly responseBody?: string;
+  readonly correlation?: string;
+
   constructor(
     message: string,
     readonly httpStatus: number,
+    detail: StoreApiErrorDetail = {},
   ) {
     super(message);
     this.name = "StoreApiError";
+    this.responseBody = detail.responseBody;
+    this.correlation = detail.correlation;
   }
+}
+
+function correlationOf(headers: Headers): string {
+  return CORRELATION_HEADERS.flatMap((name) => {
+    const value = headers.get(name);
+    return value ? [`${name}=${value}`] : [];
+  }).join(", ");
 }
 
 export class StoreClient {
   private readonly fetchFn: FetchLike;
   private readonly baseUrl: string;
   private readonly tokenUrl: string;
+  private readonly trace: (line: string) => void;
+  private readonly now: () => number;
   private token: string | undefined;
 
   constructor(private readonly options: StoreClientOptions) {
@@ -55,10 +94,25 @@ export class StoreClient {
     this.tokenUrl =
       options.tokenUrl ??
       `https://login.microsoftonline.com/${options.tenantId}/oauth2/token`;
+    this.trace = options.trace ?? (() => {});
+    this.now = options.now ?? Date.now;
+  }
+
+  private record(
+    what: string,
+    status: number,
+    startedAt: number,
+    correlation: string,
+  ): void {
+    const suffix = correlation ? `、${correlation}` : "";
+    this.trace(
+      `${what} → HTTP ${status}（${this.now() - startedAt} ms${suffix}）`,
+    );
   }
 
   private async accessToken(): Promise<string> {
     if (this.token) return this.token;
+    const startedAt = this.now();
     const response = await this.fetchFn(this.tokenUrl, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -69,6 +123,13 @@ export class StoreClient {
         resource: RESOURCE,
       }).toString(),
     });
+    // テナント ID を含む URL は、記録に出さない。
+    this.record(
+      "POST トークン エンドポイント（Azure AD）",
+      response.status,
+      startedAt,
+      correlationOf(response.headers),
+    );
     if (!response.ok) {
       // 応答の本文は、エラーの種類と説明だけを読む（資格情報は含まれない）。
       let detail = "";
@@ -84,6 +145,7 @@ export class StoreClient {
       throw new StoreApiError(
         `アクセス トークンを取得できませんでした（HTTP ${response.status}）。${detail.trim()}`,
         response.status,
+        { correlation: correlationOf(response.headers) },
       );
     }
     const body = (await response.json()) as { access_token?: string };
@@ -102,6 +164,7 @@ export class StoreClient {
     body?: unknown,
   ): Promise<T | undefined> {
     const token = await this.accessToken();
+    const startedAt = this.now();
     const response = await this.fetchFn(`${this.baseUrl}/${path}`, {
       method,
       headers: {
@@ -110,12 +173,14 @@ export class StoreClient {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
+    const correlation = correlationOf(response.headers);
+    this.record(`${method} ${path}`, response.status, startedAt, correlation);
     if (!response.ok) {
-      const correlation = response.headers.get("MS-CV") ?? "—";
       const text = (await response.text()).slice(0, 1000);
       throw new StoreApiError(
-        `Store API のエラー: ${method} ${path}（HTTP ${response.status}、MS-CV: ${correlation}）${text}`,
+        `Store API のエラー: ${method} ${path}（HTTP ${response.status}、${correlation || "相関 ID なし"}）${text}`,
         response.status,
+        { responseBody: text, correlation },
       );
     }
     const text = await response.text();
@@ -148,16 +213,20 @@ export class StoreClient {
     )) as StoreSubmission;
   }
 
-  async updateSubmission(submission: StoreSubmission): Promise<void> {
-    await this.request(
+  /** 申請を更新する。API が返す、更新後の申請を返す（応答が空なら undefined）。 */
+  async updateSubmission(
+    submission: StoreSubmission,
+  ): Promise<StoreSubmission | undefined> {
+    return this.request<StoreSubmission>(
       "PUT",
       `${this.appPath}/submissions/${submission.id}`,
       submission,
     );
   }
 
-  /** 申請ごとの SAS URL へ ZIP をアップロードする。URL は署名を含むので、メッセージに出さない。 */
+  /** 申請ごとの SAS URL へ ZIP をアップロードする。URL は署名を含むので、メッセージにも記録にも出さない。 */
   async uploadZip(uploadUrl: string, zip: Uint8Array): Promise<void> {
+    const startedAt = this.now();
     const response = await this.fetchFn(uploadUrl, {
       method: "PUT",
       headers: {
@@ -167,10 +236,20 @@ export class StoreClient {
       // 型の上では Uint8Array を直接渡せないので、Blob に包む。
       body: new Blob([zip as BlobPart]),
     });
+    const correlation = correlationOf(response.headers);
+    this.record(
+      `PUT ZIP のアップロード（${zip.length} バイト。署名つき URL は記録しない）`,
+      response.status,
+      startedAt,
+      correlation,
+    );
     if (!response.ok) {
+      // Azure Blob のエラーの本文は、XML のエラー コードと説明で、署名は含まれない。
+      const text = (await response.text()).slice(0, 1000);
       throw new StoreApiError(
-        `ZIP のアップロードに失敗しました（HTTP ${response.status}）`,
+        `ZIP のアップロードに失敗しました（HTTP ${response.status}、${correlation || "相関 ID なし"}）${text}`,
         response.status,
+        { responseBody: text, correlation },
       );
     }
   }

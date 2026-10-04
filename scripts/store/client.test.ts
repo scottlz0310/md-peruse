@@ -3,6 +3,7 @@ import {
   type FetchLike,
   StoreApiError,
   StoreClient,
+  type StoreClientOptions,
   waitForCommit,
 } from "./client";
 
@@ -17,7 +18,10 @@ const SECRET = "s3cr3t-value";
 const TOKEN_URL = "https://login.example/tenant-1/oauth2/token";
 const BASE = "https://api.example/v1.0/my";
 
-function setup(handler: (call: Call) => Response | Promise<Response>) {
+function setup(
+  handler: (call: Call) => Response | Promise<Response>,
+  extra: Partial<StoreClientOptions> = {},
+) {
   const calls: Call[] = [];
   const fetchFn: FetchLike = async (input, init) => {
     const call: Call = {
@@ -37,6 +41,7 @@ function setup(handler: (call: Call) => Response | Promise<Response>) {
     appId: "9P35BW61FN4W",
     baseUrl: BASE,
     tokenUrl: TOKEN_URL,
+    ...extra,
   });
   return { client, calls };
 }
@@ -190,6 +195,141 @@ describe("ZIP のアップロード", () => {
       .catch((e: unknown) => e);
     expect((error as Error).message).toContain("HTTP 403");
     expect((error as Error).message).not.toContain("SUPER-SECRET-SIG");
+  });
+});
+
+describe("呼び出しの記録（trace）", () => {
+  /** 呼ぶたびに 25 ms 進む時計。所要時間が決まった値になる。 */
+  const clock = () => {
+    let time = 1_000;
+    return () => {
+      time += 25;
+      return time;
+    };
+  };
+
+  test("API の呼び出しごとに、メソッド、パス、状態コード、所要時間、相関 ID を残す", async () => {
+    const lines: string[] = [];
+    const { client } = setup(
+      (call) =>
+        call.url === TOKEN_URL
+          ? json({ access_token: "tok-1" })
+          : new Response(JSON.stringify({ ok: true }), {
+              status: 200,
+              headers: { "MS-CV": "cv-1", "x-ms-request-id": "req-1" },
+            }),
+      { trace: (line) => lines.push(line), now: clock() },
+    );
+    await client.getApplication();
+    await client.getSubmission("s1");
+
+    expect(lines).toEqual([
+      "POST トークン エンドポイント（Azure AD） → HTTP 200（25 ms）",
+      "GET applications/9P35BW61FN4W → HTTP 200（25 ms、MS-CV=cv-1, x-ms-request-id=req-1）",
+      "GET applications/9P35BW61FN4W/submissions/s1 → HTTP 200（25 ms、MS-CV=cv-1, x-ms-request-id=req-1）",
+    ]);
+  });
+
+  test("記録に、シークレット、トークン、テナント ID を含めない", async () => {
+    const lines: string[] = [];
+    const { client } = setup(route, { trace: (line) => lines.push(line) });
+    await client.getApplication();
+    const all = lines.join("\n");
+    expect(all).not.toContain(SECRET);
+    expect(all).not.toContain("tok-1");
+    expect(all).not.toContain("tenant-1");
+  });
+
+  test("失敗した呼び出しも、状態コードを記録する", async () => {
+    const lines: string[] = [];
+    const { client } = setup(
+      (call) =>
+        call.url === TOKEN_URL
+          ? json({ access_token: "tok-1" })
+          : new Response("bad", { status: 400, headers: { "MS-CV": "cv-9" } }),
+      { trace: (line) => lines.push(line) },
+    );
+    await client.createSubmission().catch(() => {});
+    expect(lines.at(-1)).toContain(
+      "POST applications/9P35BW61FN4W/submissions → HTTP 400",
+    );
+    expect(lines.at(-1)).toContain("MS-CV=cv-9");
+  });
+
+  test("ZIP のアップロードを記録し、署名つき URL は含めない", async () => {
+    const lines: string[] = [];
+    const sas = "https://blob.example/c/f?sv=1&sig=SUPER-SECRET-SIG";
+    const { client } = setup(() => new Response(null, { status: 201 }), {
+      trace: (line) => lines.push(line),
+    });
+    await client.uploadZip(sas, new Uint8Array(3));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("ZIP のアップロード（3 バイト");
+    expect(lines[0]).toContain("HTTP 201");
+    expect(lines[0]).not.toContain("SUPER-SECRET-SIG");
+    expect(lines[0]).not.toContain("blob.example");
+  });
+
+  test("trace を渡さなくても動く", async () => {
+    const { client } = setup(route);
+    expect(await client.getApplication()).toBeDefined();
+  });
+});
+
+describe("StoreApiError の詳細（失敗の調査用）", () => {
+  test("API のエラーは、応答の本文と相関 ID を持つ", async () => {
+    const { client } = setup((call) =>
+      call.url === TOKEN_URL
+        ? json({ access_token: "tok-1" })
+        : new Response('{"code":"InvalidParameterValue"}', {
+            status: 400,
+            headers: { "MS-CV": "cv-7", "request-id": "r-7" },
+          }),
+    );
+    const error = (await client
+      .updateSubmission({
+        id: "s1",
+        targetPublishMode: "Manual",
+        listings: {},
+        applicationPackages: [],
+      })
+      .catch((e: unknown) => e)) as StoreApiError;
+    expect(error).toBeInstanceOf(StoreApiError);
+    expect(error.httpStatus).toBe(400);
+    expect(error.responseBody).toBe('{"code":"InvalidParameterValue"}');
+    expect(error.correlation).toBe("MS-CV=cv-7, request-id=r-7");
+  });
+
+  test("相関 ID が無い応答は、メッセージに「相関 ID なし」と書く", async () => {
+    const { client } = setup((call) =>
+      call.url === TOKEN_URL
+        ? json({ access_token: "tok-1" })
+        : new Response("x", { status: 500 }),
+    );
+    const error = (await client
+      .getApplication()
+      .catch((e: unknown) => e)) as StoreApiError;
+    expect(error.message).toContain("相関 ID なし");
+    expect(error.correlation).toBe("");
+  });
+
+  test("ZIP のアップロードの失敗も、本文と相関 ID を持つ（署名つき URL は含めない）", async () => {
+    const { client } = setup(
+      () =>
+        new Response("<Error><Code>AuthenticationFailed</Code></Error>", {
+          status: 403,
+          headers: { "x-ms-request-id": "blob-1" },
+        }),
+    );
+    const error = (await client
+      .uploadZip(
+        "https://blob.example/f?sig=SUPER-SECRET-SIG",
+        new Uint8Array(1),
+      )
+      .catch((e: unknown) => e)) as StoreApiError;
+    expect(error.responseBody).toContain("AuthenticationFailed");
+    expect(error.correlation).toBe("x-ms-request-id=blob-1");
+    expect(error.message).not.toContain("SUPER-SECRET-SIG");
   });
 });
 

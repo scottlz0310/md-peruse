@@ -73,7 +73,7 @@ jobs:
           AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
           AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
         run: |
-          args=(--listing docs/assets/store --languages "$LANGUAGES" --publish-mode "$PUBLISH_MODE")
+          args=(--listing docs/assets/store --languages "$LANGUAGES" --publish-mode "$PUBLISH_MODE" --evidence-dir "$RUNNER_TEMP/store-evidence")
           if [ "$REPLACE_SCREENSHOTS" = "true" ]; then
             args+=(--replace-screenshots)
           fi
@@ -85,3 +85,15 @@ jobs:
             *) echo "mode が不正です: $MODE" >&2; exit 1 ;;
           esac
           bun run store:submit "${args[@]}"
+
+      # 失敗しても保存する。Store の API は、実走でしか分からない拒否が多いので、呼び出しのトレース、申請の
+      # JSON、PUT の本文と応答を、あとから読めるようにする（資格情報と署名つき URL は、書き出す前に取り除く）。
+      # 資格情報を渡すステップとは分ける。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-evidence-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/store-evidence
+          if-no-files-found: warn
+          retention-days: 90

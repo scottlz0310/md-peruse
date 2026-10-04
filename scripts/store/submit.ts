@@ -18,11 +18,22 @@
 // 注意: この API で作った申請は、以後 Partner Center の画面で変更しない。画面で変更すると、
 // その申請を API で変更も commit もできなくなる。
 
-import { appendFileSync, readFileSync } from "node:fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { StoreClient, waitForCommit } from "./client";
 import { readListingTable } from "./csv";
+import {
+  createEvidence,
+  describeFailure,
+  type Evidence,
+  failureSummary,
+} from "./evidence";
 import { buildListingPatch, type ListingPatch } from "./listing";
 import {
   assertNoPendingSubmission,
@@ -53,6 +64,8 @@ export interface RunOptions {
 }
 
 export interface RunDeps {
+  /** 実走の証跡（申請の JSON など）の保存先。無ければ、保存しない。 */
+  evidence?: Pick<Evidence, "json">;
   client: Pick<
     StoreClient,
     | "getApplication"
@@ -124,9 +137,10 @@ export async function run(
   deps: RunDeps,
 ): Promise<RunResult> {
   const input = buildInput(options, deps);
-  const { client, log } = deps;
+  const { client, log, evidence } = deps;
 
   const app = await client.getApplication();
+  evidence?.json("01-application", app);
   assertNoPendingSubmission(app);
   const lastPublishedId = app.lastPublishedApplicationSubmission?.id;
   if (!lastPublishedId) {
@@ -137,8 +151,16 @@ export async function run(
 
   // 作成の前に、公開済みの申請に対する計画を作る。変更が無いなら、申請（下書き）を作らない。
   const published = await client.getSubmission(lastPublishedId);
+  evidence?.json("02-published-submission", published);
   assertPublishMode(published, options.publishMode);
   const preview = planSubmission(published, input);
+  evidence?.json("03-plan", {
+    changes: preview.changes,
+    uploads: preview.uploads.map((u) => ({
+      name: u.name,
+      bytes: u.data.length,
+    })),
+  });
   log(describePlan(preview));
   // Pricing Version 2 のアプリは、API が価格を unknown tier で返す（資料の定め）。実際の値を残す。
   log(`価格（公開済み）: ${JSON.stringify(published.pricing ?? null)}`);
@@ -152,6 +174,7 @@ export async function run(
   }
 
   const created = await client.createSubmission();
+  evidence?.json("04-created-submission", created);
   assertPublishMode(created, options.publishMode);
 
   // 作成した申請は、公開済みの申請の複製のはず。違う項目があれば、更新の前に止める
@@ -186,14 +209,21 @@ export async function run(
     );
   }
 
-  await client.updateSubmission(plan.submission);
+  evidence?.json("05-put-request", plan.submission);
+  const updated = await client.updateSubmission(plan.submission);
+  evidence?.json("06-put-response", updated ?? null);
   log(`申請 ${created.id} を更新しました`);
 
   if (plan.uploads.length > 0) {
     if (!created.fileUploadUrl) {
       throw new Error("申請に fileUploadUrl がありません（ZIP を送れません）");
     }
-    await client.uploadZip(created.fileUploadUrl, createZip(plan.uploads));
+    const zip = createZip(plan.uploads);
+    await client.uploadZip(created.fileUploadUrl, zip);
+    evidence?.json("07-upload", {
+      zipBytes: zip.length,
+      files: plan.uploads.map((u) => ({ name: u.name, bytes: u.data.length })),
+    });
     log(`ZIP をアップロードしました（${plan.uploads.length} ファイル）`);
   }
 
@@ -204,11 +234,12 @@ export async function run(
     return { mode: "applied", plan, submissionId: created.id };
   }
 
-  await client.commit(created.id);
+  evidence?.json("08-commit-response", await client.commit(created.id));
   const status = await waitForCommit(client, created.id, {
     sleep: deps.sleep,
     ...COMMIT_POLL,
   });
+  evidence?.json("09-status", status);
   if (status.status === "CommitFailed") {
     throw new Error(
       `commit に失敗しました（申請 ${created.id}）: ${JSON.stringify(status.statusDetails)}`,
@@ -232,6 +263,11 @@ function requiredEnv(env: NodeJS.ProcessEnv, names: string[]): string[] {
 }
 
 if (import.meta.main) {
+  let evidence: Evidence | undefined;
+  let evidenceDir: string | undefined;
+  let mode = "不明";
+  const summary = process.env.GITHUB_STEP_SUMMARY;
+
   try {
     const { values } = parseArgs({
       options: {
@@ -243,13 +279,64 @@ if (import.meta.main) {
         apply: { type: "boolean", default: false },
         "no-commit": { type: "boolean", default: false },
         "clone-only": { type: "boolean", default: false },
+        "evidence-dir": { type: "string" },
       },
     });
 
-    const publishMode = values["publish-mode"] as string;
-    if (!(PUBLISH_MODES as readonly string[]).includes(publishMode)) {
+    const options: RunOptions = {
+      listingDir: values.listing,
+      languages: (values.languages as string).split(",").map((s) => s.trim()),
+      replaceScreenshots: values["replace-screenshots"] as boolean,
+      packagePath: values.package,
+      publishMode: values["publish-mode"] as PublishMode,
+      apply: values.apply as boolean,
+      commit: !(values["no-commit"] as boolean),
+      cloneOnly: values["clone-only"] as boolean,
+    };
+    mode = !options.apply
+      ? "dry-run"
+      : options.cloneOnly
+        ? "clone-only"
+        : options.commit
+          ? "apply"
+          : "draft-only";
+
+    // 証跡は、入力の検査より先に用意する。検査で止まった実走も、記録に残す。
+    evidenceDir = values["evidence-dir"];
+    if (evidenceDir) {
+      evidence = createEvidence({
+        dir: evidenceDir,
+        fs: {
+          mkdir: (dir) => mkdirSync(dir, { recursive: true }),
+          write: (path, text) => writeFileSync(path, text),
+          append: (path, text) => appendFileSync(path, text),
+        },
+        now: () => new Date(),
+      });
+      evidence.json("00-run-info", {
+        mode,
+        options,
+        startedAt: new Date().toISOString(),
+        github: {
+          repository: process.env.GITHUB_REPOSITORY,
+          workflow: process.env.GITHUB_WORKFLOW,
+          runId: process.env.GITHUB_RUN_ID,
+          runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+          sha: process.env.GITHUB_SHA,
+          ref: process.env.GITHUB_REF,
+        },
+        bun: Bun.version,
+      });
+    }
+    const log = (message: string) => {
+      console.log(message);
+      evidence?.line(message);
+    };
+    const trace = (line: string) => log(`[trace] ${line}`);
+
+    if (!(PUBLISH_MODES as readonly string[]).includes(options.publishMode)) {
       throw new Error(
-        `--publish-mode は ${PUBLISH_MODES.join(" か ")} を指定してください: ${publishMode}`,
+        `--publish-mode は ${PUBLISH_MODES.join(" か ")} を指定してください: ${options.publishMode}`,
       );
     }
 
@@ -260,36 +347,30 @@ if (import.meta.main) {
       "AZURE_AD_APPLICATION_SECRET",
     ]) as [string, string, string, string];
 
-    const summary = process.env.GITHUB_STEP_SUMMARY;
-    const result = await run(
-      {
-        listingDir: values.listing,
-        languages: (values.languages as string).split(",").map((s) => s.trim()),
-        replaceScreenshots: values["replace-screenshots"] as boolean,
-        packagePath: values.package,
-        publishMode: publishMode as PublishMode,
-        apply: values.apply as boolean,
-        commit: !(values["no-commit"] as boolean),
-        cloneOnly: values["clone-only"] as boolean,
-      },
-      {
-        client: new StoreClient({
-          fetch: (input, init) => fetch(input, init),
-          appId,
-          tenantId,
-          clientId,
-          clientSecret,
-        }),
-        readText: (path) => readFileSync(path, "utf8"),
-        readBytes: (path) => new Uint8Array(readFileSync(path)),
-        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
-        log: (message) => console.log(message),
-      },
-    );
+    const result = await run(options, {
+      evidence,
+      client: new StoreClient({
+        fetch: (input, init) => fetch(input, init),
+        appId,
+        tenantId,
+        clientId,
+        clientSecret,
+        trace,
+      }),
+      readText: (path) => readFileSync(path, "utf8"),
+      readBytes: (path) => new Uint8Array(readFileSync(path)),
+      sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      log,
+    });
 
-    console.log(
+    log(
       `結果: ${result.mode}${result.submissionId ? `（申請 ${result.submissionId}）` : ""}`,
     );
+    evidence?.json("result", {
+      mode: result.mode,
+      submissionId: result.submissionId,
+      status: result.status,
+    });
     if (summary) {
       appendFileSync(
         summary,
@@ -301,7 +382,21 @@ if (import.meta.main) {
       );
     }
   } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    // 失敗しても、原因をたどれるよう、内容を証跡と Step Summary に残してから終わる。
+    const report = describeFailure(error);
+    console.error(report.message);
+    evidence?.line(`失敗: ${report.message}`);
+    evidence?.json("error", report);
+    if (summary) {
+      appendFileSync(
+        summary,
+        failureSummary(report, {
+          mode,
+          runId: process.env.GITHUB_RUN_ID,
+          evidenceDir,
+        }),
+      );
+    }
     process.exit(1);
   }
 }

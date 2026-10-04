@@ -49,6 +49,8 @@ function published(): StoreSubmission {
 
 interface Setup {
   deps: RunDeps;
+  /** 証跡として保存された、(名前, 内容) の列。 */
+  records: Array<[string, unknown]>;
   calls: string[];
   put: StoreSubmission[];
   uploads: Uint8Array[];
@@ -67,6 +69,7 @@ function setup(
   const put: StoreSubmission[] = [];
   const uploads: Uint8Array[] = [];
   const logs: string[] = [];
+  const records: Array<[string, unknown]> = [];
   const statuses = [...(overrides.statuses ?? ["PreProcessing"])];
 
   const files = new Map<string, Uint8Array>([
@@ -76,6 +79,11 @@ function setup(
   ]);
 
   const deps: RunDeps = {
+    evidence: {
+      json: (name, data) => {
+        records.push([name, data]);
+      },
+    },
     client: {
       getApplication: async () => {
         calls.push("getApplication");
@@ -100,6 +108,7 @@ function setup(
       updateSubmission: async (submission) => {
         calls.push("updateSubmission");
         put.push(submission);
+        return { ...structuredClone(submission), status: "PendingCommit" };
       },
       uploadZip: async (_url, zip) => {
         calls.push("uploadZip");
@@ -128,7 +137,7 @@ function setup(
     sleep: async () => {},
     log: (message) => logs.push(message),
   };
-  return { deps, calls, put, uploads, logs };
+  return { deps, records, calls, put, uploads, logs };
 }
 
 const listing: RunOptions = {
@@ -475,5 +484,95 @@ describe("apply", () => {
     const s = setup();
     await run({ ...listing, apply: true, replaceScreenshots: true }, s.deps);
     expect(s.logs.join("\n")).not.toContain("SECRET");
+  });
+});
+
+describe("証跡", () => {
+  const names = (s: Setup) => s.records.map(([name]) => name);
+
+  test("dry-run は、読み取った内容と計画を残す", async () => {
+    const s = setup();
+    await run(listing, s.deps);
+    expect(names(s)).toEqual([
+      "01-application",
+      "02-published-submission",
+      "03-plan",
+    ]);
+  });
+
+  test("文章だけの更新は、申請の JSON、PUT の本文と応答、commit、状態を、順に残す", async () => {
+    const s = setup();
+    await run({ ...listing, apply: true }, s.deps);
+    expect(names(s)).toEqual([
+      "01-application",
+      "02-published-submission",
+      "03-plan",
+      "04-created-submission",
+      "05-put-request",
+      "06-put-response",
+      "08-commit-response",
+      "09-status",
+    ]);
+  });
+
+  test("画像の差し替えは、ZIP の大きさと中身の一覧（バイト数）も残す", async () => {
+    const s = setup();
+    await run({ ...listing, apply: true, replaceScreenshots: true }, s.deps);
+    const upload = s.records.find(([name]) => name === "07-upload")?.[1] as {
+      zipBytes: number;
+      files: Array<{ name: string; bytes: number }>;
+    };
+    expect(upload.zipBytes).toBeGreaterThan(0);
+    expect(upload.files.map((f) => f.name)).toEqual([
+      "images/ja-jp/01-ja1.png",
+      "images/en-us/01-en1.png",
+    ]);
+    const plan = s.records.find(([name]) => name === "03-plan")?.[1] as {
+      uploads: Array<{ name: string; bytes: number }>;
+    };
+    expect(plan.uploads).toHaveLength(2);
+  });
+
+  test("PUT の応答を、そのまま残す", async () => {
+    const s = setup();
+    await run({ ...listing, apply: true }, s.deps);
+    const response = s.records.find(
+      ([name]) => name === "06-put-response",
+    )?.[1] as {
+      status: string;
+    };
+    expect(response.status).toBe("PendingCommit");
+  });
+
+  test("PUT が失敗しても、送った本文（05-put-request）は残る", async () => {
+    const s = setup();
+    s.deps.client.updateSubmission = async () => {
+      throw new Error("PUT が拒否された");
+    };
+    await expect(run({ ...listing, apply: true }, s.deps)).rejects.toThrow(
+      "PUT が拒否された",
+    );
+    expect(names(s)).toContain("05-put-request");
+    expect(names(s)).not.toContain("06-put-response");
+  });
+
+  test("clone-only は、作成した申請までを残す", async () => {
+    const s = setup();
+    await run({ ...listing, apply: true, cloneOnly: true }, s.deps);
+    expect(names(s)).toEqual([
+      "01-application",
+      "02-published-submission",
+      "03-plan",
+      "04-created-submission",
+    ]);
+  });
+
+  test("証跡の保存先が無くても動く", async () => {
+    const s = setup();
+    const result = await run(
+      { ...listing, apply: true },
+      { ...s.deps, evidence: undefined },
+    );
+    expect(result.mode).toBe("applied");
   });
 });
