@@ -13,6 +13,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- プライバシーポリシーに、Windowsの診断データ（クラッシュ情報）についての説明を加えた。クラッシュ情報の収集はWindowsとMicrosoft Storeの機能で、本アプリが送るものではなく、送るかどうかはWindowsの診断データの設定で決まる（日本語と英語。[#144](https://github.com/scottlz0310/md-peruse/issues/144)）。
+
 ## [0.1.1] - 2026-10-04
 
 ### Changed

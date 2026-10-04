@@ -28,4 +28,16 @@ describe("プライバシーポリシー", () => {
       expect(english).toContain(`\`${name}\``);
     }
   });
+
+  // クラッシュ情報の収集は Windows と Partner Center の機能で、アプリは送らない旨（#144）を、両言語に載せる。
+  test.each([
+    ["日本語", 0, "Windows エラー報告"],
+    ["English", 1, "Windows Error Reporting"],
+  ] as const)(
+    "Windows の診断情報についての説明を、%s に載せている",
+    (_language, index, term) => {
+      const section = policy.split(/^## English$/m)[index] ?? "";
+      expect(section).toContain(term);
+    },
+  );
 });

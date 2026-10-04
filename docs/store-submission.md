@@ -51,9 +51,9 @@ md-peruse_<version>_x64.msixupload（実体は ZIP）
 ```
 
 - 内側の `.msix` の SHA-256 が、元のファイルと一致することを、スクリプトが検査し、食い違えば失敗する。外側の `.msixupload` は別の SHA-256 になる。記録表には、両方を書く。
-- PDB は、`strip = true` のリリースビルドでも出る（CI で確認。`src-tauri/target/x86_64-pc-windows-msvc/release/md_peruse.pdb`、約2.8 MB）。ただし、小さいため、公開シンボルだけで、行番号などの詳細を含まない可能性がある（確認していない）。スタックトレースに関数名が出ることは、初回の公開後に Partner Center で確認する。詳細が要るなら、`Cargo.toml` の `strip` の設定を見直す（バイナリの大きさへの影響も測る）。
+- PDB は、`strip = true` のリリースビルドでも出る（CI で確認。`src-tauri/target/x86_64-pc-windows-msvc/release/md_peruse.pdb`、約2.8 MB）。ただし、小さいため、公開シンボルだけで、行番号などの詳細を含まない可能性がある（確認していない）。スタックトレースに関数名が出ることは、実際のクラッシュのデータが出てから、Partner Center で確認する（tasks.md の検討待ち）。詳細が要るなら、`Cargo.toml` の `strip` の設定を見直す（バイナリの大きさへの影響も測る）。
 - シンボルファイルの拡張子は `.appxsym` にした。Microsoft の資料は `.appxsym` を説明しており、MSIX 向けに `.msixsym` とする記述もある。スクリプトの `-SymbolExtension` で変えられる。
-- Partner Center が、この手作りの `.msixupload`（ZIP の構成、シンボルの名前）を受け付けるかは、初回のアップロードまで確認できない。受け付けられない、または警告が出るときは、`.msix` だけを提出する（artifact には、`.msix` も入っている）。シンボルが認識されたかの確認は、Package details の表示と、初回の公開後のクラッシュ分析で行う。
+- Partner Center は、この手作りの `.msixupload`（ZIP の構成、シンボルの名前）を、受理した（2026-10-03 の初回の提出で `Validated`。2026-10-04 の API による提出〔v0.1.1〕でも、パッケージは `Uploaded` になった）。受け付けられない、または警告が出るときの退路として、`.msix` だけを提出できる（artifact には、`.msix` も入っている）。シンボルが認識されたかの確認は、実際のクラッシュのデータが出てから、クラッシュ分析で行う（tasks.md の検討待ち）。
 
 ## 4. バージョンとタグ
 
