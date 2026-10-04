@@ -313,6 +313,51 @@ describe("apply", () => {
     );
   });
 
+  test("デバイス ファミリーが未初期化なら、初期化して PUT し、ログに残す", async () => {
+    const s = setup();
+    await run({ ...listing, apply: true }, s.deps);
+    expect(s.put[0]?.allowTargetFutureDeviceFamilies).toEqual({
+      Desktop: true,
+      Mobile: false,
+      Xbox: false,
+      Holographic: false,
+    });
+    const log = s.logs.join("\n");
+    expect(log).toContain("デバイス ファミリー（作成した申請）: null");
+    expect(log).toContain(
+      "allowTargetFutureDeviceFamilies.Desktop を初期化しました: null → true",
+    );
+  });
+
+  test("デバイス ファミリーが初期化済みなら、値を変えず、初期化のログも出さない", async () => {
+    const families = {
+      Desktop: false,
+      Mobile: true,
+      Xbox: false,
+      Holographic: false,
+      Team: true,
+    };
+    const created = {
+      ...published(),
+      allowTargetFutureDeviceFamilies: families,
+    };
+    const s = setup({
+      published: { ...published(), allowTargetFutureDeviceFamilies: families },
+      created,
+    });
+    await run({ ...listing, apply: true }, s.deps);
+    expect(s.put[0]?.allowTargetFutureDeviceFamilies).toEqual(families);
+    expect(s.logs.join("\n")).not.toContain("を初期化しました");
+  });
+
+  test("デバイス ファミリーの初期化は、変更の一覧（計画）に含めない", async () => {
+    const s = setup();
+    const result = await run({ ...listing, apply: true }, s.deps);
+    expect(
+      result.plan.changes.some((c) => c.field.includes("allowTarget")),
+    ).toBe(false);
+  });
+
   test("画像の差し替え: 更新の後、commit の前に ZIP を送る", async () => {
     const s = setup();
     await run({ ...listing, apply: true, replaceScreenshots: true }, s.deps);

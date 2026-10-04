@@ -29,6 +29,7 @@ import {
   assertPublishMode,
   describePlan,
   diffTopLevel,
+  initializeDeviceFamilies,
   type PlanInput,
   PUBLISH_MODES,
   type PublishMode,
@@ -141,6 +142,9 @@ export async function run(
   log(describePlan(preview));
   // Pricing Version 2 のアプリは、API が価格を unknown tier で返す（資料の定め）。実際の値を残す。
   log(`価格（公開済み）: ${JSON.stringify(published.pricing ?? null)}`);
+  log(
+    `デバイス ファミリー（公開済み）: ${JSON.stringify(published.allowTargetFutureDeviceFamilies ?? null)}`,
+  );
 
   if (!options.apply) return { mode: "dry-run", plan: preview };
   if (preview.changes.length === 0 && !options.cloneOnly) {
@@ -157,6 +161,9 @@ export async function run(
     `作成した申請（${created.id}）と公開済みの申請の違い（トップレベル）: ${cloneDiff.length > 0 ? cloneDiff.join(", ") : "なし"}`,
   );
   log(`価格（作成した申請）: ${JSON.stringify(created.pricing ?? null)}`);
+  log(
+    `デバイス ファミリー（作成した申請）: ${JSON.stringify(created.allowTargetFutureDeviceFamilies ?? null)}`,
+  );
   if (options.cloneOnly) {
     log(
       `確認用に申請 ${created.id} を作りました。更新も commit もしていません。Partner Center の「送信の削除」で消してください`,
@@ -170,6 +177,14 @@ export async function run(
     );
   }
   const plan = planSubmission(created, input);
+
+  // 作成した申請をそのまま PUT すると、API は、デバイス ファミリーの未初期化を理由に拒否する。
+  // 利用者が望んだ変更ではないので、計画（変更の一覧）には含めず、初期化した内容をログに残す。
+  for (const init of initializeDeviceFamilies(plan.submission)) {
+    log(
+      `allowTargetFutureDeviceFamilies.${init.family} を初期化しました: ${JSON.stringify(init.before ?? null)} → ${init.after}`,
+    );
+  }
 
   await client.updateSubmission(plan.submission);
   log(`申請 ${created.id} を更新しました`);
