@@ -350,7 +350,7 @@ cloud-migrator の `scripts/Configure-StorePublishing.ps1` は、そのままは
 
 #### ③ 初回の実走（確認の手順）
 
-Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**下の順に、1 つずつ進める。**
+Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**成功しても失敗しても、証跡（呼び出しのトレース、申請の JSON、PUT の本文と応答）が artifact `store-evidence-*` に残る**（9.8。失敗したときは、まずここを読む）。**下の順に、1 つずつ進める。**
 
 1. **`dry-run`**（読み取りだけ）。成功すれば、Entra ID のアプリの資格情報と権限が正しい。失敗の見分け方:
    - 「アクセス トークンを取得できませんでした（HTTP 400／401）」: テナント ID、クライアント ID、シークレットのどれかが違う（シークレットの期限切れも）。
@@ -439,6 +439,40 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 - 「Re-run all jobs」は、公開済みの Release を検知して、添付・照合・公開・Store を skip する。Store の再提出には使えない。
 
 公開方法が `Immediate` であることが前提。Partner Center の設定が `Manual` に戻っている場合、`store` は申請を作る前に止まる。
+
+### 9.8 証跡（ログと記録）
+
+Store の API は、実走でしか分からない拒否が多い（初回の実走で、`friendlyName` の違いと、デバイス ファミリーの未初期化による HTTP 400 が、続けて見つかった）。実走のたびに、見えない部分を推測して直す往復にならないよう、**成功しても失敗しても、呼び出しの記録と、申請の JSON を残す**。
+
+**残るもの**（`scripts/store/` が `--evidence-dir` のフォルダーへ書く。ワークフローは、実行ごとの artifact にする）:
+
+| ファイル | 内容 |
+| --- | --- |
+| `00-run-info.json` | 実行の条件（`mode`、オプション、リポジトリ、実行 ID、コミット、ref）。資格情報は含まない |
+| `run.log` | 時刻つきの全ログ。API の呼び出しごとのトレース（`[trace]`。メソッド、パス、HTTP の状態コード、所要時間、相関 ID）を含む |
+| `01-application.json` | 製品の情報（公開済み、処理中の申請の ID） |
+| `02-published-submission.json` | 公開済みの申請の JSON |
+| `03-plan.json` | 変更の計画（変更の一覧、ZIP に入れるファイル名とバイト数） |
+| `04-created-submission.json` | 作成した申請（下書き）の JSON。公開済みの申請との違いを、この 2 つで比べられる |
+| `05-put-request.json` | PUT で送った本文（デバイス ファミリーの初期化などを反映した後）。**PUT が失敗しても残る** |
+| `06-put-response.json` | PUT の応答（更新後の申請） |
+| `07-upload.json` | ZIP のバイト数と、中身のファイル名とバイト数 |
+| `08-commit-response.json`、`09-status.json` | commit の応答と、受理された後の状態 |
+| `result.json` | 終了の状態（`mode`、申請の ID、状態） |
+| `error.json` | 失敗したときだけ。メッセージ、HTTP の状態コード、**相関 ID**、応答の本文 |
+
+**場所**: 実行の画面の artifact `store-evidence-<mode>-<実行 ID>-<試行>`（Release の流れは `store-evidence-release-…`）。保存期間は **90 日**。同じ内容が、実行のログ（`[trace]` の行）と、Step Summary（結果。失敗したときは、エラー、状態コード、相関 ID、証跡の場所）にも出る。
+
+**記録しないもの**: アクセス トークン、シークレット、テナント ID、クライアント ID、署名つきのアップロード URL（`fileUploadUrl` と、`sig=` の値）。書き出す前に取り除く（`scripts/store/redact.ts`）。**API の応答の本文に埋まった値も取り除く**: 実際の Azure AD の応答は、エラーの本文にテナント ID をそのまま含む（`Tenant '…' not found`）ので、キー名を見るだけでは足りない。取り除きは、2 か所で行う。①**発生源**（`StoreClient` がエラーを作る時点）で、実行時に分かる値（トークン、シークレット、テナント ID、クライアント ID）の完全一致と、形で分かるもの（`sig=`、`Bearer …`、JWT、`client_secret=`）を取り除く。②**全ての出口**（標準エラー、`run.log`、証跡の JSON、Step Summary）で、同じ処理を通す。失敗の報告は、1 つの関数（`reportFailure`）にまとめ、秘密値が出口に出ないことをテストで固定している。リポジトリが公開なので、artifact は、ログインしている誰でも取得できる前提で、申請の JSON（掲載情報、価格、パッケージの情報など、Store の公開情報が中心）だけを入れる。
+
+**失敗したときの読み方**:
+
+1. Step Summary で、エラーと、状態コード、相関 ID を見る。
+2. `run.log` の最後のトレースで、どの呼び出しで止まったかを見る。
+3. 拒否された PUT なら、`05-put-request.json`（送った本文）と、`04-created-submission.json`（API が返した申請）を比べる。エラーの `target`（例: `allowTargetFutureDeviceFamilies`）の項目を、両方で見る。
+4. Microsoft に問い合わせるときは、`error.json` の相関 ID（`MS-CV` など）と、申請の ID、時刻（`run.log`）を伝える。
+
+**運用**: 実走（`dry-run` を除く）のたびに、結果と、artifact の実行 ID を、ハンドオフの進捗ログに書く。失敗した実走の証跡は、原因を直した PR から、実行 ID で参照する。
 
 提出の API が使えないときは、8章の手動の手順を、そのまま使う。
 

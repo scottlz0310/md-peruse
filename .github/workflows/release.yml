@@ -162,4 +162,14 @@ jobs:
             echo "::error::提出する .msixupload が 1 つではありません: ${uploads[*]}"
             exit 1
           fi
-          bun run store:submit --package "${uploads[0]}" --publish-mode Immediate --apply
+          bun run store:submit --package "${uploads[0]}" --publish-mode Immediate --apply --evidence-dir "$RUNNER_TEMP/store-evidence"
+
+      # 失敗しても保存する（store-submit.yml と同じ。呼び出しのトレースと、申請の JSON、PUT の本文と応答）。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-evidence-release-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/store-evidence
+          if-no-files-found: warn
+          retention-days: 90
