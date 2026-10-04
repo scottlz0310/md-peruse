@@ -333,8 +333,9 @@ Submission API は、Partner Center のアカウントに登録した Entra ID�
 1. リポジトリの Settings の「Environments」で「New environment」を押し、名前を `store-production` にする。
 2. **Required reviewers** を有効にし、あなた（`scottlz0310`）を指定する。
 3. **Prevent self-review** は**オフ**にする。一人で開発しているため、オンだと、起動した本人が承認できず、実行が止まったままになる。
-4. **Deployment branches and tags** は「Selected branches and tags」にし、ブランチ `main` だけを追加する（Store Submit は `main` から起動する）。タグ `v*` は、パッケージの提出（GitHub Release との連動）を足すときに加える。
+4. **Deployment branches and tags** は「Selected branches and tags」にし、ブランチ `main` だけを追加する（Store Submit は `main` から起動し、release.yml の `store` ジョブも、main への push で動く。タグ `v*` は加えなくてよい。2026-10-04 の v0.1.1 で、`main` だけで動くことを確かめた）。
 5. Environment secrets に `AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET` を、Environment variables に `STORE_PRODUCT_ID`（`9P35BW61FN4W`）を登録する。
+6. **Allow administrators to bypass configured protection rules** は、オフにすることを勧める。オンだと、リポジトリの管理者が、保護ルール（承認）を迂回できる設定になる。2026-10-04 の時点では、オンのまま運用している（変更は、あなたの判断）。
 
 登録は、画面のほかに、`gh` でもできる。secret は、値を対話で貼り付ける（コマンドの引数に値を書くと、シェルの履歴に残る）。
 
@@ -419,7 +420,8 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 前提:
 
 - 組織の secret `RELEASE_BOT_APP_ID` と `RELEASE_BOT_PRIVATE_KEY` が、このリポジトリから使えること（2026-10-04に確認済み。リポジトリ単位の secret ではなく、組織単位の secret）。リリース Bot の GitHub App がこのリポジトリにインストールされていること。
-- 初めて使う前に、Prepare Release を 1 回実行して、PR の内容を確かめ、**マージせずに閉じる**ことを勧める（上記の差分が、実際のファイルで意図どおりになるかを、公開の前に確かめられる）。
+- 初めて使う前に、Prepare Release を 1 回実行して、PR の内容を確かめ、**マージせずに閉じる**ことを勧める（上記の差分が、実際のファイルで意図どおりになるかを、公開の前に確かめられる）。md-peruse では、2026-10-04 に実施した（PR #160。閉じた）。
+- リリース PR は Bot 名義なので、thread-owl の許可リスト（allowlist）に `scottlz0310-release-bot` が無いと、自動レビューに登録できない（`enqueue_review` が `author_not_allowed` を返す）。2026-10-04 に、あなたが許可リストへ追加した。差分は機械的（版の 1 行ずつと、CHANGELOG の見出し）なので、上の確認を人が行えば足りる。
 
 #### 公開の流れ（Release）
 
@@ -446,6 +448,27 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 - 「Re-run all jobs」は、公開済みの Release を検知して、添付・照合・公開・Store を skip する。Store の再提出には使えない。
 
 公開方法が `Immediate` であることが前提。Partner Center の設定が `Manual` に戻っている場合、`store` は申請を作る前に止まる。
+
+#### 実測（v0.1.1、2026-10-04）
+
+最初のリリース（v0.1.1。機能の変更はなく、流れを通しで確かめる版）の実走。すべて成功した。
+
+| 段 | 実行 | 結果 |
+| --- | --- | --- |
+| Prepare Release | run 37170693376 | リリース PR #169（Bot 名義、+8 −5、5 ファイル） |
+| リリース PR のマージ | あなたの squash（`11c9d2c`、02:40:04Z） | release.yml（run 37171758889）が起動 |
+| `draft` | 同上 | 12 秒（タグ `v0.1.1`、draft の Release） |
+| `package`（MSIX と WACK） | 同上 | 7 分 21 秒（WACK は `PASS`） |
+| `attach`、`verify`、`finalize` | 同上 | 5 秒、4 秒、6 秒。マージから Release の公開まで、約 8 分 |
+| `store` | 同上 | 承認の後に 4 分 31 秒（`Submission 4`）。ZIP（4,288,845 バイト）は HTTP 201、commit は HTTP 202。commit から取り込みを抜けるまで約 3 分 40 秒。証跡は artifact `store-evidence-release-37171758889-1` |
+| 認定と公開 | Partner Center | どちらの申請も、commit から約 1 時間以内に公開された（`Submission 3`: commit 01:56Z、02:54Z の時点で公開済み。`Submission 4`: commit 02:54Z、03:56Z の時点で公開済み。`Immediate`） |
+
+運用で分かったこと:
+
+- **Store Submit と `store` ジョブは、同じ並行実行のグループ `store-submit` を使う**ので、同時には進まない。`store` ジョブが承認の待ちのときに Store Submit を起動すると、その実行は、`store` が終わるまで待たされる（実測: `inspect` の run 37172401310 は、`store` の完了と同時に、承認待ちになった）。承認の画面に、2 つの実行が並ぶことがあるので、承認する実行を取り違えない。待たせたくない実行は、取り消す。
+- **処理中の申請があるあいだは、`inspect` は、公開済みでなく、処理中の申請を読む**。公開済みの申請を読みたいときは、公開の後に実行する。承認なしで確かめたいときは、`store` ジョブや `apply` の証跡の `02-published-submission.json`（その時点の公開済みの申請）に、`inspect` と同じ検査（`scripts/store/verify.ts`）を、ローカルで当てられる（2026-10-04 に、`Submission 3` の 26 件で行った）。
+- **`[Unreleased]` が空でも、リリースはできる**が、GitHub Release のノートが空になる。今回は、「利用者から見える変更はない」の 1 行を書いて、ノートを埋めた。
+- **公開後の Store のページ**: 英語（`hl=en-US`）のページで、英語版のスクリーンショット、英語の説明、最終更新日 2026/10/4、リリース日 2026/10/3 を、日本語（`hl=ja-JP`）のページで、日本語のスクリーンショットと短い説明を、確かめた（ブラウザーで見える範囲。画像は 3 枚目まで）。Store のページに、パッケージの版は出ないので、版は、API の申請（`0.1.1.0`）で確かめる。
 
 ### 9.8 証跡（ログと記録）
 
