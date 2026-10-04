@@ -379,7 +379,13 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 - 下書きの申請が残っていると、先例の自動提出は失敗する（pending submission の検出）。実測用の下書きは、確認後に、あなたが「送信の削除」で削除した。
 - これは手動での「更新の開始」の結果である。Submission API の新しい申請は、資料では「直近の公開のコピー」と定められている。
 - **Submission API の新しい申請の実測**（2026-10-04、`draft-only` の実走。申請 `1152921505702036626`）: 公開済みの申請との違いは、トップレベルの項目では **`friendlyName`（申請ごとに API が付ける表示名）だけ**だった。価格（`priceId: Free`、`isAdvancedPricingModel: true`、`marketSpecificPricings`）は同じで、`id`・`status`・`fileUploadUrl` のような申請ごとの項目を除く、ほかの項目も同じだった。複製の検査は、この違いを見つけて、更新の前に止まった（検査が意図どおり働いた）。ツールは `friendlyName` を、申請ごとに変わる項目として扱う。止まったときの下書きは残るので、あなたが内容を確かめて、「送信の削除」で消す（9.3）。
-- **PUT の実測**（2026-10-04、`draft-only` の 2 回目。申請 `1152921505702036511`）: 複製の検査は通った（違いは「なし」、価格は同じ）が、作成した申請をそのまま PUT すると、API が **HTTP 400**（`InvalidParameterValue`、`AllowTargetFutureDeviceFamilies needs to be initialized for all supported platform, [Desktop, Mobile, Xbox, Holographic]`）で拒否した。申請の `allowTargetFutureDeviceFamilies` で、必須の 4 つのデバイス ファミリーが、真偽値で入っていなかったとみられる（実際の値は、次の実走のログに出る）。ツールは、PUT の前に、4 つのうち真偽値でないものを、**Desktop は true、ほかは false** に初期化する（このアプリのパッケージは Windows.Desktop だけ。同じ API の同じ症状を、Desktop だけに寄せて直している先例〔tg123/daidai の PR #42〕に合わせた）。すでに真偽値が入っている項目と、必須ではない項目は変えない。初期化した内容は、ログに出し、変更の一覧（計画）には含めない。`allowMicrosoftDecideAppAvailabilityToFutureDeviceFamilies` は変えない。
+- **PUT の実測**（2026-10-04、`draft-only` の 2 回目。申請 `1152921505702036511`）: 複製の検査は通った（違いは「なし」、価格は同じ）が、作成した申請をそのまま PUT すると、API が **HTTP 400**（`InvalidParameterValue`、`AllowTargetFutureDeviceFamilies needs to be initialized for all supported platform, [Desktop, Mobile, Xbox, Holographic]`）で拒否した。申請の `allowTargetFutureDeviceFamilies` が、公開済みも作成した申請も、空のオブジェクト `{}` で、必須の 4 つのデバイス ファミリーが、入っていなかった（次の実走の証跡で確認）。ツールは、PUT の前に、4 つのうち真偽値でないものを、**Desktop は true、ほかは false** に初期化する（このアプリのパッケージは Windows.Desktop だけ。同じ API の同じ症状を、Desktop だけに寄せて直している先例〔tg123/daidai の PR #42〕に合わせた）。すでに真偽値が入っている項目と、必須ではない項目は変えない。初期化した内容は、ログに出し、変更の一覧（計画）には含めない。`allowMicrosoftDecideAppAvailabilityToFutureDeviceFamilies` は変えない。
+- **`apply` の実測**（2026-10-04、Store Submit の run 37169465846、`languages=en-us`、`replace_screenshots`、`publish_mode=Immediate`。申請 `1152921505702036867`。証跡は artifact `store-evidence-apply-37169465846-1`）: 成功し、申請は `Certification` に入った。
+  - 呼び出し: 申請の作成は HTTP 201、PUT は HTTP 200、ZIP のアップロードは HTTP 201（278,381 バイト）、**commit は HTTP 202**。状態は `CommitStarted`（約 1 分 40 秒、7 回の読み取り）→ `PreProcessing` → `Certification` と進み、commit から約 2 分 20 秒で、取り込みを抜けた。
+  - 画像: 取り込みの後、`en-us` の 4 枚は、**ファイル名が ZIP の中のパスのまま**（`images/en-us/01-screenshot1-en.png` から `04-…`）で、**ID が新しく割り当てられた**（公開済みの画像の ID とは重ならない）。公開済みの画像のファイル名は `screenshot1.png` などで、ZIP のパスとは違うので、ファイル名でも、差し替えを見分けられる。`ja-jp` の画像は、ID もファイル名も、変わらなかった。
+  - **価格**: PUT の応答だけ、`isAdvancedPricingModel` が `true` から `false` に変わっていた（`draft-only` と同じ）が、**取り込みの後の申請は `true`**（公開済みと同じ）で、`priceId: Free` と `marketSpecificPricings` も同じだった。応答の一時的な値で、価格には影響しない。
+  - **デバイス ファミリー**: 取り込みの後は、`allowTargetFutureDeviceFamilies` が、`{}` から、Desktop だけ true（Mobile、Xbox、Holographic は false）に変わった。パッケージ（`md-peruse_0.1.0.0_x64.msixupload`）と、公開方法（`Immediate`）は、変わらなかった。
+  - **Partner Center の画面**: commit と取り込みの後は、申請の `en-us` の掲載情報に、英語のスクリーンショットが表示された（ユーザーの確認）。commit の前の `draft-only` では、画面は変更前のままだった（9.8）。
 
 ### 9.6 先例から押さえた点
 
@@ -477,7 +483,7 @@ Store の API は、実走でしか分からない拒否が多い（初回の実
 3. 拒否された PUT なら、`05-put-request.json`（送った本文）と、`04-created-submission.json`（API が返した申請）を比べる。エラーの `target`（例: `allowTargetFutureDeviceFamilies`）の項目を、両方で見る。
 4. Microsoft に問い合わせるときは、`error.json` の相関 ID（`MS-CV` など）と、申請の ID、時刻（`run.log`）を伝える。
 
-**画面（Partner Center）と API の見え方は、同じとは限らない**: API で行った変更は、commit するまで、画面に反映されない。`draft-only` の実走（2026-10-04、申請 `1152921505702036713`）では、PUT の応答の画像が、既存 4 枚が `PendingDelete`、新規 4 枚が `PendingUpload`（ID なし）で、Partner Center の画面は、変更前のままだった（ユーザーの確認）。これは API の状態と矛盾しない（資料の手順では、ZIP のアップロードの後に commit して、取り込みが始まる）。画面の見え方では、反映を確かめない。**取り込みの後と公開の後に、API が返す申請の JSON を、CSV と照合して、証跡で確かめる**（`apply` が自動で行う。あとから確かめるときは、`inspect`）。公開された Store のページへの反映は、API の `Published` の後に、別に確かめる。
+**画面（Partner Center）と API の見え方は、同じとは限らない**: API で行った変更は、commit するまで、画面に反映されない。`draft-only` の実走（2026-10-04、申請 `1152921505702036713`）では、PUT の応答の画像が、既存 4 枚が `PendingDelete`、新規 4 枚が `PendingUpload`（ID なし）で、Partner Center の画面は、変更前のままだった（ユーザーの確認）。これは API の状態と矛盾しない（資料の手順では、ZIP のアップロードの後に commit して、取り込みが始まる）。commit と取り込みの後（`apply`、申請 `1152921505702036867`）は、画面にも、英語のスクリーンショットが反映された（ユーザーの確認）。画面の見え方では、反映を確かめない。**取り込みの後と公開の後に、API が返す申請の JSON を、CSV と照合して、証跡で確かめる**（`apply` が自動で行う。あとから確かめるときは、`inspect`）。公開された Store のページへの反映は、API の `Published` の後に、別に確かめる。
 
 **反映を証跡で確かめる手順**:
 
