@@ -24,6 +24,11 @@ function short(value: string, length = 70): string {
     : flat;
 }
 
+/** パスの最後の要素（`store/a.png` → `a.png`、`images/en-us/01-a.png` → `01-a.png`）。 */
+function lastSegment(path: string): string {
+  return path.split("/").pop() ?? path;
+}
+
 function summarizeStatuses(images: StoreImage[]): string {
   const counts = new Map<string, number>();
   for (const image of images) {
@@ -71,6 +76,18 @@ function verifyScreenshots(
       actual: actualDescriptions
         .map((d, i) => `${i + 1}. ${short(d, 40)}`)
         .join(" / "),
+    },
+    {
+      scope,
+      // 字幕が同じ画像（差し替えの前後）は、字幕では区別できない。ファイル名は、CSV の画像名で終わる。
+      check: "screenshot のファイル名（CSV の画像名で終わる）",
+      ok:
+        live.length === screenshots.length &&
+        screenshots.every((s, i) =>
+          lastSegment(live[i]?.fileName ?? "").endsWith(lastSegment(s.path)),
+        ),
+      expected: screenshots.map((s) => lastSegment(s.path)).join(" / "),
+      actual: live.map((image) => lastSegment(image.fileName)).join(" / "),
     },
     {
       scope,
@@ -174,4 +191,44 @@ export function describeVerification(results: CheckResult[]): string {
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * 取り込みで、スクリーンショットが差し替わったかを、ID で確かめる。`replaced` の言語について、取り込みの後の
+ * 画像の ID が、公開済みの申請の画像の ID と、すべて違うことを見る。字幕もファイル名も、ID と違って、
+ * 差し替えの前後で同じになりうる（ファイル名は取り込みで書き換わるかもしれない）ので、ID で確かめる。
+ */
+export function verifyReplacement(
+  before: StoreSubmission,
+  after: StoreSubmission,
+  replaced: string[],
+): CheckResult[] {
+  const idsOf = (submission: StoreSubmission, language: string) =>
+    (submission.listings[language]?.baseListing.images ?? [])
+      .filter(
+        (image) =>
+          image.imageType === "Screenshot" &&
+          image.fileStatus !== "PendingDelete",
+      )
+      .map((image) => image.id)
+      .filter((id): id is string => !!id);
+
+  return replaced.map((scope) => {
+    const oldIds = new Set(idsOf(before, scope));
+    const newIds = idsOf(after, scope);
+    const overlap = newIds.filter((id) => oldIds.has(id));
+    return {
+      scope,
+      check:
+        "screenshot が差し替わった（ID が、公開済みの画像の ID と、すべて違う）",
+      ok: newIds.length > 0 && overlap.length === 0,
+      expected: "公開済みの ID と重ならない",
+      actual:
+        newIds.length === 0
+          ? "ID のある画像がない"
+          : overlap.length === 0
+            ? `新しい ID×${newIds.length}`
+            : `重なる ID: ${overlap.length}/${newIds.length} 件`,
+    };
+  });
 }
