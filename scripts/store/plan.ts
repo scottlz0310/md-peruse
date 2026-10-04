@@ -161,6 +161,52 @@ export function diffTopLevel(a: StoreSubmission, b: StoreSubmission): string[] {
     .sort();
 }
 
+/**
+ * PUT が、真偽値で初期化されていることを求めるデバイス ファミリー。初回の実走（2026-10-04）で、
+ * 作成した申請をそのまま PUT すると、API が HTTP 400（`AllowTargetFutureDeviceFamilies needs to be
+ * initialized for all supported platform, [Desktop, Mobile, Xbox, Holographic]`）で拒否した。
+ */
+const REQUIRED_DEVICE_FAMILIES = [
+  "Desktop",
+  "Mobile",
+  "Xbox",
+  "Holographic",
+] as const;
+
+export interface DeviceFamilyInit {
+  family: string;
+  /** 初期化の前の値（無ければ undefined）。 */
+  before: unknown;
+  after: boolean;
+}
+
+/**
+ * `allowTargetFutureDeviceFamilies` の、必須のデバイス ファミリーのうち、真偽値でないものを初期化する
+ * （申請を直接書き換える）。md-peruse のパッケージは Windows.Desktop だけなので、Desktop は true、
+ * ほかは false にする。すでに真偽値が入っている項目と、必須ではない項目（Team など）は変えない。
+ * 初期化した項目を返す（変更が無ければ空）。
+ */
+export function initializeDeviceFamilies(
+  submission: StoreSubmission,
+): DeviceFamilyInit[] {
+  const current = submission.allowTargetFutureDeviceFamilies;
+  const families: Record<string, unknown> =
+    typeof current === "object" && current !== null && !Array.isArray(current)
+      ? { ...current }
+      : {};
+
+  const initialized: DeviceFamilyInit[] = [];
+  for (const family of REQUIRED_DEVICE_FAMILIES) {
+    if (typeof families[family] === "boolean") continue;
+    const after = family === "Desktop";
+    initialized.push({ family, before: families[family], after });
+    families[family] = after;
+  }
+  if (initialized.length > 0)
+    submission.allowTargetFutureDeviceFamilies = families;
+  return initialized;
+}
+
 function preview(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const flat = value.replaceAll("\r\n", "↵").replaceAll("\n", "↵");

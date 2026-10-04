@@ -5,6 +5,7 @@ import {
   assertPublishMode,
   describePlan,
   diffTopLevel,
+  initializeDeviceFamilies,
   type PlanInput,
   planSubmission,
   resolveImagePath,
@@ -433,6 +434,55 @@ describe("diffTopLevel", () => {
     ["片方にだけ項目がある", {}, { extra: 1 }, ["extra"]],
   ])("違う項目の名前を返す: %s", (_name, left, right, expected) => {
     expect(diffTopLevel(submission(left), submission(right))).toEqual(expected);
+  });
+});
+
+describe("initializeDeviceFamilies", () => {
+  const all = { Desktop: true, Mobile: false, Xbox: false, Holographic: false };
+
+  test.each([
+    ["未設定", undefined, all, ["Desktop", "Mobile", "Xbox", "Holographic"]],
+    ["null", null, all, ["Desktop", "Mobile", "Xbox", "Holographic"]],
+    ["空のオブジェクト", {}, all, ["Desktop", "Mobile", "Xbox", "Holographic"]],
+    ["配列は無効", [], all, ["Desktop", "Mobile", "Xbox", "Holographic"]],
+    [
+      "一部だけ（入っている真偽値は変えない。Desktop が false でも true にしない）",
+      { Desktop: false, Mobile: true },
+      { Desktop: false, Mobile: true, Xbox: false, Holographic: false },
+      ["Xbox", "Holographic"],
+    ],
+    [
+      "真偽値でない値は初期化する",
+      { Desktop: "yes", Mobile: null, Xbox: 1, Holographic: {} },
+      all,
+      ["Desktop", "Mobile", "Xbox", "Holographic"],
+    ],
+    [
+      "すべて真偽値なら変えない。必須ではない項目（Team など）も保つ",
+      { ...all, Mobile: true, Team: true, IoT: false },
+      { ...all, Mobile: true, Team: true, IoT: false },
+      [],
+    ],
+  ])("%s", (_name, families, expected, initialized) => {
+    const submission = { ...base(), allowTargetFutureDeviceFamilies: families };
+    const result = initializeDeviceFamilies(submission);
+    expect(result.map((r) => r.family)).toEqual(initialized);
+    expect(submission.allowTargetFutureDeviceFamilies).toEqual(
+      initialized.length === 0 ? families : expected,
+    );
+  });
+
+  test("初期化した項目に、前の値と後の値を持たせる", () => {
+    const submission = {
+      ...base(),
+      allowTargetFutureDeviceFamilies: { Mobile: "x" },
+    };
+    expect(initializeDeviceFamilies(submission)).toEqual([
+      { family: "Desktop", before: undefined, after: true },
+      { family: "Mobile", before: "x", after: false },
+      { family: "Xbox", before: undefined, after: false },
+      { family: "Holographic", before: undefined, after: false },
+    ]);
   });
 });
 

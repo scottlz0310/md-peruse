@@ -378,6 +378,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 - 下書きの申請が残っていると、先例の自動提出は失敗する（pending submission の検出）。実測用の下書きは、確認後に、あなたが「送信の削除」で削除した。
 - これは手動での「更新の開始」の結果である。Submission API の新しい申請は、資料では「直近の公開のコピー」と定められている。
 - **Submission API の新しい申請の実測**（2026-10-04、`draft-only` の実走。申請 `1152921505702036626`）: 公開済みの申請との違いは、トップレベルの項目では **`friendlyName`（申請ごとに API が付ける表示名）だけ**だった。価格（`priceId: Free`、`isAdvancedPricingModel: true`、`marketSpecificPricings`）は同じで、`id`・`status`・`fileUploadUrl` のような申請ごとの項目を除く、ほかの項目も同じだった。複製の検査は、この違いを見つけて、更新の前に止まった（検査が意図どおり働いた）。ツールは `friendlyName` を、申請ごとに変わる項目として扱う。止まったときの下書きは残るので、あなたが内容を確かめて、「送信の削除」で消す（9.3）。
+- **PUT の実測**（2026-10-04、`draft-only` の 2 回目。申請 `1152921505702036511`）: 複製の検査は通った（違いは「なし」、価格は同じ）が、作成した申請をそのまま PUT すると、API が **HTTP 400**（`InvalidParameterValue`、`AllowTargetFutureDeviceFamilies needs to be initialized for all supported platform, [Desktop, Mobile, Xbox, Holographic]`）で拒否した。申請の `allowTargetFutureDeviceFamilies` で、必須の 4 つのデバイス ファミリーが、真偽値で入っていなかったとみられる（実際の値は、次の実走のログに出る）。ツールは、PUT の前に、4 つのうち真偽値でないものを、**Desktop は true、ほかは false** に初期化する（このアプリのパッケージは Windows.Desktop だけ。同じ API の同じ症状を、Desktop だけに寄せて直している先例〔tg123/daidai の PR #42〕に合わせた）。すでに真偽値が入っている項目と、必須ではない項目は変えない。初期化した内容は、ログに出し、変更の一覧（計画）には含めない。`allowMicrosoftDecideAppAvailabilityToFutureDeviceFamilies` は変えない。
 
 ### 9.6 先例から押さえた点
 
