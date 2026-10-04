@@ -333,6 +333,67 @@ describe("StoreApiError の詳細（失敗の調査用）", () => {
   });
 });
 
+describe("エラーの本文に秘密値が含まれる場合（発生源で取り除く）", () => {
+  const SIG = "SIGNATURE-VALUE-9z";
+
+  test("API のエラー: 本文に、トークン、シークレット、テナント ID、クライアント ID、署名があっても、メッセージと本文から取り除く", async () => {
+    const { client } = setup((call) =>
+      call.url === TOKEN_URL
+        ? json({ access_token: "tok-abcdef" })
+        : new Response(
+            `denied tok-abcdef secret=${SECRET} tenant tenant-1 client client-1 https://blob/x?sv=1&sig=${SIG} Bearer abc.def`,
+            { status: 401 },
+          ),
+    );
+    const error = (await client
+      .getApplication()
+      .catch((e: unknown) => e)) as StoreApiError;
+    for (const text of [error.message, error.responseBody ?? ""]) {
+      expect(text).not.toContain("tok-abcdef");
+      expect(text).not.toContain(SECRET);
+      expect(text).not.toContain("tenant-1");
+      expect(text).not.toContain("client-1");
+      expect(text).not.toContain(SIG);
+      expect(text).not.toContain("abc.def");
+      expect(text).toContain("denied");
+    }
+    expect(error.httpStatus).toBe(401);
+  });
+
+  test("トークンの取得の失敗: 説明に、シークレットとテナント ID があっても、メッセージから取り除く", async () => {
+    const { client } = setup(() =>
+      json(
+        {
+          error: "invalid_client",
+          error_description: `AADSTS7000215: bad ${SECRET} for tenant-1\r\nTrace ID: x`,
+        },
+        401,
+      ),
+    );
+    const error = (await client
+      .getApplication()
+      .catch((e: unknown) => e)) as StoreApiError;
+    expect(error.message).toContain("invalid_client");
+    expect(error.message).not.toContain(SECRET);
+    expect(error.message).not.toContain("tenant-1");
+  });
+
+  test("ZIP のアップロードの失敗: 本文の署名を取り除く", async () => {
+    const { client } = setup(
+      () =>
+        new Response(`<Error><Message>sig=${SIG} mismatch</Message></Error>`, {
+          status: 403,
+        }),
+    );
+    const error = (await client
+      .uploadZip("https://blob.example/f?sig=URLSIG", new Uint8Array(1))
+      .catch((e: unknown) => e)) as StoreApiError;
+    expect(error.message).not.toContain(SIG);
+    expect(error.responseBody).not.toContain(SIG);
+    expect(error.responseBody).toContain("mismatch");
+  });
+});
+
 describe("waitForCommit", () => {
   function statuses(...sequence: string[]) {
     let index = 0;

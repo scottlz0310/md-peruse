@@ -5,11 +5,13 @@
 // （Manage app submissions）に合わせた。
 //
 // シークレットと、SAS URL（署名つき）、テナント ID は、ログとエラーメッセージ、トレースに出さない。
+// API の応答の本文に、これらの値が含まれるかもしれないので、本文は、エラーを作る時点で取り除く（`scrub`）。
 // 呼び出しごとの記録（メソッド、パス、状態コード、所要時間、相関 ID）は、`trace` で渡す。Microsoft
 // の API は、実走でしか分からない拒否（HTTP 400 など）が多いので、失敗の調査に使える情報
 // （応答の本文と相関 ID）を、例外にも持たせる（`StoreApiError`）。
 
 import type { StoreApplication, StoreSubmission } from "./plan";
+import { redactText } from "./redact";
 
 export type FetchLike = (
   input: string,
@@ -98,6 +100,16 @@ export class StoreClient {
     this.now = options.now ?? Date.now;
   }
 
+  /** 応答の本文などから、資格情報（トークン、シークレット、テナント ID、クライアント ID）と署名を取り除く。 */
+  private scrub(text: string): string {
+    return redactText(text, [
+      this.token,
+      this.options.clientSecret,
+      this.options.tenantId,
+      this.options.clientId,
+    ]);
+  }
+
   private record(
     what: string,
     status: number,
@@ -138,7 +150,9 @@ export class StoreClient {
           error?: string;
           error_description?: string;
         };
-        detail = ` ${body.error ?? ""} ${(body.error_description ?? "").split("\r\n")[0]}`;
+        detail = this.scrub(
+          ` ${body.error ?? ""} ${(body.error_description ?? "").split("\r\n")[0]}`,
+        );
       } catch {
         // 本文が JSON でなければ、状態コードだけを伝える。
       }
@@ -176,7 +190,7 @@ export class StoreClient {
     const correlation = correlationOf(response.headers);
     this.record(`${method} ${path}`, response.status, startedAt, correlation);
     if (!response.ok) {
-      const text = (await response.text()).slice(0, 1000);
+      const text = this.scrub((await response.text()).slice(0, 1000));
       throw new StoreApiError(
         `Store API のエラー: ${method} ${path}（HTTP ${response.status}、${correlation || "相関 ID なし"}）${text}`,
         response.status,
@@ -245,7 +259,7 @@ export class StoreClient {
     );
     if (!response.ok) {
       // Azure Blob のエラーの本文は、XML のエラー コードと説明で、署名は含まれない。
-      const text = (await response.text()).slice(0, 1000);
+      const text = this.scrub((await response.text()).slice(0, 1000));
       throw new StoreApiError(
         `ZIP のアップロードに失敗しました（HTTP ${response.status}、${correlation || "相関 ID なし"}）${text}`,
         response.status,

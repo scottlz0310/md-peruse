@@ -28,12 +28,7 @@ import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { StoreClient, waitForCommit } from "./client";
 import { readListingTable } from "./csv";
-import {
-  createEvidence,
-  describeFailure,
-  type Evidence,
-  failureSummary,
-} from "./evidence";
+import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import { buildListingPatch, type ListingPatch } from "./listing";
 import {
   assertNoPendingSubmission,
@@ -47,6 +42,7 @@ import {
   planSubmission,
   type SubmissionPlan,
 } from "./plan";
+import { redactText } from "./redact";
 import { createZip } from "./zip";
 
 export interface RunOptions {
@@ -267,6 +263,13 @@ if (import.meta.main) {
   let evidenceDir: string | undefined;
   let mode = "不明";
   const summary = process.env.GITHUB_STEP_SUMMARY;
+  // 記録（コンソール、run.log、証跡の JSON、Step Summary）から取り除く、実行時の秘密値。GitHub のログは、
+  // secret の値を自動で隠すが、artifact の中身は隠さないため、書き出す側で取り除く。
+  const secrets = [
+    process.env.AZURE_AD_APPLICATION_SECRET,
+    process.env.AZURE_AD_TENANT_ID,
+    process.env.AZURE_AD_APPLICATION_CLIENT_ID,
+  ];
 
   try {
     const { values } = parseArgs({
@@ -312,6 +315,7 @@ if (import.meta.main) {
           append: (path, text) => appendFileSync(path, text),
         },
         now: () => new Date(),
+        secrets,
       });
       evidence.json("00-run-info", {
         mode,
@@ -329,8 +333,9 @@ if (import.meta.main) {
       });
     }
     const log = (message: string) => {
-      console.log(message);
-      evidence?.line(message);
+      const safe = redactText(message, secrets);
+      console.log(safe);
+      evidence?.line(safe);
     };
     const trace = (line: string) => log(`[trace] ${line}`);
 
@@ -382,21 +387,19 @@ if (import.meta.main) {
       );
     }
   } catch (error) {
-    // 失敗しても、原因をたどれるよう、内容を証跡と Step Summary に残してから終わる。
-    const report = describeFailure(error);
-    console.error(report.message);
-    evidence?.line(`失敗: ${report.message}`);
-    evidence?.json("error", report);
-    if (summary) {
-      appendFileSync(
-        summary,
-        failureSummary(report, {
-          mode,
-          runId: process.env.GITHUB_RUN_ID,
-          evidenceDir,
-        }),
-      );
-    }
+    // 失敗しても、原因をたどれるよう、内容を証跡と Step Summary に残してから終わる。どの出口にも、
+    // 資格情報を取り除いた値だけを渡す（エラーのメッセージに、応答の本文が含まれるため）。
+    reportFailure(
+      error,
+      {
+        stderr: (text) => console.error(text),
+        appendSummary: summary
+          ? (text) => appendFileSync(summary, text)
+          : undefined,
+        evidence,
+      },
+      { mode, runId: process.env.GITHUB_RUN_ID, evidenceDir, secrets },
+    );
     process.exit(1);
   }
 }

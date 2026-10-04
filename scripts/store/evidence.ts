@@ -4,34 +4,12 @@
 // ならないよう、呼び出しの記録（トレース）と、申請の JSON（公開済み、作成した申請、PUT の本文と応答）を、
 // 失敗しても残す。保存先のフォルダーは `--evidence-dir` で渡し、ワークフローが artifact にする。
 //
-// 資格情報（トークン、シークレット）と、署名つき URL（SAS）は、記録に含めない（`redact`）。
+// 資格情報（トークン、シークレット）と、署名つき URL（SAS）は、記録に含めない。書き出す全ての経路
+// （`run.log`、JSON、失敗の報告、Step Summary、標準エラー出力）で、`redact.ts` を通す。
 
 import { join } from "node:path";
 import { StoreApiError } from "./client";
-
-export const REDACTED = "<記録しない>";
-
-/** 値に含めてはならないキー。申請の JSON には、通常は無い（防御のため）。 */
-const SECRET_KEY = /token|secret|authorization|password|fileUploadUrl/i;
-/** 署名つきの URL（SAS）。 */
-const SIGNED_URL = /[?&]sig=/i;
-
-/** 資格情報と署名つき URL を取り除いた、JSON の複製を返す。 */
-export function redact(value: unknown): unknown {
-  if (typeof value === "string") {
-    return SIGNED_URL.test(value) ? `${REDACTED}（署名つき URL）` : value;
-  }
-  if (Array.isArray(value)) return value.map(redact);
-  if (typeof value === "object" && value !== null) {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        key,
-        SECRET_KEY.test(key) ? REDACTED : redact(entry),
-      ]),
-    );
-  }
-  return value;
-}
+import { redact, redactText } from "./redact";
 
 export interface EvidenceFs {
   mkdir: (dir: string) => void;
@@ -40,9 +18,9 @@ export interface EvidenceFs {
 }
 
 export interface Evidence {
-  /** `<name>.json` として、整形した JSON を保存する（`redact` を通す）。 */
+  /** `<name>.json` として、整形した JSON を保存する（資格情報は取り除く）。 */
   json: (name: string, data: unknown) => void;
-  /** `run.log` に、時刻つきで 1 行を追記する。 */
+  /** `run.log` に、時刻つきで 1 行を追記する（資格情報は取り除く）。 */
   line: (message: string) => void;
 }
 
@@ -50,17 +28,22 @@ export function createEvidence(options: {
   dir: string;
   fs: EvidenceFs;
   now: () => Date;
+  /** 実行時に分かる秘密値（シークレットなど）。記録から取り除く。 */
+  secrets?: ReadonlyArray<string | undefined>;
 }): Evidence {
-  const { dir, fs, now } = options;
+  const { dir, fs, now, secrets = [] } = options;
   fs.mkdir(dir);
   return {
     json: (name, data) =>
       fs.write(
         join(dir, `${name}.json`),
-        `${JSON.stringify(redact(data), null, 2)}\n`,
+        `${JSON.stringify(redact(data, secrets), null, 2)}\n`,
       ),
     line: (message) =>
-      fs.append(join(dir, "run.log"), `${now().toISOString()} ${message}\n`),
+      fs.append(
+        join(dir, "run.log"),
+        `${now().toISOString()} ${redactText(message, secrets)}\n`,
+      ),
   };
 }
 
@@ -72,24 +55,32 @@ export interface FailureReport {
   responseBody?: string;
 }
 
-/** 例外から、証跡と要約に残す内容を取り出す。 */
-export function describeFailure(error: unknown): FailureReport {
+/**
+ * 例外から、証跡と要約に残す内容を取り出す。メッセージ、相関 ID、応答の本文は、
+ * 資格情報を取り除いた値にする（応答の本文に、秘密値が含まれるかもしれないため）。
+ */
+export function describeFailure(
+  error: unknown,
+  secrets: ReadonlyArray<string | undefined> = [],
+): FailureReport {
+  const safe = (text: string) => redactText(text, secrets);
   if (error instanceof StoreApiError) {
     return {
       name: error.name,
-      message: error.message,
+      message: safe(error.message),
       httpStatus: error.httpStatus,
-      correlation: error.correlation || undefined,
-      responseBody: error.responseBody,
+      correlation: error.correlation ? safe(error.correlation) : undefined,
+      responseBody:
+        error.responseBody === undefined ? undefined : safe(error.responseBody),
     };
   }
   if (error instanceof Error) {
-    return { name: error.name, message: error.message };
+    return { name: error.name, message: safe(error.message) };
   }
-  return { name: "Error", message: String(error) };
+  return { name: "Error", message: safe(String(error)) };
 }
 
-/** 失敗したときの、GitHub の Step Summary（Markdown）。 */
+/** 失敗したときの、GitHub の Step Summary（Markdown）。`report` は取り除き済みの値を渡す。 */
 export function failureSummary(
   report: FailureReport,
   options: { mode: string; runId?: string; evidenceDir?: string },
@@ -114,4 +105,40 @@ export function failureSummary(
     );
   }
   return `${lines.join("\n")}\n`;
+}
+
+export interface FailureOutputs {
+  /** 標準エラー出力へ書く（コンソール）。 */
+  stderr: (text: string) => void;
+  /** GitHub の Step Summary へ追記する（無ければ書かない）。 */
+  appendSummary?: (text: string) => void;
+  evidence?: Evidence;
+}
+
+/**
+ * 失敗を、全ての出口（標準エラー、`run.log`、`error.json`、Step Summary）へ報告する。
+ * どの出口にも、資格情報を取り除いた値だけを渡す。報告した内容（取り除き済み）を返す。
+ */
+export function reportFailure(
+  error: unknown,
+  outputs: FailureOutputs,
+  context: {
+    mode: string;
+    runId?: string;
+    evidenceDir?: string;
+    secrets?: ReadonlyArray<string | undefined>;
+  },
+): FailureReport {
+  const report = describeFailure(error, context.secrets);
+  outputs.stderr(report.message);
+  outputs.evidence?.line(`失敗: ${report.message}`);
+  outputs.evidence?.json("error", report);
+  outputs.appendSummary?.(
+    failureSummary(report, {
+      mode: context.mode,
+      runId: context.runId,
+      evidenceDir: context.evidenceDir,
+    }),
+  );
+  return report;
 }

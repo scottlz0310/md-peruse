@@ -6,74 +6,29 @@ import {
   describeFailure,
   type EvidenceFs,
   failureSummary,
-  REDACTED,
-  redact,
+  reportFailure,
 } from "./evidence";
+import { REDACTED } from "./redact";
 
-describe("redact", () => {
-  test.each([
-    [
-      "署名つき URL の文字列",
-      "https://blob/x?sv=1&sig=ABC",
-      `${REDACTED}（署名つき URL）`,
-    ],
-    ["署名のない文字列", "https://example/x", "https://example/x"],
-    ["数値、真偽値、null はそのまま", 1, 1],
-  ])("%s", (_name, input, expected) => {
-    expect(redact(input)).toEqual(expected);
-  });
+function memory() {
+  const dirs: string[] = [];
+  const files = new Map<string, string>();
+  const fs: EvidenceFs = {
+    mkdir: (dir) => dirs.push(dir),
+    write: (path, text) => files.set(path, text),
+    append: (path, text) => files.set(path, (files.get(path) ?? "") + text),
+  };
+  return { dirs, files, fs };
+}
+const now = () => new Date("2026-10-04T01:02:03.000Z");
 
-  test("キー名が資格情報を示す値と、fileUploadUrl を取り除く（大文字小文字を問わない）", () => {
-    expect(
-      redact({
-        id: "1",
-        fileUploadUrl: "https://blob/x?sig=S",
-        access_token: "t",
-        Client_Secret: "s",
-        Authorization: "Bearer x",
-        password: "p",
-        title: "md-peruse",
-      }),
-    ).toEqual({
-      id: "1",
-      fileUploadUrl: REDACTED,
-      access_token: REDACTED,
-      Client_Secret: REDACTED,
-      Authorization: REDACTED,
-      password: REDACTED,
-      title: "md-peruse",
-    });
-  });
-
-  test("入れ子の配列とオブジェクトの中も取り除き、元の値は変えない", () => {
-    const original = {
-      listings: {
-        "en-us": { images: [{ url: "https://b/x?sig=S", name: "a" }] },
-      },
-    };
-    const copy = structuredClone(original);
-    const result = redact(original) as typeof original;
-    expect(result.listings["en-us"].images[0]?.url).toBe(
-      `${REDACTED}（署名つき URL）`,
-    );
-    expect(result.listings["en-us"].images[0]?.name).toBe("a");
-    expect(original).toEqual(copy);
-  });
-});
+/** 実行時の秘密値に見立てた、探しやすい値。出力のどこにも現れてはならない。 */
+const SECRET = "CANARY-client-secret-8f3a";
+const TENANT = "CANARY-tenant-1d9c";
+const SIG = "CANARYSIG7e41";
+const SECRETS = [SECRET, TENANT];
 
 describe("createEvidence", () => {
-  function memory() {
-    const dirs: string[] = [];
-    const files = new Map<string, string>();
-    const fs: EvidenceFs = {
-      mkdir: (dir) => dirs.push(dir),
-      write: (path, text) => files.set(path, text),
-      append: (path, text) => files.set(path, (files.get(path) ?? "") + text),
-    };
-    return { dirs, files, fs };
-  }
-  const now = () => new Date("2026-10-04T01:02:03.000Z");
-
   test("フォルダーを作り、JSON を整形して保存する（資格情報は取り除く）", () => {
     const { dirs, files, fs } = memory();
     const evidence = createEvidence({ dir: "out", fs, now });
@@ -95,6 +50,18 @@ describe("createEvidence", () => {
     expect(files.get(join("out", "run.log"))).toBe(
       "2026-10-04T01:02:03.000Z 一行目\n2026-10-04T01:02:03.000Z 二行目\n",
     );
+  });
+
+  test("run.log と JSON の文字列から、実行時の秘密値を取り除く", () => {
+    const { files, fs } = memory();
+    const evidence = createEvidence({ dir: "out", fs, now, secrets: SECRETS });
+    evidence.line(`拒否された: secret=${SECRET} tenant=${TENANT}`);
+    evidence.json("x", { body: `tenant ${TENANT} sig=${SIG}` });
+    const all = [...files.values()].join("\n");
+    expect(all).not.toContain(SECRET);
+    expect(all).not.toContain(TENANT);
+    expect(all).not.toContain(SIG);
+    expect(all).toContain("拒否された");
   });
 });
 
@@ -128,6 +95,21 @@ describe("describeFailure", () => {
   ])("%s", (_name, error, expected) => {
     expect(describeFailure(error)).toEqual(expected);
   });
+
+  test("メッセージと応答の本文に埋まった秘密値を取り除く", () => {
+    const error = new StoreApiError(
+      `Store API のエラー: PUT x（HTTP 400）denied ${SECRET} sig=${SIG}`,
+      400,
+      { responseBody: `tenant ${TENANT} sig=${SIG}`, correlation: "MS-CV=c" },
+    );
+    const report = describeFailure(error, SECRETS);
+    const text = JSON.stringify(report);
+    expect(text).not.toContain(SECRET);
+    expect(text).not.toContain(TENANT);
+    expect(text).not.toContain(SIG);
+    expect(report.httpStatus).toBe(400);
+    expect(report.correlation).toBe("MS-CV=c");
+  });
 });
 
 describe("failureSummary", () => {
@@ -156,5 +138,62 @@ describe("failureSummary", () => {
     );
     expect(text).not.toContain("証跡");
     expect(text).not.toContain("相関 ID");
+  });
+});
+
+describe("reportFailure（全ての出口に、秘密値を出さない）", () => {
+  function setup() {
+    const { files, fs } = memory();
+    const stderr: string[] = [];
+    const summary: string[] = [];
+    const evidence = createEvidence({ dir: "out", fs, now, secrets: SECRETS });
+    return { files, stderr, summary, evidence };
+  }
+
+  test("応答の本文に秘密値が含まれる失敗でも、標準エラー、run.log、error.json、Step Summary のどこにも出ない", () => {
+    const { files, stderr, summary, evidence } = setup();
+    const body = `{"message":"bad ${SECRET} for tenant ${TENANT}","url":"https://blob/x?sv=1&sig=${SIG}"}`;
+    const error = new StoreApiError(
+      `Store API のエラー: PUT applications/X/submissions/1（HTTP 401、MS-CV=cv-1）${body}`,
+      401,
+      { correlation: "MS-CV=cv-1", responseBody: body },
+    );
+
+    reportFailure(
+      error,
+      {
+        stderr: (text) => stderr.push(text),
+        appendSummary: (text) => summary.push(text),
+        evidence,
+      },
+      { mode: "draft-only", runId: "7", evidenceDir: "out", secrets: SECRETS },
+    );
+
+    const outputs = {
+      stderr: stderr.join("\n"),
+      summary: summary.join("\n"),
+      files: [...files.values()].join("\n"),
+    };
+    for (const [place, text] of Object.entries(outputs)) {
+      expect(text, `${place} に秘密値が出ている`).not.toContain(SECRET);
+      expect(text, `${place} に秘密値が出ている`).not.toContain(TENANT);
+      expect(text, `${place} に署名が出ている`).not.toContain(SIG);
+    }
+    // 調査に必要な情報は残る。
+    expect(outputs.stderr).toContain("HTTP 401");
+    expect(outputs.summary).toContain("MS-CV=cv-1");
+    expect(files.has(join("out", "error.json"))).toBe(true);
+    expect(files.get(join("out", "run.log"))).toContain("失敗: ");
+  });
+
+  test("証跡も Step Summary も無くても、標準エラーに出す（秘密値は取り除く）", () => {
+    const stderr: string[] = [];
+    const report = reportFailure(
+      new Error(`x ${SECRET}`),
+      { stderr: (text) => stderr.push(text) },
+      { mode: "dry-run", secrets: SECRETS },
+    );
+    expect(stderr).toEqual([`x ${REDACTED}`]);
+    expect(report.message).toBe(`x ${REDACTED}`);
   });
 });
