@@ -1,6 +1,6 @@
 [package]
 name = "md-peruse"
-version = "0.1.0"
+version = "0.1.1"
 description = "閲覧専用Markdownビューワー"
 authors = ["scottlz0310"]
 license = "MIT"
