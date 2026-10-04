@@ -638,6 +638,62 @@ describe("commit の後の取り込みの追跡", () => {
     expect(result.verification?.length).toBeGreaterThan(0);
     expect(s.logs.join("\n")).toContain("照合:");
   });
+
+  const replacements = (result: Awaited<ReturnType<typeof run>>) =>
+    (result.verification ?? [])
+      .filter((r) => r.check.includes("差し替わった"))
+      .map((r) => [r.scope, r.ok]);
+
+  test("画像を差し替えないなら、画像の ID の入れ替わりは照合しない", async () => {
+    const s = setup();
+    const result = await run({ ...listing, apply: true }, s.deps);
+    expect(replacements(result)).toEqual([]);
+  });
+
+  test("画像を差し替えたのに、取り込みの後も公開済みと同じ ID なら、差し替わっていないと失敗にする", async () => {
+    // 既定の fixture は、取り込みの後も、公開済みと同じ画像（ID）を返す。
+    const s = setup();
+    const result = await run(
+      { ...listing, apply: true, replaceScreenshots: true },
+      s.deps,
+    );
+    expect(replacements(result)).toEqual([
+      ["ja-jp", false],
+      ["en-us", false],
+    ]);
+  });
+
+  test("画像を差し替え、取り込みの後に新しい ID が割り当てられていれば、成功にする", async () => {
+    const s = setup();
+    const read = s.deps.client.getSubmission;
+    s.deps.client.getSubmission = async (id) => {
+      const submission = await read(id);
+      if (id !== "new1") return submission;
+      const image = (language: string, newId: string) => ({
+        fileName: `images/${language}/01-${language}.png`,
+        fileStatus: "Uploaded",
+        id: newId,
+        imageType: "Screenshot",
+      });
+      submission.listings["ja-jp"]?.baseListing.images?.splice(
+        0,
+        1,
+        image("ja-jp", "new-ja"),
+      );
+      submission.listings["en-us"]?.baseListing.images?.push(
+        image("en-us", "new-en"),
+      );
+      return submission;
+    };
+    const result = await run(
+      { ...listing, apply: true, replaceScreenshots: true },
+      s.deps,
+    );
+    expect(replacements(result)).toEqual([
+      ["ja-jp", true],
+      ["en-us", true],
+    ]);
+  });
 });
 
 describe("inspect（読み取りだけ）", () => {

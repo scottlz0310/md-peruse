@@ -47,6 +47,7 @@ import {
   type CheckResult,
   describeVerification,
   verifyListing,
+  verifyReplacement,
 } from "./verify";
 import { createZip } from "./zip";
 
@@ -278,7 +279,18 @@ export async function run(
   // 取り込みの後の申請を読み、掲載情報（CSV）と照合する。画面の見え方に頼らず、API の JSON で確かめる。
   const after = await client.getSubmission(created.id);
   evidence?.json("10-submission-after-ingestion", after);
-  const verification = verifyListing(after, readPatches(options, deps));
+  const patches = readPatches(options, deps);
+  const verification = [
+    ...verifyListing(after, patches),
+    // 画像を差し替えたときは、ID が変わったことも確かめる（字幕とファイル名が前後で同じになりうるため）。
+    ...(options.replaceScreenshots
+      ? verifyReplacement(
+          published,
+          after,
+          patches.filter((p) => p.screenshots).map((p) => p.language),
+        )
+      : []),
+  ];
   evidence?.json("11-verification", verification);
   log(describeVerification(verification));
 
