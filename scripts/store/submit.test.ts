@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StoreApplication, StoreSubmission } from "./plan";
-import { type RunDeps, type RunOptions, run } from "./submit";
+import { type RunDeps, type RunOptions, resultSummary, run } from "./submit";
 
 const norm = (path: string) => path.replaceAll("\\", "/");
 
@@ -70,7 +70,9 @@ function setup(
   const uploads: Uint8Array[] = [];
   const logs: string[] = [];
   const records: Array<[string, unknown]> = [];
-  const statuses = [...(overrides.statuses ?? ["PreProcessing"])];
+  const statuses = [
+    ...(overrides.statuses ?? ["PreProcessing", "Certification"]),
+  ];
 
   const files = new Map<string, Uint8Array>([
     ["docs/assets/store/ja1.png", new Uint8Array([1])],
@@ -120,7 +122,10 @@ function setup(
       },
       getStatus: async () => {
         calls.push("getStatus");
-        return { status: statuses.shift() ?? "PreProcessing" };
+        const status = statuses.shift();
+        return {
+          status: status ?? overrides.statuses?.at(-1) ?? "Certification",
+        };
       },
     },
     readText: (path) => {
@@ -148,6 +153,7 @@ const listing: RunOptions = {
   apply: false,
   commit: true,
   cloneOnly: false,
+  inspect: false,
 };
 
 describe("dry-run（既定）", () => {
@@ -311,11 +317,13 @@ describe("apply", () => {
       "updateSubmission",
       "commit",
       "getStatus",
+      "getStatus",
+      "getSubmission",
     ]);
     expect(result).toMatchObject({
       mode: "applied",
       submissionId: "new1",
-      status: "PreProcessing",
+      status: "Certification",
     });
     expect(s.put[0]?.listings["ja-jp"]?.baseListing.description).toBe(
       "新しい説明",
@@ -378,6 +386,8 @@ describe("apply", () => {
       "uploadZip",
       "commit",
       "getStatus",
+      "getStatus",
+      "getSubmission",
     ]);
     // ZIP のローカル ヘッダーの印（PK\x03\x04）で始まる。
     expect(Array.from(s.uploads[0]?.slice(0, 4) ?? [])).toEqual([
@@ -432,7 +442,7 @@ describe("apply", () => {
   test("commit に失敗したら例外にする", async () => {
     const s = setup({ statuses: ["CommitFailed"] });
     await expect(run({ ...listing, apply: true }, s.deps)).rejects.toThrow(
-      "commit に失敗しました（申請 new1）",
+      "commit の後の処理が失敗しました（申請 new1、状態: CommitFailed）",
     );
   });
 
@@ -511,7 +521,9 @@ describe("証跡", () => {
       "05-put-request",
       "06-put-response",
       "08-commit-response",
-      "09-status",
+      "09-status-timeline",
+      "10-submission-after-ingestion",
+      "11-verification",
     ]);
   });
 
@@ -574,5 +586,140 @@ describe("証跡", () => {
       { ...s.deps, evidence: undefined },
     );
     expect(result.mode).toBe("applied");
+  });
+});
+
+describe("commit の後の取り込みの追跡", () => {
+  const names = (s: Setup) => s.records.map(([name]) => name);
+  const find = (s: Setup, name: string) =>
+    s.records.find(([n]) => n === name)?.[1];
+
+  test("状態の変化を、時刻つきのタイムラインとして残す", async () => {
+    const s = setup({
+      statuses: ["CommitStarted", "PreProcessing", "Certification"],
+    });
+    s.deps.now = () => new Date("2026-10-04T01:02:03.000Z");
+    await run({ ...listing, apply: true }, s.deps);
+    expect(find(s, "09-status-timeline")).toEqual([
+      { at: "2026-10-04T01:02:03.000Z", status: "CommitStarted" },
+      { at: "2026-10-04T01:02:03.000Z", status: "PreProcessing" },
+      { at: "2026-10-04T01:02:03.000Z", status: "Certification" },
+    ]);
+    const log = s.logs.join("\n");
+    expect(log).toContain("状態: PreProcessing");
+    expect(log).toContain("取り込みを抜けました（状態: Certification）");
+  });
+
+  test("取り込みが失敗したら、証跡（タイムライン）を書いてから、詳細つきで失敗にする", async () => {
+    const s = setup({ statuses: ["PreProcessing", "PreProcessingFailed"] });
+    await expect(run({ ...listing, apply: true }, s.deps)).rejects.toThrow(
+      "commit の後の処理が失敗しました（申請 new1、状態: PreProcessingFailed）",
+    );
+    expect(names(s)).toContain("09-status-timeline");
+    // 失敗したときは、取り込みの後の申請を読まない。
+    expect(names(s)).not.toContain("10-submission-after-ingestion");
+  });
+
+  test("上限まで取り込みの途中なら、失敗にせず、後で inspect するよう案内する", async () => {
+    const s = setup({ statuses: ["PreProcessing"] });
+    const result = await run({ ...listing, apply: true }, s.deps);
+    expect(result.mode).toBe("applied");
+    expect(result.status).toBe("PreProcessing");
+    expect(find(s, "09-status-timeline") as unknown[]).toHaveLength(60);
+    expect(s.logs.join("\n")).toContain("待ち切れませんでした");
+    expect(s.logs.join("\n")).toContain("inspect");
+  });
+
+  test("取り込みの後の申請を読み、掲載情報（CSV）と照合して、証跡とログに残す", async () => {
+    const s = setup();
+    const result = await run({ ...listing, apply: true }, s.deps);
+    expect(names(s)).toContain("10-submission-after-ingestion");
+    expect(names(s)).toContain("11-verification");
+    expect(result.verification?.length).toBeGreaterThan(0);
+    expect(s.logs.join("\n")).toContain("照合:");
+  });
+});
+
+describe("inspect（読み取りだけ）", () => {
+  const inspectOptions: RunOptions = { ...listing, inspect: true };
+  const names = (s: Setup) => s.records.map(([name]) => name);
+
+  test("処理中の申請が無ければ、公開済みの申請を読む。何も作らず、書き換えない", async () => {
+    const s = setup({ statuses: ["Certification"] });
+    const result = await run(inspectOptions, s.deps);
+    expect(result).toMatchObject({
+      mode: "inspected",
+      submissionId: "pub1",
+      status: "Certification",
+    });
+    expect(s.calls).toEqual(["getApplication", "getSubmission", "getStatus"]);
+    expect(names(s)).toEqual([
+      "01-application",
+      "inspect-submission",
+      "inspect-status",
+      "inspect-verification",
+    ]);
+    expect(s.logs.join("\n")).toContain("公開済みの申請: pub1");
+  });
+
+  test("処理中の申請があれば、そちらを読む（公開済みより優先）", async () => {
+    const s = setup({
+      app: { pendingApplicationSubmission: { id: "p9" } },
+      statuses: ["Certification"],
+    });
+    const result = await run(inspectOptions, s.deps);
+    expect(result.submissionId).toBe("p9");
+    expect(s.logs.join("\n")).toContain("処理中の申請: p9");
+  });
+
+  test("掲載情報（--listing）があれば照合し、無ければ照合しない", async () => {
+    const withListing = setup({ statuses: ["Certification"] });
+    const a = await run(inspectOptions, withListing.deps);
+    expect(a.verification?.length).toBeGreaterThan(0);
+
+    const without = setup({ statuses: ["Certification"] });
+    const b = await run(
+      { ...inspectOptions, listingDir: undefined },
+      without.deps,
+    );
+    expect(b.verification).toEqual([]);
+    expect(without.logs.join("\n")).toContain(
+      "（--listing）が指定されていません",
+    );
+  });
+
+  test("--apply や --clone-only とは同時に使えない", async () => {
+    await expect(
+      run(
+        { ...inspectOptions, apply: true },
+        setup({ statuses: ["Certification"] }).deps,
+      ),
+    ).rejects.toThrow("--inspect は読み取りだけ");
+    await expect(
+      run(
+        { ...inspectOptions, cloneOnly: true },
+        setup({ statuses: ["Certification"] }).deps,
+      ),
+    ).rejects.toThrow("--inspect は読み取りだけ");
+  });
+
+  test("読み取る申請が無ければ、止まる", async () => {
+    const s = setup({
+      app: { lastPublishedApplicationSubmission: undefined },
+      statuses: ["Certification"],
+    });
+    await expect(run(inspectOptions, s.deps)).rejects.toThrow(
+      "読み取る申請がありません",
+    );
+  });
+
+  test("結果の要約に、申請の状態と照合の表を出す", async () => {
+    const s = setup({ statuses: ["Certification"] });
+    const result = await run(inspectOptions, s.deps);
+    const text = resultSummary(result);
+    expect(text).toContain("## Store 提出（inspected）");
+    expect(text).toContain("申請: `pub1`（状態: Certification）");
+    expect(text).toContain("| 結果 | 対象 | 検査 | 期待 | 実際 |");
+    expect(text).not.toContain("変更はありません");
   });
 });

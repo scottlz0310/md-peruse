@@ -283,22 +283,66 @@ export class StoreClient {
   }
 }
 
-/** commit が受理されるまで（`CommitStarted` を抜けるまで）待つ。認定の完了までは待たない。 */
-export async function waitForCommit(
+/** 状態の 1 回の読み取り。取り込みの経過（タイムライン）として、証跡に残す。 */
+export interface StatusEntry {
+  /** 読み取った時刻（ISO 8601）。 */
+  at: string;
+  status: string;
+  statusDetails?: unknown;
+}
+
+/** commit の後の取り込み（前処理）の途中の状態。ここを抜けたら、取り込みの結果が出ている。 */
+export const INGESTION_STATUSES: readonly string[] = [
+  "CommitStarted",
+  "PreProcessing",
+];
+
+/** 失敗や取り消しを示す状態（`CommitFailed`、`PreProcessingFailed`、`CertificationFailed`、`Canceled` など）。 */
+export function isFailureStatus(status: string): boolean {
+  return status.endsWith("Failed") || status === "Canceled";
+}
+
+export interface IngestionResult {
+  /** 最後に読み取った状態。 */
+  status: SubmissionStatus;
+  /** 読み取った状態の、すべての記録（時刻つき）。 */
+  timeline: StatusEntry[];
+  /** 上限まで待っても、取り込みの途中のままだったとき true。 */
+  timedOut: boolean;
+}
+
+/**
+ * commit の後、取り込み（`CommitStarted` と `PreProcessing`）を抜けるまで、状態を読み続ける。画像と
+ * パッケージの取り込みの成否は、ここを抜けた状態（`Certification` なら成功、`PreProcessingFailed` なら
+ * 失敗）で分かる。認定の完了までは待たない。読み取りのたびに、タイムラインへ記録する。
+ */
+export async function waitForIngestion(
   client: Pick<StoreClient, "getStatus">,
   submissionId: string,
   options: {
     sleep: (ms: number) => Promise<void>;
     intervalMs: number;
     maxAttempts: number;
+    now: () => Date;
+    /** 状態を読み取るたびに呼ぶ（ログ用）。 */
+    onStatus?: (entry: StatusEntry) => void;
   },
-): Promise<SubmissionStatus> {
+): Promise<IngestionResult> {
+  const timeline: StatusEntry[] = [];
+  let last: SubmissionStatus = { status: "不明" };
   for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
-    const status = await client.getStatus(submissionId);
-    if (status.status !== "CommitStarted") return status;
-    await options.sleep(options.intervalMs);
+    last = await client.getStatus(submissionId);
+    const entry: StatusEntry = {
+      at: options.now().toISOString(),
+      status: last.status,
+      statusDetails: last.statusDetails,
+    };
+    timeline.push(entry);
+    options.onStatus?.(entry);
+    if (!INGESTION_STATUSES.includes(last.status)) {
+      return { status: last, timeline, timedOut: false };
+    }
+    if (attempt < options.maxAttempts) await options.sleep(options.intervalMs);
   }
-  throw new Error(
-    `commit の受理を待ちましたが、状態が CommitStarted のままです（申請 ${submissionId}）。Partner Center で状態を確認してください。`,
-  );
+  return { status: last, timeline, timedOut: true };
 }

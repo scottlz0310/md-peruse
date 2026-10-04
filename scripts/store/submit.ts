@@ -26,7 +26,7 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { StoreClient, waitForCommit } from "./client";
+import { isFailureStatus, StoreClient, waitForIngestion } from "./client";
 import { readListingTable } from "./csv";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import { buildListingPatch, type ListingPatch } from "./listing";
@@ -43,6 +43,11 @@ import {
   type SubmissionPlan,
 } from "./plan";
 import { redactText } from "./redact";
+import {
+  type CheckResult,
+  describeVerification,
+  verifyListing,
+} from "./verify";
 import { createZip } from "./zip";
 
 export interface RunOptions {
@@ -57,6 +62,11 @@ export interface RunOptions {
   commit: boolean;
   /** 申請（下書き）を作って、公開済みの申請との違いを表示するだけで止める（更新も commit もしない）。 */
   cloneOnly: boolean;
+  /**
+   * 読み取りだけ。処理中の申請（無ければ公開済みの申請）を読み、状態と JSON を証跡に残し、
+   * 掲載情報（CSV）があれば照合する。何も作らず、何も書き換えない。
+   */
+  inspect: boolean;
 }
 
 export interface RunDeps {
@@ -75,18 +85,34 @@ export interface RunDeps {
   readText: (path: string) => string;
   readBytes: (path: string) => Uint8Array;
   sleep: (ms: number) => Promise<void>;
+  /** 時刻（状態の記録に使う）。無ければ現在の時刻。 */
+  now?: () => Date;
   log: (message: string) => void;
 }
 
 export interface RunResult {
-  mode: "dry-run" | "no-changes" | "cloned" | "applied";
+  mode: "dry-run" | "no-changes" | "cloned" | "applied" | "inspected";
   plan: SubmissionPlan;
   submissionId?: string;
-  /** commit した場合の、commit 受理後の状態。 */
+  /** commit した場合は取り込みの後の状態。inspect の場合は読み取った申請の状態。 */
   status?: string;
+  /** 申請の内容と掲載情報（CSV）の照合の結果（取り込みの後と inspect で、掲載情報がある場合）。 */
+  verification?: CheckResult[];
 }
 
-const COMMIT_POLL = { intervalMs: 5_000, maxAttempts: 60 };
+/** commit の後、取り込み（PreProcessing）を抜けるまで待つ上限は、約 10 分。 */
+const INGESTION_POLL = { intervalMs: 10_000, maxAttempts: 60 };
+
+/** 掲載情報（CSV）から、言語ごとの内容を読む。`--listing` が無ければ空。 */
+function readPatches(options: RunOptions, deps: RunDeps): ListingPatch[] {
+  if (!options.listingDir) return [];
+  const table = readListingTable(
+    deps.readText(join(options.listingDir, "listingData.csv")),
+  );
+  return options.languages.map((language) =>
+    buildListingPatch(table, language),
+  );
+}
 
 function buildInput(options: RunOptions, deps: RunDeps): PlanInput {
   if (!options.listingDir && !options.packagePath) {
@@ -101,18 +127,9 @@ function buildInput(options: RunOptions, deps: RunDeps): PlanInput {
     throw new Error("--replace-screenshots には --listing が必要です");
   }
 
-  let patches: ListingPatch[] = [];
-  let listingRoot = "";
+  const patches = readPatches(options, deps);
   const listingDir = options.listingDir;
-  if (listingDir) {
-    const table = readListingTable(
-      deps.readText(join(listingDir, "listingData.csv")),
-    );
-    patches = options.languages.map((language) =>
-      buildListingPatch(table, language),
-    );
-    listingRoot = basename(resolve(listingDir));
-  }
+  const listingRoot = listingDir ? basename(resolve(listingDir)) : "";
 
   return {
     patches,
@@ -132,6 +149,7 @@ export async function run(
   options: RunOptions,
   deps: RunDeps,
 ): Promise<RunResult> {
+  if (options.inspect) return inspect(options, deps);
   const input = buildInput(options, deps);
   const { client, log, evidence } = deps;
 
@@ -231,23 +249,112 @@ export async function run(
   }
 
   evidence?.json("08-commit-response", await client.commit(created.id));
-  const status = await waitForCommit(client, created.id, {
+  log(`commit しました。取り込み（PreProcessing）の結果まで、状態を追います`);
+
+  // commit の後、画像とパッケージの取り込みの成否は、PreProcessing を抜けた状態で分かる。
+  // 読み取るたびに記録し（タイムライン）、失敗しても、先に証跡を書いてから報告する。
+  const ingestion = await waitForIngestion(client, created.id, {
     sleep: deps.sleep,
-    ...COMMIT_POLL,
+    now: deps.now ?? (() => new Date()),
+    onStatus: (entry) => log(`状態: ${entry.status}`),
+    ...INGESTION_POLL,
   });
-  evidence?.json("09-status", status);
-  if (status.status === "CommitFailed") {
+  evidence?.json("09-status-timeline", ingestion.timeline);
+  const status = ingestion.status;
+
+  if (isFailureStatus(status.status)) {
     throw new Error(
-      `commit に失敗しました（申請 ${created.id}）: ${JSON.stringify(status.statusDetails)}`,
+      `commit の後の処理が失敗しました（申請 ${created.id}、状態: ${status.status}）: ${JSON.stringify(status.statusDetails)}`,
     );
   }
-  log(`commit を受理しました（状態: ${status.status}）`);
+  if (ingestion.timedOut) {
+    log(
+      `取り込みの完了を待ち切れませんでした（最後の状態: ${status.status}）。申請 ${created.id} は処理中です。あとで inspect で確かめてください`,
+    );
+  } else {
+    log(`取り込みを抜けました（状態: ${status.status}）`);
+  }
+
+  // 取り込みの後の申請を読み、掲載情報（CSV）と照合する。画面の見え方に頼らず、API の JSON で確かめる。
+  const after = await client.getSubmission(created.id);
+  evidence?.json("10-submission-after-ingestion", after);
+  const verification = verifyListing(after, readPatches(options, deps));
+  evidence?.json("11-verification", verification);
+  log(describeVerification(verification));
+
   return {
     mode: "applied",
     plan,
     submissionId: created.id,
     status: status.status,
+    verification,
   };
+}
+
+/** 読み取りだけ。処理中（無ければ公開済み）の申請を読み、状態と JSON を証跡に残して、照合する。 */
+async function inspect(options: RunOptions, deps: RunDeps): Promise<RunResult> {
+  const { client, log, evidence } = deps;
+  if (options.apply || options.cloneOnly) {
+    throw new Error(
+      "--inspect は読み取りだけなので、--apply や --clone-only とは同時に使えません",
+    );
+  }
+  const patches = readPatches(options, deps);
+
+  const app = await client.getApplication();
+  evidence?.json("01-application", app);
+  const pendingId = app.pendingApplicationSubmission?.id;
+  const targetId = pendingId ?? app.lastPublishedApplicationSubmission?.id;
+  if (!targetId) {
+    throw new Error(
+      "読み取る申請がありません（処理中も公開済みも見つかりません）",
+    );
+  }
+  const kind = pendingId ? "処理中の申請" : "公開済みの申請";
+
+  const submission = await client.getSubmission(targetId);
+  evidence?.json("inspect-submission", submission);
+  const status = await client.getStatus(targetId);
+  evidence?.json("inspect-status", status);
+
+  log(
+    `${kind}: ${targetId}（状態: ${status.status}、公開方法: ${submission.targetPublishMode}）`,
+  );
+  log(`価格: ${JSON.stringify(submission.pricing ?? null)}`);
+  log(
+    `デバイス ファミリー: ${JSON.stringify(submission.allowTargetFutureDeviceFamilies ?? null)}`,
+  );
+  if (status.statusDetails) {
+    log(`状態の詳細: ${JSON.stringify(status.statusDetails)}`);
+  }
+
+  const verification = verifyListing(submission, patches);
+  evidence?.json("inspect-verification", verification);
+  log(describeVerification(verification));
+
+  return {
+    mode: "inspected",
+    plan: { submission, changes: [], uploads: [] },
+    submissionId: targetId,
+    status: status.status,
+    verification,
+  };
+}
+
+/** 実行の結果の、GitHub の Step Summary（Markdown）。 */
+export function resultSummary(result: RunResult): string {
+  const lines = [`## Store 提出（${result.mode}）`, ""];
+  if (result.mode !== "inspected") lines.push(describePlan(result.plan), "");
+  if (result.submissionId) {
+    lines.push(
+      `申請: \`${result.submissionId}\`（状態: ${result.status ?? "未 commit"}）`,
+      "",
+    );
+  }
+  if (result.verification) {
+    lines.push(describeVerification(result.verification), "");
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function requiredEnv(env: NodeJS.ProcessEnv, names: string[]): string[] {
@@ -282,6 +389,7 @@ if (import.meta.main) {
         apply: { type: "boolean", default: false },
         "no-commit": { type: "boolean", default: false },
         "clone-only": { type: "boolean", default: false },
+        inspect: { type: "boolean", default: false },
         "evidence-dir": { type: "string" },
       },
     });
@@ -295,14 +403,17 @@ if (import.meta.main) {
       apply: values.apply as boolean,
       commit: !(values["no-commit"] as boolean),
       cloneOnly: values["clone-only"] as boolean,
+      inspect: values.inspect as boolean,
     };
-    mode = !options.apply
-      ? "dry-run"
-      : options.cloneOnly
-        ? "clone-only"
-        : options.commit
-          ? "apply"
-          : "draft-only";
+    mode = options.inspect
+      ? "inspect"
+      : !options.apply
+        ? "dry-run"
+        : options.cloneOnly
+          ? "clone-only"
+          : options.commit
+            ? "apply"
+            : "draft-only";
 
     // 証跡は、入力の検査より先に用意する。検査で止まった実走も、記録に残す。
     evidenceDir = values["evidence-dir"];
@@ -376,16 +487,7 @@ if (import.meta.main) {
       submissionId: result.submissionId,
       status: result.status,
     });
-    if (summary) {
-      appendFileSync(
-        summary,
-        `## Store 提出（${result.mode}）\n\n${describePlan(result.plan)}\n\n${
-          result.submissionId
-            ? `申請: \`${result.submissionId}\`（状態: ${result.status ?? "未 commit"}）\n`
-            : ""
-        }`,
-      );
-    }
+    if (summary) appendFileSync(summary, resultSummary(result));
   } catch (error) {
     // 失敗しても、原因をたどれるよう、内容を証跡と Step Summary に残してから終わる。どの出口にも、
     // 資格情報を取り除いた値だけを渡す（エラーのメッセージに、応答の本文が含まれるため）。
