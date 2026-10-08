@@ -582,4 +582,6 @@ Store の API は、実走でしか分からない拒否が多い（初回の実
 
 - Store の掲載の表示、インストール、起動、ファイルの関連付け、アンインストールを、実機で確認する。2026-10-04に確認した範囲: インストール済みのパッケージは `SignatureKind: Store`（v0.1.0.0、x64、開発モードではない。実体は `C:\Program Files\WindowsApps\scottlz0310.md-peruse_0.1.0.0_x64__r99jq8jxntmym\md-peruse.exe`）。`.md` の関連付けで文書を開くと Store 版が起動し、本文、ツリー、タブ、Mermaid の図、表が表示された。2つ目の文書を開いても同じプロセスのタブで開いた（単一インスタンス）。パッケージ専用の領域が存在する。未確認: Store からのインストール操作そのもの、アンインストール（破壊的なため行っていない）、Store へ送るイベントの観測。
 - Partner Center の Usage レポートで、カスタムイベント（5種類）と、パッケージのバージョン別の集計を確認し、反映の遅延と、バージョン別のフィルターの粒度を、計測の定義へ記録する（[design-decisions.md](./design-decisions.md) 11.4。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
-- Microsoft の資料で確かめられなかった、診断データの設定との関係（母集団の偏り）を、実データで確かめる。
+- Microsoft の資料で確かめられなかった、診断データの設定との関係（母集団の偏り）を、実データで確かめる。標準Usage指標とSDKのカスタムイベントを分け、集計だけでは判定できない条件は、Microsoftの説明またはサポート回答で確認する。
+
+カスタムイベントの確認は [Store向けカスタムイベントの公開後検証](./store-telemetry-verification.md) に従い、期間・版・フィルター・観測時刻を揃えて記録する。申告とポリシーの更新は完了したが、Partner Centerでのイベント観測は未完了である。申告の入力記録は11.1、計測の読み方と制約は [design-decisions.md](./design-decisions.md) 11.4を正本とする。
