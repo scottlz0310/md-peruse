@@ -343,6 +343,32 @@ pub struct WorkspaceHandle {
 }
 
 impl WorkspaceHandle {
+    /// loose tabでは実際に表示中の文書だけを許可し、ワークスペース相対形式を拒否する。
+    pub fn with_copy_target<T>(
+        &self,
+        scope_id: &str,
+        path: &str,
+        format: crate::ipc::types::CopyPathFormat,
+        f: impl FnOnce(&WorkspaceRoot) -> Result<T, ErrorCode>,
+    ) -> Option<Result<T, ErrorCode>> {
+        let scopes = self.lock();
+        if let Some(scope) = scopes
+            .workspace
+            .as_ref()
+            .filter(|scope| scope.id == scope_id)
+        {
+            return Some(f(&scope.root));
+        }
+        let loose = scopes
+            .loose
+            .iter()
+            .find(|loose| loose.scope.id == scope_id)?;
+        if loose.file != path || format == crate::ipc::types::CopyPathFormat::Relative {
+            return Some(Err(ErrorCode::PathRejected));
+        }
+        Some(f(&loose.scope.root))
+    }
+
     /// 開いているワークスペースのルートに対して処理を行う。開いていなければ `None` を返す。
     ///
     /// `WorkspaceRoot` を複製して返さないのは、ルートを持ち出した先で切り替えが起きると、
@@ -780,6 +806,132 @@ mod tests {
                 .is_err()
         );
         assert_eq!(state.lock_loose_watchers().len(), 0);
+    }
+
+    #[test]
+    fn copying_resolves_only_existing_workspace_targets() {
+        use crate::ipc::types::{CopyPathFormat, CopyPathRequest};
+        let (temp, state, _) = with_workspace_and_outside("copy-targets");
+        let scope_id = state.scope_id().unwrap();
+        let root = state
+            .workspace()
+            .with(|root| root.path().to_owned())
+            .unwrap();
+        std::fs::write(root.join("日本語 空白.md"), "# 文書").unwrap();
+        std::fs::create_dir(root.join("docs")).unwrap();
+        for (path, format, expected) in [
+            (
+                "日本語 空白.md",
+                CopyPathFormat::Relative,
+                Ok("日本語 空白.md"),
+            ),
+            ("docs", CopyPathFormat::Relative, Ok("docs")),
+            (
+                "missing.md",
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::FileNotFound),
+            ),
+            (
+                "../secret.md",
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::PathRejected),
+            ),
+            (
+                r"C:\secret.md",
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::PathRejected),
+            ),
+        ] {
+            let mut written = None;
+            let result = crate::path_copy::copy_path(
+                &state.workspace(),
+                &CopyPathRequest {
+                    scope_id: scope_id.clone(),
+                    path: path.to_owned(),
+                    format,
+                },
+                |text| {
+                    written = Some(text.to_owned());
+                    Ok(())
+                },
+            );
+            assert_eq!(
+                result.map(|_| written.unwrap()),
+                expected.map(str::to_owned)
+            );
+        }
+        state
+            .open_workspace(&temp.path().join("outside"), sink())
+            .unwrap();
+        assert_eq!(
+            crate::path_copy::copy_path(
+                &state.workspace(),
+                &CopyPathRequest {
+                    scope_id,
+                    path: "日本語 空白.md".to_owned(),
+                    format: CopyPathFormat::Absolute
+                },
+                |_| panic!("古いスコープを書き込んだ")
+            ),
+            Err(ErrorCode::WorkspaceNotFound)
+        );
+    }
+
+    #[test]
+    fn copying_validates_the_scope_and_preserves_writer_errors() {
+        use crate::ipc::types::{CopyPathFormat, CopyPathRequest};
+        let (_temp, state, outside) = with_workspace_and_outside("copy-path");
+        let opened = state.open_loose(&outside, sink()).unwrap();
+        for (scope_id, path, format, expected) in [
+            (
+                opened.scope_id.clone(),
+                opened.file.clone(),
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::ClipboardWriteFailed),
+            ),
+            (
+                opened.scope_id.clone(),
+                opened.file.clone(),
+                CopyPathFormat::Relative,
+                Err(ErrorCode::PathRejected),
+            ),
+            (
+                opened.scope_id.clone(),
+                "other.md".to_owned(),
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::PathRejected),
+            ),
+            (
+                "unknown".to_owned(),
+                opened.file.clone(),
+                CopyPathFormat::Absolute,
+                Err(ErrorCode::WorkspaceNotFound),
+            ),
+        ] {
+            let result = crate::path_copy::copy_path(
+                &state.workspace(),
+                &CopyPathRequest {
+                    scope_id,
+                    path,
+                    format,
+                },
+                |_| Err(ErrorCode::ClipboardWriteFailed),
+            );
+            assert_eq!(result, expected);
+        }
+        state.close_loose(&opened.scope_id);
+        assert_eq!(
+            crate::path_copy::copy_path(
+                &state.workspace(),
+                &CopyPathRequest {
+                    scope_id: opened.scope_id,
+                    path: opened.file,
+                    format: CopyPathFormat::Absolute
+                },
+                |_| panic!("閉じた対象を書き込んだ")
+            ),
+            Err(ErrorCode::WorkspaceNotFound)
+        );
     }
 
     /// タブを閉じたときにスコープと監視を破棄する。開いていないスコープを閉じても何も起きない。

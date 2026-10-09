@@ -1,6 +1,11 @@
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { useMessages } from "../i18n/LanguageContext";
 import {
+  isContextMenuKey,
+  type PathFormat,
+  usePathMenu,
+} from "../path-menu/PathMenu";
+import {
   type FileTree,
   isExpandable,
   ROOT_PATH,
@@ -18,6 +23,7 @@ export type FocusRequest = { readonly path: string };
 
 type Props = {
   tree: FileTree;
+  onCopyPath: (path: string, format: PathFormat) => Promise<void>;
   /** 表示中の文書のパス。ツリーの選択として示す。 */
   selectedPath: string | null;
   /** フォルダーを展開する・畳む。展開したときの走査は呼び出し側が行う。 */
@@ -46,6 +52,7 @@ type Props = {
  */
 export function TreeView({
   tree,
+  onCopyPath,
   selectedPath,
   onToggle,
   onOpen,
@@ -53,6 +60,7 @@ export function TreeView({
   onFocusRequestSettled,
 }: Props) {
   const messages = useMessages();
+  const pathMenu = usePathMenu();
   const [focusedPath, setFocusedPath] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLLIElement>());
   const root = useRef<HTMLUListElement>(null);
@@ -202,6 +210,23 @@ export function TreeView({
           aria-expanded={expandable ? expanded : undefined}
           aria-selected={node.path === selectedPath}
           tabIndex={node.path === current?.node.path ? 0 : -1}
+          onContextMenu={(event) => {
+            cancelFocusRequest();
+            pathMenu.open(event, true, (format) =>
+              onCopyPath(node.path, format),
+            );
+          }}
+          onKeyDown={(event) => {
+            if (
+              event.target !== event.currentTarget ||
+              !isContextMenuKey(event)
+            )
+              return;
+            cancelFocusRequest();
+            pathMenu.open(event, true, (format) =>
+              onCopyPath(node.path, format),
+            );
+          }}
           onFocus={(event) => {
             // 子孫の項目のフォーカスが親の `li` まで伝わるため、自分自身のときだけ扱う。
             if (event.target === event.currentTarget) setFocusedPath(node.path);
@@ -237,16 +262,19 @@ export function TreeView({
   }
 
   return (
-    <ul
-      ref={root}
-      // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: 項目の並びを `ul` と `li` で持ち、`tree` / `treeitem` の役割を与える（WAI-ARIAのtreeパターン）。
-      role="tree"
-      aria-label={messages.treeLabel}
-      className="tree"
-      onKeyDown={onKeyDown}
-    >
-      {renderDirectory(ROOT_PATH, 1)}
-    </ul>
+    <>
+      <ul
+        ref={root}
+        // biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: 項目の並びを `ul` と `li` で持ち、`tree` / `treeitem` の役割を与える（WAI-ARIAのtreeパターン）。
+        role="tree"
+        aria-label={messages.treeLabel}
+        className="tree"
+        onKeyDown={onKeyDown}
+      >
+        {renderDirectory(ROOT_PATH, 1)}
+      </ul>
+      {pathMenu.menu}
+    </>
   );
 }
 

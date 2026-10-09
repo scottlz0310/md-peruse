@@ -357,3 +357,20 @@ pub enum OpenMdResult {
     /// 文書全体を描画できず、失敗を表示した。数式・図・画像の位置だけの失敗は含めない。
     Fail,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub enum CopyPathFormat {
+    Absolute,
+    Relative,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export, export_to = "../../src/types/generated/")]
+pub struct CopyPathRequest {
+    pub scope_id: String,
+    pub path: String,
+    pub format: CopyPathFormat,
+}

@@ -69,6 +69,7 @@ pub enum ErrorCode {
     /// （design-decisions.md 11.1）。一覧を取り直せば解消するため、
     /// フォルダーそのものが失われた `WorkspaceNotFound` と分ける。
     RecentFolderNotFound,
+    ClipboardWriteFailed,
 }
 
 /// IPCの失敗。

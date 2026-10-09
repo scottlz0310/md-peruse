@@ -35,9 +35,13 @@ function mount(set = sampleSet()) {
     activated: [] as string[],
     closed: [] as string[],
     pinned: [] as string[],
+    copied: [] as [string, string, string][],
   };
   render(
     <TabBar
+      onCopyPath={async (scope, path, format) => {
+        calls.copied.push([scope, path, format]);
+      }}
       set={set}
       onActivate={(id) => calls.activated.push(id)}
       onClose={(id) => calls.closed.push(id)}
@@ -125,6 +129,7 @@ describe("TabBar: アクティブなタブを見える位置へ動かす（9.1�
   });
 
   const props = {
+    onCopyPath: async () => {},
     onActivate: () => {},
     onClose: () => {},
     onPin: () => {},
@@ -194,6 +199,7 @@ describe("TabBar: UI言語（10.5）", () => {
     render(
       <LanguageProvider language={language}>
         <TabBar
+          onCopyPath={async () => {}}
           set={sampleSet()}
           onActivate={() => {}}
           onClose={() => {}}
@@ -204,5 +210,30 @@ describe("TabBar: UI言語（10.5）", () => {
 
     expect(screen.getByRole("tablist", { name: list })).toBeTruthy();
     expect(screen.getByRole("button", { name: close })).toBeTruthy();
+  });
+});
+
+describe("TabBar: パスコピー", () => {
+  test("非アクティブの右クリック対象をコピーし、アクティブ化・固定・終了しない", () => {
+    const calls = mount();
+    fireEvent.contextMenu(tab("a.md"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "絶対パスをコピー" }));
+    expect(calls.copied).toEqual([["s", "docs/a.md", "absolute"]]);
+    expect(calls.activated).toEqual([]);
+    expect(calls.pinned).toEqual([]);
+    expect(calls.closed).toEqual([]);
+  });
+  test("loose tabはスコープを保持し、相対パス項目を表示しない", () => {
+    const set = openTab(EMPTY_TAB_SET, {
+      path: "外部.md",
+      preview: false,
+      now: 0,
+      fresh: { tabId: "loose", scopeId: "outside", rootLabel: "外部" },
+    }).set;
+    const calls = mount(set);
+    fireEvent.keyDown(tab("外部.md"), { key: "ContextMenu" });
+    expect(screen.getAllByRole("menuitem")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("menuitem"));
+    expect(calls.copied).toEqual([["outside", "外部.md", "absolute"]]);
   });
 });

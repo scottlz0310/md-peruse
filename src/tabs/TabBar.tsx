@@ -1,10 +1,20 @@
 import { type KeyboardEvent, useCallback, useEffect, useRef } from "react";
 import { useMessages } from "../i18n/LanguageContext";
 import { useResizeObserver } from "../layout/use-resize-observer";
+import {
+  isContextMenuKey,
+  type PathFormat,
+  usePathMenu,
+} from "../path-menu/PathMenu";
 import { type TabSet, tabTitle } from "../state/tab-set";
 
 type Props = {
   set: TabSet;
+  onCopyPath: (
+    scopeId: string,
+    path: string,
+    format: PathFormat,
+  ) => Promise<void>;
   onActivate: (tabId: string) => void;
   onClose: (tabId: string) => void;
   /** プレビュータブを固定する（タブのダブルクリック）。 */
@@ -24,8 +34,9 @@ export function tabElementId(tabId: string): string {
  * 中クリックと閉じるボタンでタブを閉じる。幅に収まらないタブは横にスクロールし、
  * アクティブなタブは、変わったときと幅が変わったときに、見える位置へ動かす。
  */
-export function TabBar({ set, onActivate, onClose, onPin }: Props) {
+export function TabBar({ set, onActivate, onClose, onPin, onCopyPath }: Props) {
   const messages = useMessages();
+  const pathMenu = usePathMenu();
   const list = useRef<HTMLDivElement>(null);
   const elements = useRef(new Map<string, HTMLDivElement>());
 
@@ -69,56 +80,70 @@ export function TabBar({ set, onActivate, onClose, onPin }: Props) {
   }
 
   return (
-    <div
-      ref={list}
-      role="tablist"
-      aria-label={messages.tabListLabel}
-      className="tab-bar"
-    >
-      {set.tabs.map((tab, index) => {
-        const active = tab.tabId === set.activeTabId;
-        return (
-          <div
-            key={tab.tabId}
-            ref={(element) => {
-              if (element) elements.current.set(tab.tabId, element);
-              else elements.current.delete(tab.tabId);
-            }}
-            id={tabElementId(tab.tabId)}
-            role="tab"
-            aria-selected={active}
-            tabIndex={active ? 0 : -1}
-            className={tab.preview ? "tab tab-preview" : "tab"}
-            title={tab.path}
-            onClick={() => onActivate(tab.tabId)}
-            onDoubleClick={() => onPin(tab.tabId)}
-            onAuxClick={(event) => {
-              if (event.button !== 1) return;
-              event.preventDefault();
-              onClose(tab.tabId);
-            }}
-            onKeyDown={(event) => onKeyDown(event, index)}
-          >
-            <span className="tab-title">{tabTitle(tab)}</span>
-            {tab.status === "deleted" && (
-              <span className="tab-deleted">{messages.tabDeleted}</span>
-            )}
-            <button
-              type="button"
-              className="tab-close"
-              aria-label={messages.closeTab(tabTitle(tab))}
-              tabIndex={-1}
-              onClick={(event) => {
-                // タブのクリック（アクティブ化）へ伝えない。
-                event.stopPropagation();
+    <>
+      <div
+        ref={list}
+        role="tablist"
+        aria-label={messages.tabListLabel}
+        className="tab-bar"
+      >
+        {set.tabs.map((tab, index) => {
+          const active = tab.tabId === set.activeTabId;
+          return (
+            <div
+              key={tab.tabId}
+              ref={(element) => {
+                if (element) elements.current.set(tab.tabId, element);
+                else elements.current.delete(tab.tabId);
+              }}
+              id={tabElementId(tab.tabId)}
+              role="tab"
+              aria-selected={active}
+              tabIndex={active ? 0 : -1}
+              className={tab.preview ? "tab tab-preview" : "tab"}
+              title={tab.path}
+              onClick={() => onActivate(tab.tabId)}
+              onDoubleClick={() => onPin(tab.tabId)}
+              onAuxClick={(event) => {
+                if (event.button !== 1) return;
+                event.preventDefault();
                 onClose(tab.tabId);
               }}
+              onContextMenu={(event) =>
+                pathMenu.open(event, tab.rootLabel === null, (format) =>
+                  onCopyPath(tab.scopeId, tab.path, format),
+                )
+              }
+              onKeyDown={(event) => {
+                if (isContextMenuKey(event))
+                  pathMenu.open(event, tab.rootLabel === null, (format) =>
+                    onCopyPath(tab.scopeId, tab.path, format),
+                  );
+                else onKeyDown(event, index);
+              }}
             >
-              ×
-            </button>
-          </div>
-        );
-      })}
-    </div>
+              <span className="tab-title">{tabTitle(tab)}</span>
+              {tab.status === "deleted" && (
+                <span className="tab-deleted">{messages.tabDeleted}</span>
+              )}
+              <button
+                type="button"
+                className="tab-close"
+                aria-label={messages.closeTab(tabTitle(tab))}
+                tabIndex={-1}
+                onClick={(event) => {
+                  // タブのクリック（アクティブ化）へ伝えない。
+                  event.stopPropagation();
+                  onClose(tab.tabId);
+                }}
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {pathMenu.menu}
+    </>
   );
 }
