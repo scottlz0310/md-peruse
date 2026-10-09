@@ -808,8 +808,6 @@ mod tests {
         assert_eq!(state.lock_loose_watchers().len(), 0);
     }
 
-    /// タブを閉じたときにスコープと監視を破棄する。開いていないスコープを閉じても何も起きない。
-
     #[test]
     fn copying_resolves_only_existing_workspace_targets() {
         use crate::ipc::types::{CopyPathFormat, CopyPathRequest};
@@ -936,6 +934,7 @@ mod tests {
         );
     }
 
+    /// タブを閉じたときにスコープと監視を破棄する。開いていないスコープを閉じても何も起きない。
     #[test]
     fn closing_a_loose_scope_releases_it() {
         let (_temp, state, outside) = with_workspace_and_outside("close-loose");
