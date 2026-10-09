@@ -5,6 +5,8 @@ Description,2,テキスト,,"md-peruseは、Windows向けの読み取り専用Ma
 
 外部のエディターで文書や画像を更新すると、表示へ反映されます。ファイルをドラッグ＆ドロップして開くこともできます。ダーク・ライトのテーマ、文字サイズの変更、文書内検索で、読みやすい表示へ調整できます。
 
+ツリーのファイルやフォルダー、文書タブの右クリックから、パスをコピーできます。「ヘルプ」→「使い方」には、図解と操作例つきの日英ガイドがあり、オフラインでも読めます。
+
 本文を編集する機能はありません。編集には、お使いのエディターをご利用ください。
 
 対応環境はWindowsのx64です。ARM64には対応していません。","md-peruse is a read-only Markdown viewer for Windows. It is built for rereading local Markdown documents such as design notes, READMEs, and research memos.
@@ -13,10 +15,12 @@ Open a folder and find documents from the tree on the left. Switch between docum
 
 When you update a document or an image in an external editor, the view is refreshed. You can also open files by dragging and dropping them. Dark and light themes, adjustable text size, and in-document search help you tune the view for comfortable reading.
 
+Right-click a file or folder in the tree, or a document tab, to copy its path. Help > User Guide opens an illustrated guide with worked examples, in Japanese and English, that also works offline.
+
 There is no feature for editing the text. Use your own editor for editing.
 
 Supported environment: Windows on x64. ARM64 is not supported."
-ReleaseNotes,3,テキスト,,初回リリース。フォルダーツリーとタブによるMarkdownの閲覧、Mermaid図・数式・コードの表示、外部エディターによる変更の反映に対応しています。,"First release. Supports reading Markdown with a folder tree and tabs, displaying Mermaid diagrams, math, and code, and reflecting changes made in external editors."
+ReleaseNotes,3,テキスト,,「ヘルプ」→「使い方」から、図解と操作例つきの日英ガイドを開けるようになりました（オフラインでも利用できます）。ツリーのファイル・フォルダーと文書タブの右クリックから、絶対パスをコピーできます。ワークスペース内では相対パスも選べ、Shift+F10・メニューキーからも操作できます。あわせて、プライバシーポリシーに、Windowsの診断データ（クラッシュ情報）についての説明を加えました。,"Open an illustrated guide with worked examples, in Japanese and English, from Help > User Guide. It works offline. Right-click a file or folder in the tree, or a document tab, to copy its absolute path. Inside a workspace you can also copy the relative path, and Shift+F10 or the menu key works too. The privacy policy now also explains Windows diagnostic data (crash information)."
 Title,4,テキスト,,md-peruse,md-peruse
 ShortTitle,5,テキスト,,,
 SortTitle,6,テキスト,,,
