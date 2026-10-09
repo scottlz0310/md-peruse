@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-09
+
 ### Changed
 
 - Microsoft Storeの掲載情報（「新機能」の文と、説明文）を、0.2.0の内容に合わせた。「新機能」を初回リリースの文面から差し替え、日英の使い方ガイドと、パスのコピーを説明文に加えた。アプリの動作は変わらない。0.2.0 は Store へ提出していないため、0.2.0 の機能（日英の使い方ガイド、パスのコピー）は、この版から Store で提供される。
@@ -455,7 +457,8 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/scottlz0310/md-peruse/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/scottlz0310/md-peruse/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scottlz0310/md-peruse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/scottlz0310/md-peruse/commits/v0.1.0
