@@ -71,9 +71,14 @@ export const KATEX_LIMITS = {
   maxExpand: 1_000,
   /** ユーザー指定寸法の上限（em）。 */
   maxSize: 50,
-  /** 1つの数式の入力サイズ。16 msで出力176 KiBに相当する。 */
+  /** 1つの数式の入力サイズ。16 msで出力176 KiBに相当する（KaTeXの出力の生成だけの時間）。 */
   perFormulaBytes: 16 * KIB,
-  /** 1文書で描画する数式のコストの合計。約35 msで出力704 KiBに相当する。 */
+  /**
+   * 1文書で描画する数式のコストの合計。約35 msで出力704 KiBに相当する。
+   *
+   * この時間は、KaTeXの出力の生成だけである。出力のHTMLの解析、sanitize、React要素への変換を含む
+   * 描画パイプライン全体の費用は含まない（design-decisions.md 8章の数式の上限）。
+   */
   perDocumentBytes: 64 * KIB,
   /**
    * 1数式あたりの最小コスト。

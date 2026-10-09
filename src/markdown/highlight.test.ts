@@ -64,6 +64,27 @@ describe("selectHighlightable", () => {
     });
   });
 
+  test("数式（math）の中は歩かず、その前後のコードブロックは選ぶ", () => {
+    // 数式は1文書で10万を超える要素になりうる。中を歩くと、選別だけで数百msかかる。
+    // 子の中身（長さや要素）に触れたら例外になる配列を置き、歩かないことを確かめる。
+    const math: Element = {
+      type: "element",
+      tagName: "math",
+      properties: {},
+      children: new Proxy([], {
+        get() {
+          throw new Error("mathの中を歩いた");
+        },
+      }),
+    };
+    const before = pre(code(["language-ts"], "let a;"));
+    const after = pre(code(["language-ts"], "let b;"));
+
+    const selected = selectHighlightable(root(before, math, after));
+
+    expect([...selected.keys()]).toEqual([before, after]);
+  });
+
   test("1ブロックの上限を超えたブロックは選ばず、後続のブロックは選ぶ", () => {
     const big = pre(
       code(["language-ts"], "a".repeat(HIGHLIGHT_LIMITS.perBlockBytes + 1)),

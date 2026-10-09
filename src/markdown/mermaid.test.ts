@@ -56,6 +56,35 @@ describe("selectMermaidDiagrams", () => {
   });
 });
 
+describe("selectMermaidDiagrams（数式）", () => {
+  test("数式（math）の中は歩かず、その前後の図は選ぶ", () => {
+    // 数式は1文書で10万を超える要素になりうる。子の中身（長さや要素）に触れたら例外になる配列を
+    // 置き、歩かないことを確かめる。
+    const math: Element = {
+      type: "element",
+      tagName: "math",
+      properties: {},
+      children: new Proxy([], {
+        get() {
+          throw new Error("mathの中を歩いた");
+        },
+      }),
+    };
+    const first = pre(["language-mermaid"], "pie");
+    const second = pre(["language-mermaid"], "flowchart LR\n A-->B");
+
+    const selected = selectMermaidDiagrams({
+      type: "root",
+      children: [first, math, second],
+    });
+
+    expect([...selected]).toEqual([
+      [first, { source: "pie", index: 0 }],
+      [second, { source: "flowchart LR\n A-->B", index: 1 }],
+    ]);
+  });
+});
+
 describe("mermaidConfig", () => {
   test("strictで、図の定義からHTMLラベルとテーマCSSを有効にさせない", () => {
     const config = mermaidConfig("dark");

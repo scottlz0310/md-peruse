@@ -2,7 +2,7 @@ import createDOMPurify, { type WindowLike } from "dompurify";
 import type { Element, Root } from "hast";
 import { toString as textOf } from "hast-util-to-string";
 import type { Mermaid, MermaidConfig } from "mermaid";
-import { visit } from "unist-util-visit";
+import { SKIP, visit } from "unist-util-visit";
 import { MERMAID_LIMITS } from "./limits";
 
 /** Mermaidのテーマ。表示テーマと `forced-colors` から決める（8.4）。 */
@@ -23,6 +23,8 @@ export type MermaidTarget = {
 export function selectMermaidDiagrams(tree: Root): Map<Element, MermaidTarget> {
   const selected = new Map<Element, MermaidTarget>();
   visit(tree, "element", (node: Element, _index, parent) => {
+    // 数式（MathML）の中に図はない。歩かずに飛ばす（selectHighlightable と同じ）。
+    if (node.tagName === "math") return SKIP;
     if (node.tagName !== "code") return;
     if (parent?.type !== "element" || parent.tagName !== "pre") return;
     const className = node.properties.className;

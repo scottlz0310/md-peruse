@@ -2,7 +2,7 @@ import type { Element, Root } from "hast";
 import { toString as textOf } from "hast-util-to-string";
 import type { LanguageFn } from "highlight.js";
 import { createLowlight } from "lowlight";
-import { visit } from "unist-util-visit";
+import { SKIP, visit } from "unist-util-visit";
 import { highlightCost, shouldHighlight } from "./limits";
 
 /**
@@ -114,6 +114,9 @@ export function selectHighlightable(tree: Root): Map<Element, HighlightTarget> {
   const encoder = new TextEncoder();
   let spent = 0;
   visit(tree, "element", (node: Element, _index, parent) => {
+    // 数式（MathML）の中にコードブロックはない。KaTeXの出力は1文書で10万を超える要素になりうるので、
+    // 歩かずに飛ばす（巨大な数式の文書で、全体の歩きが約160 msから0になる）。
+    if (node.tagName === "math") return SKIP;
     if (node.tagName !== "code") return;
     if (parent?.type !== "element" || parent.tagName !== "pre") return;
     const classNames = classNamesOf(node);
