@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-09
+
 ### Added
 
 - 「ヘルプ」→「使い方」から、図解・操作例・目次付きの日英ガイドを開ける。オフラインでも利用でき、狭い画面では目次を折りたためる（[#179](https://github.com/scottlz0310/md-peruse/issues/179)）。
@@ -449,6 +451,7 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/scottlz0310/md-peruse/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scottlz0310/md-peruse/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/scottlz0310/md-peruse/commits/v0.1.0
