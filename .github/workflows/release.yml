@@ -121,7 +121,8 @@ jobs:
       tag_name: ${{ needs.draft.outputs.tag_name }}
       target_sha: ${{ needs.draft.outputs.target_sha }}
 
-  # Release の公開の後に、同じ .msixupload を Store へ出す。承認（Environment の必須レビュアー）を通るまで、
+  # Release の公開の後に、同じ .msixupload と、そのコミットの掲載情報（docs/assets/store の listingData.csv）を、
+  # 1 つの申請として Store へ出す（画像は入れ替えない）。承認（Environment の必須レビュアー）を通るまで、
   # 資格情報は渡らない。公開方法は、Partner Center の設定が Immediate のとき（認定の後に自動で公開）の
   # 前提で、違えば scripts/store が止まる。
   store:
@@ -162,7 +163,7 @@ jobs:
             echo "::error::提出する .msixupload が 1 つではありません: ${uploads[*]}"
             exit 1
           fi
-          bun run store:submit --package "${uploads[0]}" --publish-mode Immediate --apply --evidence-dir "$RUNNER_TEMP/store-evidence"
+          bun run store:submit --package "${uploads[0]}" --listing docs/assets/store --publish-mode Immediate --apply --evidence-dir "$RUNNER_TEMP/store-evidence"
 
       # 失敗しても保存する（store-submit.yml と同じ。呼び出しのトレースと、申請の JSON、PUT の本文と応答）。
       - name: 証跡を保存

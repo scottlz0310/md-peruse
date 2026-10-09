@@ -236,7 +236,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | --- | --- |
 | 方式 | **Submission API を TypeScript（bun）で一本化する。** `msstore` は使わない |
 | 理由 | パッケージの差し替えと、掲載情報（文章、スクリーンショット、イラスト）の更新を、同じ仕組みで扱うため。`msstore` の資料（2026-08-30 更新）には、掲載画像のアップロード方法の記載がない。Submission API は、画像を ZIP で送る方法を定めている |
-| 提出の種類 | ①**パッケージのリリース**（リリースの流れ〔`release.yml`、9.7〕が動かした `Package` の artifact を送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
+| 提出の種類 | ①**パッケージのリリース**（リリースの流れ〔`release.yml`、9.7〕が動かした `Package` の artifact を、そのコミットの掲載情報と一緒に、1 つの申請として送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
 | 掲載情報の元 | `docs/assets/store/`（`listingData.csv` と画像）。CSV にある項目のうち、許可リストの項目だけを上書きする。値が空の項目は、申請の値を変えない |
 | 既定の動作 | **dry-run**（読み取りだけ。何が変わるかを表示する）。`--apply` を付けたときだけ、書き込む |
 | 承認 | 資格情報を使う実行は、dry-run も含めて、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする（資格情報は Environment の secret で、承認の前は渡らない）。dry-run で差分を確かめてから、`apply` を別の実行として承認する |
@@ -291,7 +291,7 @@ GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`�
 | `replace_screenshots` | スクリーンショットを `docs/assets/store/` の内容で入れ替える |
 | `publish_mode` | 申請が引き継いでいる公開方法（`Immediate`／`Manual`）。違えば止まる。既定は `Immediate`（2026-10-04 に、公開済みの申請が `Immediate` であることを確認した） |
 
-結果は、実行の Step Summary に出る（何が変わるか、申請の ID と状態）。パッケージ（`.msixupload`）の提出は、このワークフローの対象外とする（GitHub Release との連動で別に扱う）。同時に 2 つの実行が動かないよう、実行は直列にしてある。
+結果は、実行の Step Summary に出る（何が変わるか、申請の ID と状態）。パッケージ（`.msixupload`）の提出は、このワークフローの対象外とする（GitHub Release との連動で、掲載情報と一緒に出す。9.7）。同時に 2 つの実行が動かないよう、実行は直列にしてある。
 
 ### 9.3 運用の規則
 
@@ -434,7 +434,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 | `attach` | `.msixupload`、`SHA256SUMS.txt`、WACK の報告書を、draft の Release に添付する。Store に出すものと同じファイル。MSIX は開発用の自己署名で配布に使えないので、添付しない |
 | `verify` | Release から再取得して、`Package` の成果物と SHA-256 が一致することを確かめる |
 | `finalize` | draft の Release を公開する |
-| `store` | Environment `store-production` の**承認**の後に、同じ `.msixupload` を Store へ提出する（`--package`、`--publish-mode Immediate`）。認定の後に、自動で公開される |
+| `store` | Environment `store-production` の**承認**の後に、同じ `.msixupload` と、そのコミットの掲載情報（`docs/assets/store` の `listingData.csv`。画像は入れ替えない）を、1 つの申請として Store へ提出する（`--package`、`--listing`、`--publish-mode Immediate`）。認定の後に、自動で公開される |
 
 タグは `GITHUB_TOKEN` で作られ、`push: tags` の別のワークフローを起動しないので、`Package` は `package.yml` の `workflow_call` で呼ぶ。`package.yml` の `push: tags` の契機は外した（タグの上で手動で動かすときは、Run workflow でタグを選ぶ）。
 
@@ -444,6 +444,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 
 - 同じ実行の「Re-run failed jobs」で再実行する（新しいタグを切らない）。成功済みのジョブは再実行されず、その出力が引き継がれる。
 - `package`（WACK など）が失敗したら、draft の Release とタグが残る。ランナーの障害のような一時的な失敗なら、再実行すればよい（同じコミットの draft は再利用される）。コードやファイルの不具合なら、再実行しても同じコミットを使うので直らない。修正を main に入れ、**次の版**（例: `0.1.2`）で Prepare Release をやり直す。リリース PR のマージで、ファイルの版はすでに `0.1.1` になっているため、同じ版では Prepare Release が失敗する。前の draft の Release とタグ `v0.1.1` は、取り消せない操作なので、あなたが削除する。
+- **掲載情報は、リリースのコミットの `docs/assets/store` の内容で出る**。Prepare Release の前に、`listingData.csv` の `ReleaseNotes`（新機能の文）と `Description` が、この版の内容になっているかを確かめ、古ければ、先に PR で直してマージする（v0.2.0 は、`ReleaseNotes` が初回リリースの文面のまま残っていたため、`store` の前に取り消した）。
 - `store` が失敗したら、公開済みの Release は変更されない。原因（処理中の申請が残っている、公開方法が `Immediate` と違う、など。メッセージで分かる）を直し、同じ実行の `store` だけを再実行する。処理中の申請があるときは、内容を確かめて、あなたが「送信の削除」で消す（9.3）。
 - 「Re-run all jobs」は、公開済みの Release を検知して、添付・照合・公開・Store を skip する。Store の再提出には使えない。
 
