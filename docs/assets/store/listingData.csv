@@ -5,6 +5,8 @@ Description,2,テキスト,,"md-peruseは、Windows向けの読み取り専用Ma
 
 外部のエディターで文書や画像を更新すると、表示へ反映されます。ファイルをドラッグ＆ドロップして開くこともできます。ダーク・ライトのテーマ、文字サイズの変更、文書内検索で、読みやすい表示へ調整できます。
 
+ツリーや文書タブの右クリックから、ファイルのパスをコピーできます。「ヘルプ」→「使い方」には、図解と操作例つきの日英ガイドがあり、オフラインでも読めます。
+
 本文を編集する機能はありません。編集には、お使いのエディターをご利用ください。
 
 対応環境はWindowsのx64です。ARM64には対応していません。","md-peruse is a read-only Markdown viewer for Windows. It is built for rereading local Markdown documents such as design notes, READMEs, and research memos.
@@ -12,6 +14,8 @@ Description,2,テキスト,,"md-peruseは、Windows向けの読み取り専用Ma
 Open a folder and find documents from the tree on the left. Switch between documents with tabs, and follow relative links to related notes. Tables, task lists, syntax-highlighted code, Mermaid diagrams, and math are displayed as well.
 
 When you update a document or an image in an external editor, the view is refreshed. You can also open files by dragging and dropping them. Dark and light themes, adjustable text size, and in-document search help you tune the view for comfortable reading.
+
+Right-click the tree or a document tab to copy a file's path. Help > User Guide opens an illustrated guide with worked examples, in Japanese and English, that also works offline.
 
 There is no feature for editing the text. Use your own editor for editing.
 
