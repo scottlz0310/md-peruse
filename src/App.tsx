@@ -2,6 +2,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Breadcrumb } from "./breadcrumb/Breadcrumb";
+import { HelpDialog } from "./help/HelpDialog";
 import { LanguageProvider } from "./i18n/LanguageContext";
 import { DEFAULT_LANGUAGE, MESSAGES } from "./i18n/messages";
 import {
@@ -182,6 +183,9 @@ export default function App() {
   const recentFolders = changedRecents ?? ui?.recentFolders ?? [];
   const [startupError, setStartupError] = useState<string | null>(null);
   // 「md-peruse について」のダイアログ。ワークスペースを開いていなくても開ける。
+  const [helpOpen, setHelpOpen] = useState(false);
+  // Tauriイベントは初回に購読するため、コールバックから最新のモーダル状態を参照する。
+  const helpOpenRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
@@ -386,7 +390,14 @@ export default function App() {
     }
   }
 
+  function showHelp(open: boolean) {
+    helpOpenRef.current = open;
+    setHelpOpen(open);
+  }
+
   function handleCommand(command: MenuCommand) {
+    if (helpOpenRef.current && command !== "userGuide" && command !== "about")
+      return;
     const current = uiRef.current;
     switch (command) {
       case "closeTab":
@@ -407,7 +418,12 @@ export default function App() {
       case "resetFontSize":
         saveFontScale(DEFAULT_FONT_SCALE);
         return;
+      case "userGuide":
+        setAboutOpen(false);
+        showHelp(true);
+        return;
       case "about":
+        showHelp(false);
         setAboutOpen(true);
         return;
     }
@@ -1036,6 +1052,9 @@ export default function App() {
   }
   if (ui === null) return null;
 
+  const helpDialog = helpOpen && (
+    <HelpDialog language={language} onClose={() => showHelp(false)} />
+  );
   const aboutDialog = aboutOpen && (
     <AboutDialog load={loadLicenses} onClose={() => setAboutOpen(false)} />
   );
@@ -1052,6 +1071,7 @@ export default function App() {
           <RecentFolders folders={recentFolders} onOpen={openRecent} />
         </main>
         <DragOverlay state={dragState} />
+        {helpDialog}
         {aboutDialog}
       </LanguageProvider>
     );
@@ -1152,6 +1172,7 @@ export default function App() {
         )}
       </SidebarLayout>
       <DragOverlay state={dragState} />
+      {helpDialog}
       {aboutDialog}
     </LanguageProvider>
   );

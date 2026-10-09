@@ -3226,3 +3226,66 @@ describe("App: パスコピーの結果", () => {
     expect(screen.queryByRole("tab")).toBeNull();
   });
 });
+
+describe("App: ヘルプメニュー", () => {
+  test.each(["ja", "en"] as const)(
+    "%s: ワークスペースなしでも使い方を開ける",
+    async (language) => {
+      mockBackend({ scan: () => ROOT, ui: { effectiveLanguage: language } });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: "md-peruse" })).toBeTruthy(),
+      );
+      await act(async () => {
+        await emit("menu-command", "userGuide");
+      });
+      const dialog = await screen.findByRole("dialog", {
+        name: language === "ja" ? "md-peruse の使い方" : "How to use md-peruse",
+      });
+      expect(dialog.getAttribute("lang")).toBe(language);
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: language === "ja" ? "閉じる" : "Close",
+        }),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
+});
+
+test.each(["closeTab", "reloadDocument"] as const)(
+  "ヘルプ表示中の%sを抑止し、閉じた後は再開する",
+  async (command) => {
+    let reads = 0;
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => {
+        reads += 1;
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await screen.findByRole("heading", { name: "本文" });
+    expect(reads).toBe(1);
+    await act(async () => {
+      await emit("menu-command", "userGuide");
+      await emit("menu-command", command);
+    });
+    const dialog = await screen.findByRole("dialog", {
+      name: "md-peruse の使い方",
+    });
+    await act(async () => {
+      await emit("menu-command", command);
+    });
+    expect(screen.getAllByRole("tab", { hidden: true })).toHaveLength(1);
+    expect(reads).toBe(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    await act(async () => {
+      await emit("menu-command", command);
+    });
+    if (command === "reloadDocument")
+      await waitFor(() => expect(reads).toBe(2));
+    else await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
+  },
+);

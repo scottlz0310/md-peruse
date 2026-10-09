@@ -309,4 +309,4 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 ## 公開後の機能追加・改良・保守
 
 - [x] [#178](https://github.com/scottlz0310/md-peruse/issues/178): ツリー・タブのパスコピー。Rust側の対象検証、絶対／ワークスペース相対形式、loose tab、日英メニュー、キーボード操作と結果通知を追加。
-- [ ] [#179](https://github.com/scottlz0310/md-peruse/issues/179): 図解・操作例付きの日英ヘルプを同梱し、ヘルプメニューから開く。
+- [x] [#179](https://github.com/scottlz0310/md-peruse/issues/179): 図解・操作例付きの日英ヘルプを同梱し、ヘルプメニューから開く。
