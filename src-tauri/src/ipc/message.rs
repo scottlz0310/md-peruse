@@ -63,6 +63,9 @@ fn japanese(code: ErrorCode) -> &'static str {
             "設定を保存できません。変更は次回の起動に引き継がれません。"
         }
         ErrorCode::RecentFolderNotFound => "この項目は開けません。一覧を取得し直してください。",
+        ErrorCode::ClipboardWriteFailed => {
+            "クリップボードへ書き込めません。他のアプリの使用が終わってから再実行してください。"
+        }
     }
 }
 
@@ -96,6 +99,9 @@ fn english(code: ErrorCode) -> &'static str {
         ErrorCode::RecentFolderNotFound => {
             "Cannot open this entry. Refresh the list and try again."
         }
+        ErrorCode::ClipboardWriteFailed => {
+            "Cannot write to the clipboard. Try again after other apps finish using it."
+        }
     }
 }
 
@@ -107,7 +113,7 @@ mod tests {
     ///
     /// `message` の `match` は列挙の漏れをコンパイラが検出するが、この一覧そのものの
     /// 漏れは検出できない。`ErrorCode` を増やしたときはここへも足す。
-    const ALL_CODES: [ErrorCode; 20] = [
+    const ALL_CODES: [ErrorCode; 21] = [
         ErrorCode::WorkspaceAccessDenied,
         ErrorCode::WorkspaceNotFound,
         ErrorCode::PathOutsideWorkspace,
@@ -128,6 +134,7 @@ mod tests {
         ErrorCode::SettingsCorrupted,
         ErrorCode::SettingsSaveFailed,
         ErrorCode::RecentFolderNotFound,
+        ErrorCode::ClipboardWriteFailed,
     ];
 
     #[test]

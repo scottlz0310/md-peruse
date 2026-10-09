@@ -305,3 +305,8 @@ Microsoft Store版の初回リリースから送るカスタムイベントを�
 ## 未決事項の一覧
 
 未決事項の内容と解決フェーズの割り当ては [dev-flow.md](./docs/dev-flow.md) 第8章、判断の根拠は [design-decisions.md](./docs/design-decisions.md) 第15章を参照する。解決状況は各Phaseのチェックリストで追跡する。
+
+## 公開後の機能追加・改良・保守
+
+- [x] [#178](https://github.com/scottlz0310/md-peruse/issues/178): ツリー・タブのパスコピー。Rust側の対象検証、絶対／ワークスペース相対形式、loose tab、日英メニュー、キーボード操作と結果通知を追加。
+- [ ] [#179](https://github.com/scottlz0310/md-peruse/issues/179): 図解・操作例付きの日英ヘルプを同梱し、ヘルプメニューから開く。

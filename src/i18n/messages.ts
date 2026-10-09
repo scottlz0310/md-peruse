@@ -18,6 +18,13 @@ import type { Language } from "../types/generated/Language";
 export type Messages = {
   /** ワークスペースを開いていないときの案内。 */
   welcome: string;
+  pathCopy: {
+    menu: string;
+    absolute: string;
+    relative: string;
+    copied: string;
+    failed: string;
+  };
   breadcrumbLabel: string;
   explorerLabel: string;
   sidebarWidthLabel: string;
@@ -85,6 +92,13 @@ export type Messages = {
 export const DEFAULT_LANGUAGE: Language = "ja";
 
 const ja: Messages = {
+  pathCopy: {
+    menu: "パスをコピー",
+    absolute: "絶対パスをコピー",
+    relative: "ワークスペース相対パスをコピー",
+    copied: "パスをコピーしました。",
+    failed: "パスをコピーできませんでした。",
+  },
   welcome: "メニューの「ファイル」から「フォルダーを開く」を選んでください。",
   breadcrumbLabel: "パンくずリスト",
   explorerLabel: "エクスプローラー",
@@ -160,6 +174,13 @@ const ja: Messages = {
 
 /** 英語の書き方は、Rust側の英語の文言（`ipc/message.rs`、`menu.rs`）に揃える。 */
 const en: Messages = {
+  pathCopy: {
+    menu: "Copy path",
+    absolute: "Copy absolute path",
+    relative: "Copy workspace-relative path",
+    copied: "Path copied.",
+    failed: "Could not copy the path.",
+  },
   welcome: 'Choose "Open Folder..." from the "File" menu.',
   breadcrumbLabel: "Breadcrumbs",
   explorerLabel: "Explorer",

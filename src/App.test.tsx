@@ -22,6 +22,11 @@ import type { UiSettingsUpdate } from "./types/generated/UiSettingsUpdate";
 import type { WorkspaceOpenedEvent } from "./types/generated/WorkspaceOpenedEvent";
 
 type Handlers = {
+  copyPath?: (request: {
+    scopeId: string;
+    path: string;
+    format: string;
+  }) => void | Promise<void>;
   scan: (path: string) => ScanResult | Promise<ScanResult>;
   read?: (path: string, scopeId: string) => FileContent | Promise<FileContent>;
   /** loose tabのスコープを閉じる要求（`close_loose_scope_command`）。 */
@@ -67,6 +72,14 @@ const UI_SETTINGS: UiSettings = {
 function mockBackend(handlers: Handlers) {
   mockIPC(
     (command, payload) => {
+      if (command === "copy_path_command")
+        return handlers.copyPath?.(
+          (
+            payload as {
+              request: { scopeId: string; path: string; format: string };
+            }
+          ).request,
+        );
       if (command === "get_workspace_command")
         return Promise.resolve(handlers.currentWorkspace?.() ?? null);
       if (command === "frontend_ready_command")
@@ -3177,5 +3190,39 @@ describe("App: 文書の表示結果の通知（11.4）", () => {
       expect(screen.getByRole("alert").textContent).toBe(MISSING.message),
     );
     expect(reported).toEqual(["fail"]);
+  });
+});
+
+describe("App: パスコピーの結果", () => {
+  test.each([false, true])("失敗=%s の通知と対象を確認する", async (fail) => {
+    const copied: unknown[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      currentWorkspace: () => ({ scopeId: "scope-1", label: "docs" }),
+      copyPath: (request) => {
+        copied.push(request);
+        if (fail)
+          return Promise.reject({
+            code: "clipboardWriteFailed",
+            message: "クリップボードが使用中です。",
+            detail: null,
+          });
+      },
+    });
+    render(<App />);
+    const target = await screen.findByRole("treeitem", { name: "README.md" });
+    fireEvent.contextMenu(target);
+    fireEvent.click(screen.getByRole("menuitem", { name: "絶対パスをコピー" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          fail ? /パスをコピーできませんでした/ : "パスをコピーしました。",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(copied).toEqual([
+      { scopeId: "scope-1", path: "README.md", format: "absolute" },
+    ]);
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 });

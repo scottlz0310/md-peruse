@@ -6,6 +6,7 @@ import { LanguageProvider } from "./i18n/LanguageContext";
 import { DEFAULT_LANGUAGE, MESSAGES } from "./i18n/messages";
 import {
   closeLooseScope,
+  copyPath,
   getUiSettings,
   getWorkspace,
   issueImageResources,
@@ -195,6 +196,7 @@ export default function App() {
   const [imageRevision, setImageRevision] = useState(0);
   // IPCの失敗は `IpcError` の文言を、Frontendで判定した失敗（解決できないリンク）は
   // Frontendの文言をそのまま表示する。
+  const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Store向けカスタムイベントのために、文書の表示の結果を知らせたか（11.4）。Rust側が1セッションに
   // 1回だけにするが、文書を開き直すたびにIPCを呼ばないよう、ここでも1回にとどめる。
@@ -364,6 +366,25 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
+
+  async function handleCopyPath(
+    scopeId: string,
+    path: string,
+    format: import("./path-menu/PathMenu").PathFormat,
+  ) {
+    setCopyNotice(null);
+    setError(null);
+    try {
+      await copyPath(scopeId, path, format);
+      setCopyNotice(messages.pathCopy.copied);
+    } catch (reason: unknown) {
+      const detail =
+        typeof reason === "object" && reason !== null && "message" in reason
+          ? String(reason.message)
+          : String(reason);
+      setError(`${messages.pathCopy.failed} ${detail}`);
+    }
+  }
 
   function handleCommand(command: MenuCommand) {
     const current = uiRef.current;
@@ -1063,6 +1084,9 @@ export default function App() {
               <h1>{workspace.label}</h1>
               <TreeView
                 tree={tree}
+                onCopyPath={(path, format) =>
+                  handleCopyPath(workspace.scopeId, path, format)
+                }
                 // ツリーはワークスペースの文書だけを選択する。loose tabの文書は、同じ相対パスの
                 // ワークスペースの文書とは別物である（6.4）。
                 selectedPath={
@@ -1085,6 +1109,7 @@ export default function App() {
             <>
               <TabBar
                 set={tabs}
+                onCopyPath={handleCopyPath}
                 onActivate={activate}
                 onClose={close}
                 onPin={(tabId) => updateTabs(pinTab(tabsRef.current, tabId))}
@@ -1102,6 +1127,11 @@ export default function App() {
       >
         <style>{`.markdown-body { --font-scale: ${fontScale / 100}; }`}</style>
         {error && <p role="alert">{error}</p>}
+        {copyNotice && (
+          <p role="status" aria-live="polite">
+            {copyNotice}
+          </p>
+        )}
         {deletedNotice && <p role="status">{deletedNotice}</p>}
         {visible && (
           <>

@@ -46,8 +46,12 @@ function sampleTree(): FileTree {
 function mount(tree: FileTree, selectedPath: string | null = null) {
   const toggled: [string, boolean][] = [];
   const opened: [string, boolean][] = [];
+  const copied: [string, string][] = [];
   render(
     <TreeView
+      onCopyPath={async (path, format) => {
+        copied.push([path, format]);
+      }}
       tree={tree}
       selectedPath={selectedPath}
       onToggle={(path, expanded) => toggled.push([path, expanded])}
@@ -56,7 +60,7 @@ function mount(tree: FileTree, selectedPath: string | null = null) {
       onFocusRequestSettled={() => {}}
     />,
   );
-  return { toggled, opened };
+  return { toggled, opened, copied };
 }
 
 const item = (name: string) => screen.getByRole("treeitem", { name });
@@ -182,6 +186,7 @@ describe("TreeView", () => {
     const tree = sampleTree();
     const { rerender } = render(
       <TreeView
+        onCopyPath={async () => {}}
         tree={tree}
         selectedPath={null}
         onToggle={() => {}}
@@ -195,6 +200,7 @@ describe("TreeView", () => {
 
     rerender(
       <TreeView
+        onCopyPath={async () => {}}
         tree={setExpanded(tree, "docs", false)}
         selectedPath={null}
         onToggle={() => {}}
@@ -260,6 +266,7 @@ describe("フォーカスの要求（10.1.1）", () => {
       <>
         <button type="button">外</button>
         <TreeView
+          onCopyPath={async () => {}}
           tree={next}
           selectedPath={null}
           onToggle={() => {}}
@@ -352,4 +359,51 @@ describe("フォーカスの要求（10.1.1）", () => {
     expect(document.activeElement).toBe(itemOf("empty"));
     expect(settled).toEqual([first, second]);
   });
+});
+
+describe("TreeView: パスコピー", () => {
+  test.each(["README.md", "empty", "guide.md"])(
+    "右クリックした%sをコピーし、文書と展開状態を変えない",
+    (name) => {
+      const calls = mount(sampleTree(), "docs/guide.md");
+      const target = item(name);
+      fireEvent.contextMenu(target, { clientX: 20, clientY: 30 });
+      expect(calls.opened).toEqual([]);
+      expect(calls.toggled).toEqual([]);
+      fireEvent.click(
+        screen.getByRole("menuitem", { name: "絶対パスをコピー" }),
+      );
+      expect(calls.copied).toEqual([
+        [name === "guide.md" ? "docs/guide.md" : name, "absolute"],
+      ]);
+      expect(document.activeElement).toBe(target);
+    },
+  );
+  test.each([{ key: "ContextMenu" }, { key: "F10", shiftKey: true }])(
+    "キーボードで開き、相対形式を選択・Escで戻る %j",
+    (key) => {
+      const calls = mount(sampleTree());
+      const target = item("README.md");
+      fireEvent.keyDown(target, key);
+      expect(document.activeElement).toBe(
+        screen.getByRole("menuitem", { name: "絶対パスをコピー" }),
+      );
+      fireEvent.keyDown(document.activeElement as HTMLElement, {
+        key: "ArrowDown",
+      });
+      expect(document.activeElement).toBe(
+        screen.getByRole("menuitem", {
+          name: "ワークスペース相対パスをコピー",
+        }),
+      );
+      fireEvent.click(document.activeElement as HTMLElement);
+      expect(calls.copied).toEqual([["README.md", "relative"]]);
+      fireEvent.keyDown(target, key);
+      fireEvent.keyDown(document.activeElement as HTMLElement, {
+        key: "Escape",
+      });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(document.activeElement).toBe(target);
+    },
+  );
 });

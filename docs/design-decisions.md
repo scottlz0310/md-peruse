@@ -2375,3 +2375,13 @@ Phase 4の実装で解決した項目は次のとおり。未解決の項目は�
 - [Tauri Rust API: Builder](https://docs.rs/tauri/latest/tauri/struct.Builder.html)
 - [Microsoft Learn: Using winapp CLI with Tauri](https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/guides/tauri)
 - [Microsoft Learn: App capability declarations](https://learn.microsoft.com/windows/apps/package-and-deploy/app-capability-declarations)
+
+## パスコピーの境界と形式（#178）
+
+FrontendからはスコープID・スコープ相対パス・コピー形式だけを受ける専用 `copy_path_command` を設ける。スコープのロック内で既存の `WorkspaceRoot::resolve` による実在・パス形式・正規化後の境界検証とクリップボード書込みを行う。loose tabは監視対象の文書だけを許可し、ワークスペース相対形式を拒否する。絶対パスは応答・DOM・ログへ返さない。任意の絶対パスや汎用クリップボード書込みのAPIをFrontendへ付与しない。
+
+絶対形式に加え、リポジトリの文脈をAIへ渡すためワークスペース相対形式も採用する。絶対形式はWindowsのcanonicalizeが付けるverbatim接頭辞を通常のドライブ／UNC表記へ変換する。相対形式は既存の `/` 区切りを維持する。どちらも引用符・改行なしのプレーンテキストで、日本語と空白を保持する。
+
+Windows専用アプリの既存 `windows` crateから [CF_UNICODETEXT / SetClipboardData](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setclipboarddata) を利用する。依存プラグインやFrontendの権限を増やさず、OSへの所有権移譲と未移譲メモリの解放をRust側で扱う。対象の解決はブロッキングスレッドへ渡し、書込み先をテストで差し替えられる形にする。対象が無くなれば拒否し、クリップボード使用中は明示的な再操作を求める。
+
+ツリーとタブは共通メニューを使い、開いた時点の対象を保持する。キーボードとフォーカス復帰を共通化することで、選択中の文書との取り違えを防ぐ。

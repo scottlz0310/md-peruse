@@ -12,6 +12,7 @@ const RETRYABLE: Record<ErrorCode, boolean> = {
   directoryAccessDenied: true,
   fileAccessDenied: true,
   fileLocked: true,
+  clipboardWriteFailed: true,
   // 取りこぼしや監視停止は、再取得で回復しうる。
   watcherOverflow: true,
   watcherStopped: true,

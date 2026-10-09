@@ -1068,3 +1068,26 @@ mod tests {
         }
     }
 }
+
+/// パスをFrontendへ返さず、検証済みの対象だけをクリップボードへ書く。
+#[tauri::command]
+pub async fn copy_path_command(
+    window: tauri::WebviewWindow,
+    state: State<'_, AppState>,
+    request: crate::ipc::types::CopyPathRequest,
+) -> Result<(), IpcError> {
+    let language = state.language();
+    let workspace = state.workspace();
+    let owner = window
+        .hwnd()
+        .map_err(|_| ipc_error(ErrorCode::ClipboardWriteFailed, language, None))?
+        .0 as isize;
+    spawn_blocking(move || {
+        crate::path_copy::copy_path(&workspace, &request, |text| {
+            crate::path_copy::write_text(owner, text).map_err(|_| ErrorCode::ClipboardWriteFailed)
+        })
+    })
+    .await
+    .expect("パスコピータスクの実行に失敗")
+    .map_err(|code| ipc_error(code, language, None))
+}

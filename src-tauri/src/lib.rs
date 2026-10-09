@@ -12,6 +12,7 @@ pub mod menu_command;
 pub mod natural_order;
 pub mod open_document;
 pub mod open_folder;
+pub mod path_copy;
 pub mod path_guard;
 pub mod read;
 pub mod recent;
@@ -65,6 +66,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ipc::commands::close_loose_scope_command,
+            ipc::commands::copy_path_command,
             ipc::commands::frontend_ready_command,
             ipc::commands::get_ui_settings_command,
             ipc::commands::get_workspace_command,

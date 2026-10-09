@@ -295,3 +295,9 @@ Tauri CLIはMSIXを直接生成しないため、MSIX生成を独立したパッ
 - [Tauri v2: Asset protocol scope](https://v2.tauri.app/security/asset-protocol/)
 - [Microsoft Learn: Using winapp CLI with Tauri](https://learn.microsoft.com/windows/apps/dev-tools/winapp-cli/guides/tauri)
 - [Microsoft Learn: Get started with Microsoft Store](https://learn.microsoft.com/windows/apps/publish/get-started)
+
+## パスコピー
+
+ツリーのファイル・フォルダーと文書タブのコンテキストメニューに「絶対パスをコピー」を設ける。ワークスペース内の対象では「ワークスペース相対パスをコピー」も設ける。loose tabは絶対パスのみ。右クリック、Shift+F10、メニューキーで開き、矢印・Home・Endで項目を選び、Enterで実行する。Esc・Tabで閉じて元の対象へフォーカスを戻す。外側をクリック・フォーカス移動すると閉じる。メニューを開くだけでは文書・タブ選択・フォルダーの開閉を変えない。
+
+絶対パスはWindowsの通常のドライブ／UNC表記、相対パスはワークスペースを基準に `/` 区切りとし、引用符・エスケープ・改行を加えない。日本語と空白はそのまま保持する。成功は画面のライブ領域で通知し、失敗は理由とともに表示する。対象が削除・移動された場合はコピーを拒否し、クリップボードが使用中でも自動再試行しない。

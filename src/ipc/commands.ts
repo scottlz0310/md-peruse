@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { PathFormat } from "../path-menu/PathMenu";
 import type { FileContent } from "../types/generated/FileContent";
 import type { ImageResource } from "../types/generated/ImageResource";
 import type { OpenMdResult } from "../types/generated/OpenMdResult";
@@ -131,4 +132,14 @@ export function reportOpenResult(result: OpenMdResult): Promise<void> {
  */
 export function openRecentFolder(id: string): Promise<void> {
   return invoke<void>("open_recent_folder_command", { id });
+}
+
+export function copyPath(
+  scopeId: string,
+  path: string,
+  format: PathFormat,
+): Promise<void> {
+  return invoke<void>("copy_path_command", {
+    request: { scopeId, path, format },
+  });
 }
