@@ -438,7 +438,11 @@ describe("文書の切り替えでの部分木の作り直し（8.7）", () => {
     rerender("docs/b.md", "# 一つ目\n");
     // 描画が完了するまでの間も、前の部分木がそのまま残る。
     expect(screen.getByRole("heading")).toBe(before);
-    await waitFor(() => expect(screen.getByRole("heading")).not.toBe(before));
+    // 要素を `expect` に渡さず、真偽値で比べる。失敗した `expect` は、受けた値をエラーメッセージ用に整形し、
+    // ReactのDOM要素ではそれだけで約0.5秒かかる。`waitFor` の1回目は、描画の前なので必ず失敗する（#187）。
+    await waitFor(() =>
+      expect(screen.getByRole("heading") === before).toBe(false),
+    );
   });
 });
 

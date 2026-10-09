@@ -1358,8 +1358,9 @@ describe("App", () => {
 
       await selectCrumb(crumb);
 
+      // 要素は真偽値で比べる（要素を `expect` に渡すと、失敗のたびに整形で約0.5秒かかる。#187）。
       await waitFor(() =>
-        expect(document.activeElement).toBe(treeItemOf(focused)),
+        expect(document.activeElement === treeItemOf(focused)).toBe(true),
       );
       expect(scanned).toEqual(scans);
       expect(expandedItems()).toEqual(expanded);
@@ -1376,7 +1377,7 @@ describe("App", () => {
       await selectCrumb("guide");
 
       await waitFor(() =>
-        expect(document.activeElement).toBe(treeItemOf("guide")),
+        expect(document.activeElement === treeItemOf("guide")).toBe(true),
       );
       await waitFor(() =>
         expect(updates).toEqual([
@@ -1391,7 +1392,7 @@ describe("App", () => {
       await openDeepDocument({ scan: () => new Promise<ScanResult>(() => {}) });
       await selectCrumb("guide");
       await waitFor(() =>
-        expect(document.activeElement).toBe(treeItemOf("docs")),
+        expect(document.activeElement === treeItemOf("docs")).toBe(true),
       );
 
       await act(async () => {
