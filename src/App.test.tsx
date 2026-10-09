@@ -3226,3 +3226,29 @@ describe("App: パスコピーの結果", () => {
     expect(screen.queryByRole("tab")).toBeNull();
   });
 });
+
+describe("App: ヘルプメニュー", () => {
+  test.each(["ja", "en"] as const)(
+    "%s: ワークスペースなしでも使い方を開ける",
+    async (language) => {
+      mockBackend({ scan: () => ROOT, ui: { effectiveLanguage: language } });
+      render(<App />);
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { name: "md-peruse" })).toBeTruthy(),
+      );
+      await act(async () => {
+        await emit("menu-command", "userGuide");
+      });
+      const dialog = await screen.findByRole("dialog", {
+        name: language === "ja" ? "md-peruse の使い方" : "How to use md-peruse",
+      });
+      expect(dialog.getAttribute("lang")).toBe(language);
+      fireEvent.click(
+        within(dialog).getByRole("button", {
+          name: language === "ja" ? "閉じる" : "Close",
+        }),
+      );
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
+});

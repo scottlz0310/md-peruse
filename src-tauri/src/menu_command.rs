@@ -52,7 +52,8 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
         | MenuCommand::IncreaseFontSize
         | MenuCommand::DecreaseFontSize
         | MenuCommand::ResetFontSize
-        | MenuCommand::About => forward(app, command),
+        | MenuCommand::About
+        | MenuCommand::UserGuide => forward(app, command),
         // サブメニューそのものは選ばれない。その項目は `handle_menu_event` が別に扱う。
         MenuCommand::OpenRecentFolder => {}
     }
@@ -87,6 +88,7 @@ mod tests {
             (MenuCommand::DecreaseFontSize, "\"decreaseFontSize\""),
             (MenuCommand::ResetFontSize, "\"resetFontSize\""),
             (MenuCommand::About, "\"about\""),
+            (MenuCommand::UserGuide, "\"userGuide\""),
         ];
         for (command, expected) in cases {
             let app = tauri::test::mock_app();

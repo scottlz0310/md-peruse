@@ -63,6 +63,8 @@ pub enum MenuCommand {
     ResetFontSize,
     /// バージョンと依存ライセンス一覧を表示する（11.3）。
     About,
+    /// 同梱した日英の使い方を表示する。
+    UserGuide,
     /// アプリを終了する。
     Exit,
 }
@@ -126,7 +128,7 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 17] = [
+pub const IMPLEMENTED: [MenuCommand; 18] = [
     MenuCommand::OpenFolder,
     MenuCommand::OpenRecentFolder,
     MenuCommand::CloseWorkspace,
@@ -144,6 +146,7 @@ pub const IMPLEMENTED: [MenuCommand; 17] = [
     MenuCommand::DecreaseFontSize,
     MenuCommand::ResetFontSize,
     MenuCommand::About,
+    MenuCommand::UserGuide,
 ];
 
 /// コマンドの表示名。
@@ -184,6 +187,8 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::DecreaseFontSize, Language::En) => "&Decrease Font Size",
         (MenuCommand::ResetFontSize, Language::Ja) => "文字サイズを既定に戻す(&E)",
         (MenuCommand::ResetFontSize, Language::En) => "R&eset Font Size",
+        (MenuCommand::UserGuide, Language::Ja) => "使い方(&U)",
+        (MenuCommand::UserGuide, Language::En) => "&User Guide",
         (MenuCommand::About, Language::Ja) => "md-peruse について(&A)",
         (MenuCommand::About, Language::En) => "&About md-peruse",
     }
@@ -352,7 +357,7 @@ pub fn build<R: Runtime, M: Manager<R>>(
         manager,
         help_menu_label(language),
         true,
-        &[&item(MenuCommand::About)?],
+        &[&item(MenuCommand::UserGuide)?, &item(MenuCommand::About)?],
     )?;
     Menu::with_items(manager, &[&file, &view, &help])
 }
