@@ -160,6 +160,12 @@ async function openWorkspace(opened: WorkspaceOpenedEvent) {
   });
 }
 
+// html の lang は App の useEffect で設定する。文言は描画で変わるので、文言を待った直後は lang が
+// まだ旧言語の瞬間がある。lang は待って確かめる（待たずに確かめると、まれに落ちる。#187）。
+function expectHtmlLang(language: "ja" | "en") {
+  return waitFor(() => expect(document.documentElement.lang).toBe(language));
+}
+
 const ROOT: ScanResult = {
   path: "",
   entries: [
@@ -202,7 +208,7 @@ describe("App", () => {
       render(<App />);
 
       await waitFor(() => expect(screen.getByText(welcome)).toBeTruthy());
-      expect(document.documentElement.lang).toBe(language);
+      await expectHtmlLang(language);
     },
   );
 
@@ -1484,7 +1490,7 @@ describe("App: UI言語の切り替え（10.5）", () => {
     await waitFor(() =>
       expect(screen.getByText(/フォルダーを開く/)).toBeTruthy(),
     );
-    expect(document.documentElement.lang).toBe("ja");
+    await expectHtmlLang("ja");
 
     await changeLanguage("en", "en");
 
@@ -1519,7 +1525,7 @@ describe("App: UI言語の切り替え（10.5）", () => {
 
     await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
     expect(screen.queryByText(/フォルダーを開く/)).toBeNull();
-    expect(document.documentElement.lang).toBe("en");
+    await expectHtmlLang("en");
   });
 
   test("設定を読み始める時点で、言語の切り替えの購読は済んでいる", async () => {
@@ -1533,7 +1539,7 @@ describe("App: UI言語の切り替え（10.5）", () => {
     render(<App />);
 
     await waitFor(() => expect(screen.getByText(/Open Folder/)).toBeTruthy());
-    expect(document.documentElement.lang).toBe("en");
+    await expectHtmlLang("en");
   });
 
   test("eventを受けなければ、文言は変わらない", async () => {
