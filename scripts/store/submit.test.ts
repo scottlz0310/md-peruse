@@ -414,6 +414,26 @@ describe("apply", () => {
     ]);
   });
 
+  test("パッケージと掲載情報を同時に指定すると、1 つの申請で両方を更新する（リリースの流れ）", async () => {
+    const s = setup();
+    await run(
+      { ...listing, packagePath: "pkg/new.msixupload", apply: true },
+      s.deps,
+    );
+    expect(s.calls.filter((c) => c === "createSubmission")).toHaveLength(1);
+    expect(s.calls.filter((c) => c === "commit")).toHaveLength(1);
+    expect(s.calls).toContain("uploadZip");
+    expect(s.put).toHaveLength(1);
+    expect(s.put[0]?.listings["ja-jp"]?.baseListing.description).toBe(
+      "新しい説明",
+    );
+    const packages = s.put[0]?.applicationPackages ?? [];
+    expect(packages.map((p) => [p.fileName, p.fileStatus])).toEqual([
+      ["old.msixupload", "PendingDelete"],
+      ["new.msixupload", "PendingUpload"],
+    ]);
+  });
+
   test("変更が無ければ、申請（下書き）を作らない", async () => {
     const same = published();
     (
