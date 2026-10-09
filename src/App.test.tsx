@@ -3252,3 +3252,40 @@ describe("App: ヘルプメニュー", () => {
     },
   );
 });
+
+test.each(["closeTab", "reloadDocument"] as const)(
+  "ヘルプ表示中の%sを抑止し、閉じた後は再開する",
+  async (command) => {
+    let reads = 0;
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => {
+        reads += 1;
+        return fileContent(path, "## 本文\n");
+      },
+    });
+    render(<App />);
+    await openReadme();
+    await screen.findByRole("heading", { name: "本文" });
+    expect(reads).toBe(1);
+    await act(async () => {
+      await emit("menu-command", "userGuide");
+      await emit("menu-command", command);
+    });
+    const dialog = await screen.findByRole("dialog", {
+      name: "md-peruse の使い方",
+    });
+    await act(async () => {
+      await emit("menu-command", command);
+    });
+    expect(screen.getAllByRole("tab", { hidden: true })).toHaveLength(1);
+    expect(reads).toBe(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "閉じる" }));
+    await act(async () => {
+      await emit("menu-command", command);
+    });
+    if (command === "reloadDocument")
+      await waitFor(() => expect(reads).toBe(2));
+    else await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
+  },
+);

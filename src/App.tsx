@@ -184,6 +184,8 @@ export default function App() {
   const [startupError, setStartupError] = useState<string | null>(null);
   // 「md-peruse について」のダイアログ。ワークスペースを開いていなくても開ける。
   const [helpOpen, setHelpOpen] = useState(false);
+  // Tauriイベントは初回に購読するため、コールバックから最新のモーダル状態を参照する。
+  const helpOpenRef = useRef(false);
   const [aboutOpen, setAboutOpen] = useState(false);
   const [workspace, setWorkspace] = useState<WorkspaceOpenedEvent | null>(null);
   const [tree, setTree] = useState<FileTree>(() => createFileTree(0));
@@ -388,8 +390,14 @@ export default function App() {
     }
   }
 
+  function showHelp(open: boolean) {
+    helpOpenRef.current = open;
+    setHelpOpen(open);
+  }
+
   function handleCommand(command: MenuCommand) {
-    if (helpOpen && command !== "userGuide" && command !== "about") return;
+    if (helpOpenRef.current && command !== "userGuide" && command !== "about")
+      return;
     const current = uiRef.current;
     switch (command) {
       case "closeTab":
@@ -412,10 +420,10 @@ export default function App() {
         return;
       case "userGuide":
         setAboutOpen(false);
-        setHelpOpen(true);
+        showHelp(true);
         return;
       case "about":
-        setHelpOpen(false);
+        showHelp(false);
         setAboutOpen(true);
         return;
     }
@@ -1045,7 +1053,7 @@ export default function App() {
   if (ui === null) return null;
 
   const helpDialog = helpOpen && (
-    <HelpDialog language={language} onClose={() => setHelpOpen(false)} />
+    <HelpDialog language={language} onClose={() => showHelp(false)} />
   );
   const aboutDialog = aboutOpen && (
     <AboutDialog load={loadLicenses} onClose={() => setAboutOpen(false)} />
