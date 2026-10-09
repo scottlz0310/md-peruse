@@ -1,6 +1,7 @@
 import {
   type KeyboardEvent,
   type MouseEvent,
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -21,6 +22,7 @@ type Target = {
 
 export function usePathMenu() {
   const [target, setTarget] = useState<Target | null>(null);
+  const close = useCallback(() => setTarget(null), []);
   function open(
     event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>,
     relative: boolean,
@@ -42,10 +44,7 @@ export function usePathMenu() {
     open,
     menu:
       target &&
-      createPortal(
-        <PathMenu target={target} onClose={() => setTarget(null)} />,
-        document.body,
-      ),
+      createPortal(<PathMenu target={target} onClose={close} />, document.body),
   };
 }
 

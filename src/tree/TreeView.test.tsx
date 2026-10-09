@@ -407,3 +407,32 @@ describe("TreeView: パスコピー", () => {
     },
   );
 });
+
+test("パスコピーメニューは親の再描画後も相対形式のフォーカスを保つ", () => {
+  const copied: [string, string][] = [];
+  const props = {
+    tree: sampleTree(),
+    selectedPath: "docs/guide.md",
+    onToggle: () => {},
+    onOpen: () => {},
+    focusRequest: null,
+    onFocusRequestSettled: () => {},
+    onCopyPath: async (path: string, format: "absolute" | "relative") => {
+      copied.push([path, format]);
+    },
+  };
+  const view = render(<TreeView {...props} />);
+  fireEvent.keyDown(item("README.md"), { key: "F10", shiftKey: true });
+  fireEvent.keyDown(
+    screen.getByRole("menuitem", { name: "絶対パスをコピー" }),
+    { key: "ArrowDown" },
+  );
+  const relative = screen.getByRole("menuitem", {
+    name: "ワークスペース相対パスをコピー",
+  });
+  expect(document.activeElement).toBe(relative);
+  view.rerender(<TreeView {...props} />);
+  expect(document.activeElement).toBe(relative);
+  fireEvent.click(relative);
+  expect(copied).toEqual([["README.md", "relative"]]);
+});
