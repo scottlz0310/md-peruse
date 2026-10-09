@@ -409,7 +409,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 
 #### 準備の手順（Prepare Release）
 
-0. **掲載データを確かめる（必須）**。`docs/assets/store/listingData.csv` の `ReleaseNotes`（「新機能」の文。日本語・英語）が、この版の `CHANGELOG.md` の `[Unreleased]` と同じ内容になっているか、`Description` が今の機能と合っているかを確かめる。古ければ、先に PR で直してマージする。CHANGELOG と同じく、リリースに入れる変更を含む PR ごとに更新しておくのが原則で、この確認は、その取りこぼしを見つけるための最後の関門になる。
+0. **掲載データを確かめる（必須）**。`docs/assets/store/listingData.csv` の `ReleaseNotes`（「新機能」の文。日本語・英語）が、この版の `CHANGELOG.md` の `[Unreleased]` と同じ内容になっているか、`Description` が今の機能と合っているかを確かめる。古ければ、先に PR で直してマージする。CHANGELOG と同じく、リリースに入れる変更を含む PR ごとに更新しておくのが原則で、この確認は、その取りこぼしを見つけるための最後の関門になる。`ReleaseNotes` が前回のリリース（直近のタグ）から変わっていない、または空のときは、Prepare Release が PR を作らずに止まる（`scripts/check-release-listing.ts`。変わったことだけを検査する。内容の正しさは、あなたが確かめる）。
 1. GitHub の Actions で **Prepare Release** を開き、「Run workflow」を押す（ブランチは `main`）。`target_version` に、リリースする版を **`MAJOR.MINOR.PATCH`** で入れる（例: `0.1.1`。先頭に `v` は付けない）。プレリリース版は受け付けない（MSIX の Package Version が 4 つの整数で、プレリリースを持てないため）。
 2. Bot 名義で、`chore(release): v0.1.1` という PR が出る。次を確かめる。
    - 4 つのファイル（上記）の差分が、版の 1 行ずつであること。
