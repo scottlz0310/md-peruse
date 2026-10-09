@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-09
+
 ### Added
 - プライバシーポリシーを GitHub Pages で公開する仕組みを加えた。`scripts/build-pages.ts`（`bun run build:pages`）が `docs/privacy-policy.md` から HTML を生成し、`.github/workflows/pages.yml` が `main` の更新で公開する。提示先は `https://scottlz0310.github.io/md-peruse/privacy-policy.html`。本文の正本は Markdown の1か所のまま。初回は、Settings > Pages で Source を「GitHub Actions」にする必要がある。HTML の生成のために、`rehype-stringify` を devDependencies へ加えた
 - Store提出物を `.msixupload` にして、PDB（シンボル）を同梱するようにした（`scripts/pack-msixupload.ps1`、[#144](https://github.com/scottlz0310/md-peruse/issues/144)）。WACKを通した `.msix` には手を加えず、外側をZIPで包む。内側のMSIXのSHA-256が元のファイルと一致することを、スクリプトが検査する。`Package` ワークフローは、WACKの後に `.msixupload` を作り、内側と外側のSHA-256を記録して、artifactへ保存する
@@ -426,4 +428,5 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/commits/main
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/scottlz0310/md-peruse/releases/tag/v0.1.0
