@@ -86,6 +86,8 @@ describe("summarizeUsageCsv", () => {
 
 interface Scenario {
   existingQuery?: boolean;
+  /** 問い合わせの検索の応答を、実 API に合わせて差し替える（既定は 200 と一覧）。 */
+  queryLookup?: { status: number; body: unknown };
   /** 実行の一覧の応答を、呼び出しの順に返す。足りなければ最後の値を繰り返す。 */
   executions: Array<{ status: number; body?: unknown }>;
   queryResponse?: unknown;
@@ -117,6 +119,9 @@ function setup(scenario: Scenario) {
       });
     }
     if (input.startsWith(`${BASE}/ScheduledQueries?`)) {
+      if (scenario.queryLookup) {
+        return json(scenario.queryLookup.body, scenario.queryLookup.status);
+      }
       return json({
         value: scenario.existingQuery
           ? [{ queryId: "q-existing", name: USAGE_QUERY_NAME }]
@@ -229,6 +234,36 @@ describe("runUsageOnce", () => {
     await runUsageOnce(deps);
     expect(calls).not.toContain(`POST ${BASE}/ScheduledQueries`);
     expect(logs).toContain("問い合わせ: 既存を再利用（q-existing）");
+  });
+
+  test.each([
+    {
+      name: "実 API は該当なしを 404 で返す（本文つき）。404 は『無い』として作成へ進む",
+      queryLookup: {
+        status: 404,
+        body: {
+          value: [],
+          totalCount: 0,
+          message: "No item found with given filters",
+          statusCode: 404,
+        },
+      },
+      created: true,
+    },
+    {
+      name: "404 以外の検索の失敗は、作成へ進まず伝える",
+      queryLookup: { status: 403, body: {} },
+      created: false,
+    },
+  ])("問い合わせの検索: $name", async ({ queryLookup, created }) => {
+    const { deps, calls } = setup({ queryLookup, executions: [completed] });
+    const result = await runUsageOnce(deps).catch((e) => e);
+    expect(calls.includes(`POST ${BASE}/ScheduledQueries`)).toBe(created);
+    if (created) {
+      expect((result as { rows: number }).rows).toBe(3);
+    } else {
+      expect((result as Error).message).toContain("HTTP 403");
+    }
   });
 
   test("予約（繰り返し）は作らず、executeNow だけを送る", async () => {
