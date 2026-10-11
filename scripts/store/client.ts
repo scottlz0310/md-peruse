@@ -286,6 +286,35 @@ export class StoreClient {
   async get<T>(path: string): Promise<T | undefined> {
     return this.request<T>("GET", path);
   }
+
+  /** `baseUrl` からの相対パスへ、JSON を POST する。 */
+  async post<T>(path: string, body: unknown): Promise<T | undefined> {
+    return this.request<T>("POST", path, body);
+  }
+
+  /**
+   * 署名つき URL（SAS）から、テキストを取得する。URL は署名を含むので、メッセージにも記録にも出さない。
+   */
+  async downloadText(url: string): Promise<string> {
+    const startedAt = this.now();
+    const response = await this.fetchFn(url);
+    const correlation = correlationOf(response.headers);
+    this.record(
+      "GET レポートのダウンロード（署名つき URL は記録しない）",
+      response.status,
+      startedAt,
+      correlation,
+    );
+    if (!response.ok) {
+      const text = this.scrub((await response.text()).slice(0, 1000));
+      throw new StoreApiError(
+        `レポートのダウンロードに失敗しました（HTTP ${response.status}、${correlation || "相関 ID なし"}）${text}`,
+        response.status,
+        { responseBody: text, correlation },
+      );
+    }
+    return response.text();
+  }
 }
 
 /** 状態の 1 回の読み取り。取り込みの経過（タイムライン）として、証跡に残す。 */
