@@ -1,11 +1,14 @@
 import { describe, expect, test } from "bun:test";
+import { join } from "node:path";
 import { type FetchLike, StoreClient } from "./client";
 import { createEvidence } from "./evidence";
 import {
   buildUsageDailyQuery,
   runUsageOnce,
+  runUsageStatus,
   summarizeUsageCsv,
   USAGE_QUERY_NAME,
+  usageStatusMarkdown,
   usageSummaryMarkdown,
 } from "./insights-report";
 
@@ -371,5 +374,159 @@ describe("runUsageOnce", () => {
     expect((error as Error).message).toContain("レポートのダウンロードに失敗");
     expect((error as Error).message).not.toContain("SIGNATURE-VALUE");
     expect((error as Error).message).not.toContain(SECRET);
+  });
+});
+
+/** 実行の一覧の応答を、状態の指定（指定なしは ""）ごとに返す。足りない指定は 404。 */
+function setupStatus(
+  responses: Record<string, { status: number; body?: unknown }>,
+) {
+  const calls: string[] = [];
+  const fetchFn: FetchLike = async (input, init) => {
+    calls.push(`${init?.method ?? "GET"} ${input}`);
+    if (input === TOKEN_URL) {
+      return new Response(JSON.stringify({ access_token: "tok-1" }));
+    }
+    if (input === SAS) return new Response(CSV);
+    if (input.startsWith(`${BASE}/ScheduledReport/execution/rep-1`)) {
+      const key = new URL(input).searchParams.get("executionStatus") ?? "";
+      const entry = responses[key] ?? { status: 404, body: {} };
+      return new Response(JSON.stringify(entry.body ?? {}), {
+        status: entry.status,
+      });
+    }
+    throw new Error(`想定外の呼び出し: ${input}`);
+  };
+  const client = new StoreClient({
+    fetch: fetchFn,
+    tenantId: "tenant-1",
+    clientId: "client-1",
+    clientSecret: SECRET,
+    appId: "9P35BW61FN4W",
+    baseUrl: BASE,
+    tokenUrl: TOKEN_URL,
+  });
+  const written: Record<string, string> = {};
+  const logs: string[] = [];
+  const files: Record<string, string> = {};
+  const evidence = createEvidence({
+    dir: "ev",
+    fs: {
+      mkdir: () => {},
+      write: (path, text) => {
+        written[path] = text;
+      },
+      append: (path, text) => {
+        written[path] = (written[path] ?? "") + text;
+      },
+    },
+    now: () => new Date("2026-10-12T00:00:00Z"),
+    secrets: [SECRET],
+  });
+  const deps = {
+    client,
+    reportId: "rep-1",
+    evidence,
+    saveFile: (name: string, text: string) => {
+      files[name] = text;
+    },
+    log: (message: string) => logs.push(message),
+  };
+  return { deps, calls, written, logs, files };
+}
+
+const STATUS_EVIDENCE = join("ev", "execution-status.json");
+
+const pendingExecution = {
+  status: 200,
+  body: {
+    value: [
+      {
+        executionId: "e1",
+        executionStatus: "Pending",
+        reportLocation: null,
+        reportAccessSecureLink: SAS,
+      },
+    ],
+  },
+};
+
+describe("runUsageStatus", () => {
+  test("完了した実行があれば、CSV を取得して集計する（署名つき URL は証跡に残さない）", async () => {
+    const { deps, written, files } = setupStatus({
+      "": completed,
+      Completed: completed,
+    });
+    const result = await runUsageStatus(deps);
+
+    expect(result.csv?.rows).toBe(3);
+    expect(files["usage-daily.csv"]).toBe(CSV);
+    expect(result.probes.map((p) => p.status)).toEqual([
+      undefined,
+      "Pending",
+      "Started",
+      "Completed",
+      "Failed",
+    ]);
+    const everything = Object.values(written).join("\n");
+    expect(everything).toContain("[省略]");
+    expect(everything).not.toContain("SIGNATURE-VALUE");
+    expect(everything).not.toContain(SECRET);
+  });
+
+  test("完了した実行が無ければ、CSV を取らずに、状態ごとの応答を残して正常に終わる", async () => {
+    const { deps, calls, logs, written } = setupStatus({
+      "": { status: 200, body: { value: [] } },
+      Pending: pendingExecution,
+    });
+    const result = await runUsageStatus(deps);
+
+    expect(result.csv).toBeUndefined();
+    expect(calls).not.toContain(`GET ${SAS}`);
+    expect(logs).toContain("完了した実行はありません（reportId=rep-1）");
+    expect(logs).toContain("状態 Pending: HTTP 200、実行 1 件（Pending）");
+    const probes = JSON.parse(written[STATUS_EVIDENCE] ?? "[]");
+    expect(probes).toHaveLength(5);
+    expect(probes[1].executions).toEqual([{ executionStatus: "Pending" }]);
+    expect(written[STATUS_EVIDENCE]).not.toContain("SIGNATURE-VALUE");
+  });
+
+  test.each([
+    {
+      name: "状態の指定なしの 404 は『実行なし』として記録して続ける",
+      responses: { Pending: pendingExecution, "": { status: 404, body: {} } },
+      httpStatuses: [404, 200, 404, 404, 404],
+    },
+    {
+      name: "状態ごとの失敗（400）は、記録して続ける",
+      responses: {
+        "": { status: 200, body: { value: [] } },
+        Started: { status: 400, body: { message: "bad status" } },
+      },
+      httpStatuses: [200, 404, 400, 404, 404],
+    },
+  ] as Array<{
+    name: string;
+    responses: Record<string, { status: number; body?: unknown }>;
+    httpStatuses: number[];
+  }>)("$name", async ({ responses, httpStatuses }) => {
+    const { deps } = setupStatus(responses);
+    const result = await runUsageStatus(deps);
+    expect(result.probes.map((p) => p.httpStatus)).toEqual(httpStatuses);
+    expect(result.csv).toBeUndefined();
+  });
+
+  test("状態の指定なしの取得が 404 以外で失敗したら、続けずに伝える", async () => {
+    const { deps, calls } = setupStatus({ "": { status: 403, body: {} } });
+    const error = await runUsageStatus(deps).catch((e) => e);
+    expect((error as Error).message).toContain("HTTP 403");
+    expect(calls.filter((c) => c.includes("/execution/"))).toHaveLength(1);
+  });
+
+  test("状態の表を、Markdown に出す", async () => {
+    const { deps } = setupStatus({ Pending: pendingExecution });
+    const markdown = usageStatusMarkdown(await runUsageStatus(deps));
+    expect(markdown).toContain("| Pending | 200 | 1 | Pending |");
+    expect(markdown).toContain("完了した実行はない。");
   });
 });
