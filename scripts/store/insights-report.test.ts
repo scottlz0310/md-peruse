@@ -266,6 +266,26 @@ describe("runUsageOnce", () => {
     }
   });
 
+  test("問い合わせ・レポートの名前と説明は、英数字と空白だけにする（API が英数字と空白以外を 400 で拒否する）", async () => {
+    const bodies: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const { deps } = setup({ executions: [completed] });
+    const original = deps.client.post.bind(deps.client);
+    deps.client.post = async (path: string, body: unknown) => {
+      bodies.push({ path, body: body as Record<string, unknown> });
+      return original(path, body);
+    };
+    await runUsageOnce(deps);
+    const fields = bodies.flatMap(({ body }) =>
+      [body.name, body.reportName, body.description].filter(
+        (value) => value !== undefined,
+      ),
+    );
+    expect(fields).toHaveLength(4);
+    for (const value of fields) {
+      expect(value).toMatch(/^[A-Za-z0-9 ]+$/);
+    }
+  });
+
   test("予約（繰り返し）は作らず、executeNow だけを送る", async () => {
     const bodies: unknown[] = [];
     const { deps } = setup({ executions: [completed] });

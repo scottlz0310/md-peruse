@@ -11,7 +11,9 @@ import type { Evidence } from "./evidence";
 import type { InsightsDataset } from "./insights";
 
 /** 問い合わせの名前。列や条件を変えたら、版の数字を上げる（同じ名前は再利用するため）。 */
-export const USAGE_QUERY_NAME = "md-peruse usage-daily v1";
+// 問い合わせ名は「英数字と空白のみ」（HTTP 400 の本文で確認。run 38182126939）。
+// レポート名・説明は資料に制約の記載が無いため、同じ文字種に揃える。
+export const USAGE_QUERY_NAME = "md peruse usage daily v1";
 
 interface ListResponse<T> {
   value?: T[];
@@ -157,7 +159,7 @@ async function findOrCreateQuery(
     "ScheduledQueries",
     {
       name: USAGE_QUERY_NAME,
-      description: "md-peruse UsageDaily（直近 3 か月・日次）",
+      description: "md peruse UsageDaily last 3 months daily",
       query,
     },
   );
@@ -228,12 +230,13 @@ export async function runUsageOnce(
     `問い合わせ: ${reused ? "既存を再利用" : "新規に作成"}（${queryId}）`,
   );
 
-  const stamp = deps.now().toISOString().slice(0, 10);
+  const stamp = deps.now().toISOString().slice(0, 10).replaceAll("-", "");
   const created = await deps.client.post<ListResponse<ReportItem>>(
     "ScheduledReport",
     {
-      reportName: `md-peruse usage-daily once ${stamp}`,
-      description: "md-peruse UsageDaily の 1 回きりの取得（権限と列の確認）",
+      reportName: `md peruse usage daily once ${stamp}`,
+      description:
+        "md peruse UsageDaily one time fetch to check access and columns",
       queryId,
       executeNow: true,
     },
