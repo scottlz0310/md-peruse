@@ -377,7 +377,19 @@ describe("runUsageOnce", () => {
   });
 });
 
-/** 実行の一覧の応答を、状態の指定（指定なしは ""）ごとに返す。足りない指定は 404。 */
+/** Get report executions API の `executionStatus` の有効な値（公式の資料）。 */
+const VALID_EXECUTION_STATUSES = [
+  "Pending",
+  "Running",
+  "Paused",
+  "Failed",
+  "Completed",
+];
+
+/**
+ * 実行の一覧の応答を、状態の指定（指定なしは ""）ごとに返す。足りない指定は 404。
+ * 資料にない状態の名前は、実 API と同じく 400 にする。
+ */
 function setupStatus(
   responses: Record<string, { status: number; body?: unknown }>,
 ) {
@@ -390,7 +402,10 @@ function setupStatus(
     if (input === SAS) return new Response(CSV);
     if (input.startsWith(`${BASE}/ScheduledReport/execution/rep-1`)) {
       const key = new URL(input).searchParams.get("executionStatus") ?? "";
-      const entry = responses[key] ?? { status: 404, body: {} };
+      const invalid = key !== "" && !VALID_EXECUTION_STATUSES.includes(key);
+      const entry = invalid
+        ? { status: 400, body: { message: `invalid executionStatus ${key}` } }
+        : (responses[key] ?? { status: 404, body: {} });
       return new Response(JSON.stringify(entry.body ?? {}), {
         status: entry.status,
       });
@@ -451,6 +466,20 @@ const pendingExecution = {
   },
 };
 
+const runningExecution = {
+  status: 200,
+  body: {
+    value: [
+      {
+        executionId: "e2",
+        executionStatus: "Running",
+        reportLocation: null,
+        reportAccessSecureLink: null,
+      },
+    ],
+  },
+};
+
 describe("runUsageStatus", () => {
   test("完了した実行があれば、CSV を取得して集計する（署名つき URL は証跡に残さない）", async () => {
     const { deps, written, files } = setupStatus({
@@ -464,9 +493,10 @@ describe("runUsageStatus", () => {
     expect(result.probes.map((p) => p.status)).toEqual([
       undefined,
       "Pending",
-      "Started",
-      "Completed",
+      "Running",
+      "Paused",
       "Failed",
+      "Completed",
     ]);
     const everything = Object.values(written).join("\n");
     expect(everything).toContain("[省略]");
@@ -486,7 +516,7 @@ describe("runUsageStatus", () => {
     expect(logs).toContain("完了した実行はありません（reportId=rep-1）");
     expect(logs).toContain("状態 Pending: HTTP 200、実行 1 件（Pending）");
     const probes = JSON.parse(written[STATUS_EVIDENCE] ?? "[]");
-    expect(probes).toHaveLength(5);
+    expect(probes).toHaveLength(6);
     expect(probes[1].executions).toEqual([{ executionStatus: "Pending" }]);
     expect(written[STATUS_EVIDENCE]).not.toContain("SIGNATURE-VALUE");
   });
@@ -495,15 +525,15 @@ describe("runUsageStatus", () => {
     {
       name: "状態の指定なしの 404 は『実行なし』として記録して続ける",
       responses: { Pending: pendingExecution, "": { status: 404, body: {} } },
-      httpStatuses: [404, 200, 404, 404, 404],
+      httpStatuses: [404, 200, 404, 404, 404, 404],
     },
     {
-      name: "状態ごとの失敗（400）は、記録して続ける",
+      name: "状態ごとの 404 は『その状態の実行なし』として記録して続ける",
       responses: {
         "": { status: 200, body: { value: [] } },
-        Started: { status: 400, body: { message: "bad status" } },
+        Running: runningExecution,
       },
-      httpStatuses: [200, 404, 400, 404, 404],
+      httpStatuses: [200, 404, 200, 404, 404, 404],
     },
   ] as Array<{
     name: string;
@@ -514,6 +544,32 @@ describe("runUsageStatus", () => {
     const result = await runUsageStatus(deps);
     expect(result.probes.map((p) => p.httpStatus)).toEqual(httpStatuses);
     expect(result.csv).toBeUndefined();
+  });
+
+  test("実行中（Running）の実行を、証跡と状態表に残す（資料にない Started は取得しない）", async () => {
+    const { deps, calls, written } = setupStatus({ Running: runningExecution });
+    const result = await runUsageStatus(deps);
+
+    expect(result.csv).toBeUndefined();
+    const probes = JSON.parse(written[STATUS_EVIDENCE] ?? "[]");
+    const running = probes.find(
+      (p: { status?: string }) => p.status === "Running",
+    );
+    expect(running.executions).toEqual([{ executionStatus: "Running" }]);
+    expect(usageStatusMarkdown(result)).toContain(
+      "| Running | 200 | 1 | Running |",
+    );
+    expect(calls.some((c) => c.includes("executionStatus=Started"))).toBe(
+      false,
+    );
+  });
+
+  test("状態ごとの取得が 404 以外で失敗したら、握りつぶさずに伝える", async () => {
+    const { deps } = setupStatus({
+      Pending: { status: 400, body: { message: "bad request" } },
+    });
+    const error = await runUsageStatus(deps).catch((e) => e);
+    expect((error as Error).message).toContain("HTTP 400");
   });
 
   test("状態の指定なしの取得が 404 以外で失敗したら、続けずに伝える", async () => {

@@ -287,9 +287,16 @@ async function downloadUsageCsv(
   return summary;
 }
 
-// 実行の状態の名前は、資料で確認できていない。名前が違えば API が 400 を返しうるので、
-// 状態ごとの失敗は記録して続ける（状態を指定しない取得の失敗は、続ける意味が無いので伝える）。
-const EXECUTION_STATUSES = ["Pending", "Started", "Completed", "Failed"];
+// `executionStatus` の有効な値（Get report executions API の資料。
+// https://learn.microsoft.com/en-us/partner-center/insights/apps-games-programmatic-access-paradigm）。
+// 指定しないと `Completed` の最新 1 件だけが返り、完了前は 404 になる。実行中（`Running`）などは、状態を指定しないと見えない。
+const EXECUTION_STATUSES = [
+  "Pending",
+  "Running",
+  "Paused",
+  "Failed",
+  "Completed",
+];
 
 export interface ExecutionProbe {
   /** 状態の指定（指定なしは undefined）。 */
@@ -336,9 +343,8 @@ async function probeExecutions(
     };
   } catch (error) {
     if (!(error instanceof StoreApiError)) throw error;
-    // 最初の実行が終わるまで、実行の一覧は 404 を返す（資料の注記）。
-    const tolerated = error.httpStatus === 404 || status !== undefined;
-    if (!tolerated) throw error;
+    // その状態の実行が無いとき、実行の一覧は 404 を返す（資料の注記）。404 以外（状態名の誤りの 400 を含む）は、握りつぶさず伝える。
+    if (error.httpStatus !== 404) throw error;
     return {
       probe: {
         status,
