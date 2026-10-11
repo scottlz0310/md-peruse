@@ -139,9 +139,17 @@ async function findOrCreateQuery(
   deps: UsageOnceDeps,
   query: string,
 ): Promise<{ queryId: string; reused: boolean }> {
-  const found = await deps.client.get<ListResponse<QueryItem>>(
-    `ScheduledQueries?queryName=${encodeURIComponent(USAGE_QUERY_NAME)}&includeSystemQueries=false`,
-  );
+  // 条件に合う問い合わせが無いとき、この API は空の一覧ではなく 404 を返す（run 38135221072 で確認）。
+  const found = await deps.client
+    .get<ListResponse<QueryItem>>(
+      `ScheduledQueries?queryName=${encodeURIComponent(USAGE_QUERY_NAME)}&includeSystemQueries=false`,
+    )
+    .catch((error) => {
+      if (error instanceof StoreApiError && error.httpStatus === 404) {
+        return undefined;
+      }
+      throw error;
+    });
   const existing = found?.value?.find((item) => item.name === USAGE_QUERY_NAME);
   if (existing) return { queryId: existing.queryId, reused: true };
 
