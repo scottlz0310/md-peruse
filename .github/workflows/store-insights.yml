@@ -1,0 +1,49 @@
+name: Store Insights
+
+# Partner Center の Insights API（アプリとゲームの分析データ）で、取得できるデータセットと列を調べる。
+# 読み取りだけで、レポートの作成・予約・ダウンロードはしない。手動起動だけで動かし、Environment
+# `store-production` の承認（Required reviewers）を通ってから資格情報を使う。目的は、継続収集の設計の
+# 前提（SDK のカスタムイベントを返すデータセットがあるか、版別・日別の標準 Sessions が取れるか）を、
+# 実走で確かめること。
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-insights
+  cancel-in-progress: false
+
+jobs:
+  datasets:
+    name: Insights API のデータセットを調べる
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: store-production
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # 資格情報を渡すジョブなので、依存関係をインストールしない（scripts/store は Bun の標準ライブラリだけで動く）。
+      - name: データセットを取得
+        env:
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: bun run scripts/store/insights.ts --evidence-dir "$RUNNER_TEMP/insights-evidence"
+
+      # 失敗しても保存する。資格情報を渡すステップとは分ける。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: insights-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/insights-evidence
+          if-no-files-found: warn
+          retention-days: 90
