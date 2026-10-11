@@ -281,6 +281,11 @@ export class StoreClient {
       `${this.appPath}/submissions/${submissionId}/status`,
     )) as SubmissionStatus;
   }
+
+  /** `baseUrl` からの相対パスを GET する。Insights API など、申請以外の読み取りに使う。 */
+  async get<T>(path: string): Promise<T | undefined> {
+    return this.request<T>("GET", path);
+  }
 }
 
 /** 状態の 1 回の読み取り。取り込みの経過（タイムライン）として、証跡に残す。 */
