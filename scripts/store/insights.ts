@@ -7,10 +7,14 @@
 // （https://learn.microsoft.com/en-us/partner-center/insights/apps-games-make-your-first-api-call）。
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { StoreClient } from "./client";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
+import { runUsageOnce, usageSummaryMarkdown } from "./insights-report";
 import { redactText } from "./redact";
+
+export const MODES: readonly string[] = ["datasets", "usage-once"];
 
 export const INSIGHTS_BASE_URL =
   "https://manage.devcenter.microsoft.com/consumer/insights/v1.1";
@@ -119,6 +123,7 @@ function requiredEnv(env: NodeJS.ProcessEnv, names: string[]): string[] {
 if (import.meta.main) {
   let evidence: Evidence | undefined;
   let evidenceDir: string | undefined;
+  let mode = "datasets";
   const summary = process.env.GITHUB_STEP_SUMMARY;
   const secrets = [
     process.env.AZURE_AD_APPLICATION_SECRET,
@@ -128,8 +133,17 @@ if (import.meta.main) {
 
   try {
     const { values } = parseArgs({
-      options: { "evidence-dir": { type: "string" } },
+      options: {
+        "evidence-dir": { type: "string" },
+        mode: { type: "string", default: "datasets" },
+      },
     });
+    mode = values.mode as string;
+    if (!MODES.includes(mode)) {
+      throw new Error(
+        `--mode は ${MODES.join(" か ")} を指定してください: ${mode}`,
+      );
+    }
     evidenceDir = values["evidence-dir"];
     if (evidenceDir) {
       evidence = createEvidence({
@@ -156,20 +170,34 @@ if (import.meta.main) {
       "AZURE_AD_APPLICATION_SECRET",
     ]) as [string, string, string, string];
 
-    const summaries = await run({
-      evidence,
-      client: new StoreClient({
-        fetch: (input, init) => fetch(input, init),
-        appId,
-        tenantId,
-        clientId,
-        clientSecret,
-        baseUrl: INSIGHTS_BASE_URL,
-        trace: (line) => log(`[trace] ${line}`),
-      }),
-      log,
+    const client = new StoreClient({
+      fetch: (input, init) => fetch(input, init),
+      appId,
+      tenantId,
+      clientId,
+      clientSecret,
+      baseUrl: INSIGHTS_BASE_URL,
+      trace: (line) => log(`[trace] ${line}`),
     });
-    if (summary) appendFileSync(summary, summaryMarkdown(summaries));
+
+    if (mode === "usage-once") {
+      const usage = await runUsageOnce({
+        client,
+        productId: appId,
+        evidence,
+        saveFile: evidenceDir
+          ? (name, text) =>
+              writeFileSync(join(evidenceDir as string, name), text)
+          : undefined,
+        log,
+        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+        now: () => new Date(),
+      });
+      if (summary) appendFileSync(summary, usageSummaryMarkdown(usage));
+    } else {
+      const summaries = await run({ evidence, client, log });
+      if (summary) appendFileSync(summary, summaryMarkdown(summaries));
+    }
   } catch (error) {
     reportFailure(
       error,
@@ -181,7 +209,7 @@ if (import.meta.main) {
         evidence,
       },
       {
-        mode: "insights-datasets",
+        mode: `insights-${mode}`,
         runId: process.env.GITHUB_RUN_ID,
         evidenceDir,
         secrets,
