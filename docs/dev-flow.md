@@ -290,18 +290,18 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 - 更新版向けにMicrosoft Store Submission API連携を構築する。利用するAPIのバージョンと認証方式、MSIXパッケージフローへの対応状況を着手時点で確認する。
 - Store Submission APIの実行前に手動承認ゲートを設ける。
 - API連携が利用できない場合に備え、手動提出の手順書を維持する。
-- Store向けカスタムイベントに合わせてデータ収集申告とプライバシーポリシーを更新し、初回公開版でPartner Centerからイベントとバージョン別集計を確認する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
-- 使用状況とカスタムイベントの計測母集団が診断データのオプトイン端末に限られることを実データで確認し、率は読めてもインストール数へ接続できない制約を計測定義へ明記する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- Store向けカスタムイベントに合わせてデータ収集申告とプライバシーポリシーを更新し、初回公開版でPartner Centerからイベントとバージョン別集計を確認する。同じ期間・版・フィルターでの観測、未表示と0件の区別、反映遅延とその実測の制限を [store-telemetry-verification.md](./store-telemetry-verification.md) に記録し、計測定義へ反映する（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- 標準Usage指標とSDKのカスタムイベントそれぞれについて診断データ設定と計測母集団の関係を確認する。実データだけで判定できなければMicrosoftの資料または回答で裏付け、根拠とインストール数へ接続できない制約を計測定義へ明記する。オプトイン端末に限ることや、両者の母集団が同じことを未確認のまま断定しない（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ### 完了条件
 
 - [ ] x64版のMSIXが生成される。
 - [ ] 対象MSIXについてWACKが完了している。
 - [ ] Store提出物とCIで検証した成果物が一致している。
-- [ ] プライバシーポリシーとデータ収集申告が提出内容と整合している。
+- [x] プライバシーポリシーとデータ収集申告が提出内容と整合している（初回提出の申告とポリシー公開の証跡は [store-telemetry-verification.md](./store-telemetry-verification.md) 1章）。
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる。
 - [ ] 初回公開版でPartner Centerからカスタムイベントを確認できている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
-- [ ] 計測母集団が診断データのオプトイン端末に限られる制約が、反映遅延と並べて計測定義へ記載されている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- [ ] 標準Usage指標とSDKカスタムイベントの計測母集団について診断データ設定との関係を裏付ける根拠と制約が、反映遅延・バージョン別集計の実測と並べて計測定義へ記載されている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ## 8. 未決事項と解決フェーズの対応
 
