@@ -10,15 +10,21 @@ name: Store Insights
 #   usage-once : UsageDaily（直近 3 か月・日次）の問い合わせを作り（同じ名前は再利用）、レポートを 1 回だけ
 #                実行して CSV を取得する。予約（繰り返し）は作らない。Partner Center の「My reports」に、
 #                問い合わせとレポートが 1 件ずつ残る。CSV は、証跡（artifact）にだけ置く
+#   usage-status: 作成済みのレポート（`report_id`）の実行の状態だけを見直す。新しいレポートは作らない。
+#                状態の指定なしと、状態ごとの一覧の応答を証跡に残し、完了していれば CSV も取得する
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "datasets: データセットと列を調べる（読み取りだけ） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る）"
+        description: "datasets: データセットと列を調べる（読み取りだけ） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る） / usage-status: 作成済みのレポートの実行の状態を見直す（読み取りだけ。report_id が必要）"
         type: choice
-        options: [datasets, usage-once]
+        options: [datasets, usage-once, usage-status]
         default: datasets
+      report_id:
+        description: "usage-status で見直すレポートの reportId（usage-once のログと証跡 report.json に出る）"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -44,11 +50,12 @@ jobs:
       - name: データセットを取得
         env:
           MODE: ${{ inputs.mode }}
+          REPORT_ID: ${{ inputs.report_id }}
           STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
           AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
           AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
           AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
-        run: bun run scripts/store/insights.ts --mode "$MODE" --evidence-dir "$RUNNER_TEMP/insights-evidence"
+        run: bun run scripts/store/insights.ts --mode "$MODE" --report-id "$REPORT_ID" --evidence-dir "$RUNNER_TEMP/insights-evidence"
 
       # 失敗しても保存する。資格情報を渡すステップとは分ける。
       - name: 証跡を保存

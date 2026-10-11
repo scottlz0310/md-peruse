@@ -11,10 +11,19 @@ import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { StoreClient } from "./client";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
-import { runUsageOnce, usageSummaryMarkdown } from "./insights-report";
+import {
+  runUsageOnce,
+  runUsageStatus,
+  usageStatusMarkdown,
+  usageSummaryMarkdown,
+} from "./insights-report";
 import { redactText } from "./redact";
 
-export const MODES: readonly string[] = ["datasets", "usage-once"];
+export const MODES: readonly string[] = [
+  "datasets",
+  "usage-once",
+  "usage-status",
+];
 
 export const INSIGHTS_BASE_URL =
   "https://manage.devcenter.microsoft.com/consumer/insights/v1.1";
@@ -136,6 +145,7 @@ if (import.meta.main) {
       options: {
         "evidence-dir": { type: "string" },
         mode: { type: "string", default: "datasets" },
+        "report-id": { type: "string" },
       },
     });
     mode = values.mode as string;
@@ -180,15 +190,30 @@ if (import.meta.main) {
       trace: (line) => log(`[trace] ${line}`),
     });
 
-    if (mode === "usage-once") {
+    const saveFile = evidenceDir
+      ? (name: string, text: string) =>
+          writeFileSync(join(evidenceDir as string, name), text)
+      : undefined;
+
+    if (mode === "usage-status") {
+      const reportId = values["report-id"];
+      if (!reportId) {
+        throw new Error("--mode usage-status には --report-id が必要です");
+      }
+      const result = await runUsageStatus({
+        client,
+        reportId,
+        evidence,
+        saveFile,
+        log,
+      });
+      if (summary) appendFileSync(summary, usageStatusMarkdown(result));
+    } else if (mode === "usage-once") {
       const usage = await runUsageOnce({
         client,
         productId: appId,
         evidence,
-        saveFile: evidenceDir
-          ? (name, text) =>
-              writeFileSync(join(evidenceDir as string, name), text)
-          : undefined,
+        saveFile,
         log,
         sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
         now: () => new Date(),

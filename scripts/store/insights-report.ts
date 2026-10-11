@@ -201,16 +201,28 @@ async function waitForExecution(
       `ScheduledReport/execution/${reportId}?executionStatus=Pending`,
     )
     .catch(() => undefined);
-  deps.evidence?.json("execution-pending", sanitizeExecutions(pending?.value));
+  deps.evidence?.json("execution-pending", redactLinks(pending?.value ?? []));
   throw new Error(
     `レポートが完了しませんでした（${maxPolls} 回、約 ${Math.round((maxPolls * interval) / 60000)} 分）。reportId=${reportId}`,
   );
 }
 
-function sanitizeExecutions(items: ExecutionItem[] | undefined) {
-  return (items ?? []).map(
-    ({ reportAccessSecureLink: _link, ...rest }) => rest,
-  );
+const LINK_KEY = /link|location|url/i;
+
+/** 署名つき URL を含みうる値（キー名に link / location / url を含む文字列）を、証跡に出さない。キーは残す。 */
+function redactLinks(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(redactLinks);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, inner]) => [
+        key,
+        LINK_KEY.test(key) && typeof inner === "string"
+          ? "[省略]"
+          : redactLinks(inner),
+      ]),
+    );
+  }
+  return value;
 }
 
 export async function runUsageOnce(
@@ -249,14 +261,23 @@ export async function runUsageOnce(
   deps.evidence?.json("report", { reportId, queryId });
 
   const execution = await waitForExecution(deps, reportId);
-  deps.evidence?.json("execution", sanitizeExecutions([execution])[0]);
+  deps.evidence?.json("execution", redactLinks(execution));
   if (!execution.reportAccessSecureLink) {
     throw new Error(
       `完了した実行にダウンロードのリンクがありません（reportId=${reportId}）`,
     );
   }
 
-  const csv = await deps.client.downloadText(execution.reportAccessSecureLink);
+  return downloadUsageCsv(deps, execution.reportAccessSecureLink);
+}
+
+async function downloadUsageCsv(
+  deps: Pick<UsageOnceDeps, "evidence" | "saveFile" | "log"> & {
+    client: Pick<StoreClient, "downloadText">;
+  },
+  link: string,
+): Promise<UsageCsvSummary> {
+  const csv = await deps.client.downloadText(link);
   deps.saveFile?.("usage-daily.csv", csv);
   const summary = summarizeUsageCsv(csv);
   deps.evidence?.json("usage-summary", summary);
@@ -264,4 +285,122 @@ export async function runUsageOnce(
     `CSV を取得しました（${summary.rows} 行、版: ${summary.byVersion.map((v) => v.packageVersion).join(", ") || "なし"}）`,
   );
   return summary;
+}
+
+// `executionStatus` の有効な値（Get report executions API の資料。
+// https://learn.microsoft.com/en-us/partner-center/insights/apps-games-programmatic-access-paradigm）。
+// 指定しないと `Completed` の最新 1 件だけが返り、完了前は 404 になる。実行中（`Running`）などは、状態を指定しないと見えない。
+const EXECUTION_STATUSES = [
+  "Pending",
+  "Running",
+  "Paused",
+  "Failed",
+  "Completed",
+];
+
+export interface ExecutionProbe {
+  /** 状態の指定（指定なしは undefined）。 */
+  status?: string;
+  httpStatus: number;
+  /** 応答の本文（署名つき URL は取り除いてある）。 */
+  body?: unknown;
+  executions: Array<{ executionStatus?: string }>;
+  error?: string;
+}
+
+export interface UsageStatusDeps {
+  client: Pick<StoreClient, "get" | "downloadText">;
+  reportId: string;
+  evidence?: Evidence;
+  saveFile?: (name: string, text: string) => void;
+  log: (message: string) => void;
+}
+
+export interface UsageStatusResult {
+  probes: ExecutionProbe[];
+  /** 完了した実行があり、CSV を取得できたときだけ。 */
+  csv?: UsageCsvSummary;
+}
+
+async function probeExecutions(
+  deps: UsageStatusDeps,
+  status: string | undefined,
+): Promise<{ probe: ExecutionProbe; items: ExecutionItem[] }> {
+  const path = `ScheduledReport/execution/${deps.reportId}${status ? `?executionStatus=${status}` : ""}`;
+  try {
+    const body = await deps.client.get<ListResponse<ExecutionItem>>(path);
+    const items = body?.value ?? [];
+    return {
+      probe: {
+        status,
+        httpStatus: 200,
+        body: redactLinks(body),
+        executions: items.map((item) => ({
+          executionStatus: item.executionStatus,
+        })),
+      },
+      items,
+    };
+  } catch (error) {
+    if (!(error instanceof StoreApiError)) throw error;
+    // その状態の実行が無いとき、実行の一覧は 404 を返す（資料の注記）。404 以外（状態名の誤りの 400 を含む）は、握りつぶさず伝える。
+    if (error.httpStatus !== 404) throw error;
+    return {
+      probe: {
+        status,
+        httpStatus: error.httpStatus,
+        executions: [],
+        error: error.responseBody ?? error.message,
+      },
+      items: [],
+    };
+  }
+}
+
+/** 既存のレポートの実行の状態だけを見直す。新しいレポートは作らない。完了していれば CSV も取得する。 */
+export async function runUsageStatus(
+  deps: UsageStatusDeps,
+): Promise<UsageStatusResult> {
+  const probes: ExecutionProbe[] = [];
+  const completed: ExecutionItem[] = [];
+  for (const status of [undefined, ...EXECUTION_STATUSES]) {
+    const { probe, items } = await probeExecutions(deps, status);
+    probes.push(probe);
+    deps.log(
+      `状態 ${status ?? "（指定なし）"}: HTTP ${probe.httpStatus}、実行 ${probe.executions.length} 件${probe.executions.length > 0 ? `（${probe.executions.map((e) => e.executionStatus ?? "不明").join(", ")}）` : ""}`,
+    );
+    completed.push(
+      ...items.filter(
+        (item) =>
+          item.executionStatus === "Completed" && item.reportAccessSecureLink,
+      ),
+    );
+  }
+  deps.evidence?.json("execution-status", probes);
+
+  const link = completed[0]?.reportAccessSecureLink;
+  if (!link) {
+    deps.log(`完了した実行はありません（reportId=${deps.reportId}）`);
+    return { probes };
+  }
+  return { probes, csv: await downloadUsageCsv(deps, link) };
+}
+
+export function usageStatusMarkdown(result: UsageStatusResult): string {
+  const rows = result.probes.map(
+    (p) =>
+      `| ${p.status ?? "（指定なし）"} | ${p.httpStatus} | ${p.executions.length} | ${p.executions.map((e) => e.executionStatus ?? "不明").join(", ")} |`,
+  );
+  return [
+    "## Insights API: レポートの実行の状態",
+    "",
+    "| 状態の指定 | HTTP | 実行の件数 | 実行の状態 |",
+    "| --- | --- | --- | --- |",
+    ...rows,
+    "",
+    result.csv
+      ? `完了した実行から CSV を取得した（${result.csv.rows} 行）。`
+      : "完了した実行はない。",
+    "",
+  ].join("\n");
 }
