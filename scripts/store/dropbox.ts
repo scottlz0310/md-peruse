@@ -44,6 +44,15 @@ export interface UploadResult {
   size: number;
 }
 
+/**
+ * 秘密の値の「形」だけを説明する（値そのものと、その一部は出さない）。長さと、混入しやすい文字の有無、
+ * アクセストークン（`sl.` で始まる）を取り違えていないかを示す。
+ */
+export function describeSecretShape(name: string, value: string): string {
+  const yesNo = (flag: boolean) => (flag ? "あり" : "なし");
+  return `${name}: 長さ ${value.length}、空白・改行 ${yesNo(/\s/.test(value))}、引用符 ${yesNo(/["'`]/.test(value))}、英数字と _ - 以外の文字 ${yesNo(/[^A-Za-z0-9_-]/.test(value))}、先頭が sl. ${yesNo(value.startsWith("sl."))}`;
+}
+
 /** トークンの取得より前に拒否する（許していない場所のために、資格情報を使わない）。 */
 function assertSafePath(path: string): void {
   const dotSegment = path.split("/").some((s) => s === "." || s === "..");
@@ -92,8 +101,14 @@ export class DropboxClient {
     );
     if (!response.ok) {
       const text = this.scrub((await response.text()).slice(0, 500));
+      // 値は出さず、形だけを添える。secret の登録の誤り（引用符・改行の混入、別のトークンの登録）を、値を見ずに
+      // 特定できるようにする。
       throw new DropboxApiError(
-        `Dropbox のアクセス トークンを取得できませんでした（HTTP ${response.status}）${text}`,
+        `Dropbox のアクセス トークンを取得できませんでした（HTTP ${response.status}）${text}。登録された値の形（値は出さない）: ${[
+          describeSecretShape("DROPBOX_APP_KEY", appKey),
+          describeSecretShape("DROPBOX_APP_SECRET", appSecret),
+          describeSecretShape("DROPBOX_REFRESH_TOKEN", refreshToken),
+        ].join(" / ")}`,
         response.status,
       );
     }
