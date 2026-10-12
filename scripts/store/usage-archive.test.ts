@@ -42,6 +42,8 @@ function setup(options: {
   executions?: { status: number; body?: unknown };
   downloadStatus?: number;
   csv?: string;
+  /** Dropbox にもともとあるファイル（パス → 内容）。 */
+  files?: Record<string, string>;
 }) {
   const calls: string[] = [];
   const fetchFn: FetchLike = async (input, init) => {
@@ -73,6 +75,7 @@ function setup(options: {
     readOnly: true,
   });
   const uploads: Array<{ path: string; text: string }> = [];
+  const dropboxFiles: Record<string, string> = { ...options.files };
   const written: Record<string, string> = {};
   const logs: string[] = [];
   const evidence = createEvidence({
@@ -94,14 +97,17 @@ function setup(options: {
     dropbox: {
       upload: async (path: string, text: string) => {
         uploads.push({ path, text });
+        dropboxFiles[path] = text;
         return { path, size: text.length };
       },
+      download: async (path: string) => dropboxFiles[path],
     },
     reportId: "rep-1",
     evidence,
     log: (message: string) => logs.push(message),
+    now: () => new Date("2026-10-12T09:00:00Z"),
   };
-  return { deps, calls, uploads, written, logs };
+  return { deps, calls, uploads, written, logs, dropboxFiles };
 }
 
 describe("inspectUsageCsv", () => {
@@ -173,12 +179,13 @@ describe("runUsageArchive", () => {
 
     const result = await runUsageArchive(deps);
 
-    expect(uploads).toEqual([
-      {
-        path: "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
-        text: CSV,
-      },
+    // 正本（生スナップショット）を先に書き、そのあとで写し（統合した CSV と概観）を書く。
+    expect(uploads.map((u) => u.path)).toEqual([
+      "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
+      "/usage-daily/merged.csv",
+      "/usage-daily/overview.md",
     ]);
+    expect(uploads[0]?.text).toBe(CSV);
     expect(result).toMatchObject({
       reportId: "rep-1",
       executionId: "e2",
@@ -187,6 +194,8 @@ describe("runUsageArchive", () => {
       rows: 3,
       firstDate: "2026-10-08",
       lastDate: "2026-10-10",
+      merged: { path: "/usage-daily/merged.csv", rows: 3, added: 3 },
+      overviewPath: "/usage-daily/overview.md",
     });
     // Partner Center へは、トークンの取得以外の POST をしない（読み取り専用）。
     expect(calls.filter((c) => c.startsWith("POST "))).toEqual([
@@ -351,5 +360,77 @@ describe("runUsageArchive", () => {
       throw new Error("Dropbox への書き込みに失敗しました（HTTP 401）");
     };
     await expect(runUsageArchive(deps)).rejects.toThrow("HTTP 401");
+  });
+
+  describe("統合した CSV と概観", () => {
+    const executions = completed(execution("e1", "2026-10-11T23:42:19Z"));
+    // 統合済みの CSV（前回までの分。2026-10-07 の行は、今回の CSV に無い）。
+    const MERGED = [
+      CSV_HEADER,
+      "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-07,1111",
+      "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-08,7777",
+      "",
+    ].join("\r\n");
+
+    test("既存の統合 CSV へ、後勝ちで取り込み、概観を作り直す（件数だけを記録に出す）", async () => {
+      const { deps, uploads, dropboxFiles, logs, written } = setup({
+        executions,
+        files: { "/usage-daily/merged.csv": MERGED },
+      });
+
+      const result = await runUsageArchive(deps);
+
+      // 2026-10-08 は今回の値（8123）で置き換え、2026-10-07 は残す。
+      expect(result.merged).toEqual({
+        path: "/usage-daily/merged.csv",
+        rows: 4,
+        added: 2,
+        updated: 1,
+        unchanged: 0,
+      });
+      const merged = dropboxFiles["/usage-daily/merged.csv"] ?? "";
+      expect(merged).toContain("2026-10-07,1111");
+      expect(merged).toContain("2026-10-08,8123");
+      expect(merged).not.toContain("7777");
+      // 概観は Dropbox にだけある。値は、公開の記録（ログ・証跡）に出ない。
+      expect(dropboxFiles["/usage-daily/overview.md"]).toContain(
+        "# 日別の利用統計の概観",
+      );
+      expect(uploads.map((u) => u.path)).toHaveLength(3);
+      const everything = [...logs, ...Object.values(written)].join("\n");
+      expect(everything).toContain("追加 2、更新 1、変更なし 0");
+      for (const value of ["1111", "7777", "8123", "3456"]) {
+        expect(everything).not.toContain(value);
+      }
+    });
+
+    test("統合した CSV を読めなければ（ファイルが無い以外）、正本は保存したまま、例外にする", async () => {
+      const { deps, uploads } = setup({ executions });
+      deps.dropbox.download = async () => {
+        throw new Error("Dropbox からの読み取りに失敗しました（HTTP 401）");
+      };
+      await expect(runUsageArchive(deps)).rejects.toThrow("HTTP 401");
+      expect(uploads.map((u) => u.path)).toEqual([
+        "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
+      ]);
+    });
+
+    test("統合済みの CSV が壊れていたら、上書きせず、値を含めずに例外にする", async () => {
+      const { deps, uploads } = setup({
+        executions,
+        files: {
+          "/usage-daily/merged.csv":
+            "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-07,5555\r\n",
+        },
+      });
+      const error = await runUsageArchive(deps).catch((e) => e);
+      expect((error as Error).message).toContain(
+        "日別の利用統計の CSV に列がありません",
+      );
+      expect((error as Error).message).not.toContain("5555");
+      expect(uploads.map((u) => u.path)).toEqual([
+        "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
+      ]);
+    });
   });
 });

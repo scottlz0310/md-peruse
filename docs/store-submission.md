@@ -382,7 +382,12 @@ Insights API の繰り返しレポートの最新の `Completed` の実行から
 1. **Dropbox アプリ `md-peruse-insights`**: Scoped App の **App folder** 型で、アプリ専用のフォルダー（Dropbox 上は `アプリ/md-peruse-insights`）の外へは、書けない。スコープは `files.content.write` と `files.content.read` だけ。
 2. **コード（`scripts/store/dropbox.ts`）**: 書き込み先を、アプリのフォルダー内の `/usage-daily/` の下の、英数字と `.` `_` `-` `/` だけのパスに限る。範囲外は、トークンを取る前に拒否する。API は、トークンの取得と `files/upload` だけを呼ぶ。
 
-**保存の形**: `/usage-daily/snapshots/usage-daily_<実行の生成時刻>.csv`（例 `usage-daily_20261011T234219Z.csv`）に、CSV の原本をそのまま書く。同じ実行は、同じ名前を上書きするだけ（冪等）。各スナップショットは、直近 30 日分を含み、重なる。統合は、分析のときに行う（生スナップショットが正本）。
+**保存の形**: `/usage-daily/snapshots/usage-daily_<実行の生成時刻>.csv`（例 `usage-daily_20261011T234219Z.csv`）に、CSV の原本をそのまま書く。同じ実行は、同じ名前を上書きするだけ（冪等）。各スナップショットは、直近 30 日分を含み、重なる。生スナップショットが正本。
+
+**統合と概観（写し）**: スナップショットの保存のあとで、次の 2 つを書き直す。どちらも、スナップショットからいつでも作り直せる写しで、公開の記録（ログ・Step Summary・artifact）には、件数だけを出す。フォルダーの一覧（`files.metadata.read`）は使わず、固定のパスだけを読み書きする。
+
+1. `/usage-daily/merged.csv`: 統合した CSV。キーは Date × PackageVersion × Market × DeviceType × SubscriptionName で、同じキーは新しいスナップショットで置き換え（後勝ち）、新しい側に無い過去の行は残す。毎回、これをダウンロードして取り込み、書き戻す（まだ無ければ新規）。壊れていれば、値を含めない例外にして、上書きしない（正本は、すでに保存してある）。
+2. `/usage-daily/overview.md`: 人が見る概観。要約、日別の表（直近 30 日）、Mermaid のグラフ（セッション数と DAU）、版別の表、行が無い日。値は全体の集計行（SubscriptionName・DeviceType・Market がすべて `All`）から出す。md-peruse で開いて確かめる。「行が無い日」は、利用が無かった日と取得の欠けを区別できない（Insights は、利用が無い日の行を返さない）。
 
 **対象のレポート**: リポジトリの変数 `STORE_USAGE_REPORT_ID`（`usage-schedule` が作る繰り返しレポートの reportId）。未設定のときは、自動実行は動かない。手動起動では、`report_id` で指定する。完了した実行が無いとき、ジョブは失敗する（失敗の通知で気づく）。繰り返しレポートには、回数の上限がある（Daily 180 回、Weekly 52 回、Monthly 24 回）。使い切る前に、作り直して変数を更新する。
 
