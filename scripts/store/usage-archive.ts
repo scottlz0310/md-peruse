@@ -35,9 +35,9 @@ export function inspectUsageCsv(text: string): UsageCsvInfo {
   if (!header) throw new Error("レポートの CSV が空です");
   const missing = REQUIRED_COLUMNS.filter((name) => !header.includes(name));
   if (missing.length > 0) {
-    throw new Error(
-      `レポートの CSV に列がありません: ${missing.join(", ")}（列: ${header.join(", ")}）`,
-    );
+    // 見出しが欠落・破損していると、`header` は日別のデータ行になる。未検証の内容は、公開の記録へ出る
+    // 例外の文に入れない（足りない既知の列の名前だけを伝える）。
+    throw new Error(`レポートの CSV に列がありません: ${missing.join(", ")}`);
   }
   const iDate = header.indexOf("Date");
   const dates = table

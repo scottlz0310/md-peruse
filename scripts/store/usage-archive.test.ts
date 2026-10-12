@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { type FetchLike, StoreClient } from "./client";
-import { createEvidence } from "./evidence";
+import { createEvidence, reportFailure } from "./evidence";
 import {
   inspectUsageCsv,
   runUsageArchive,
@@ -130,7 +130,8 @@ describe("inspectUsageCsv", () => {
     {
       name: "必要な列が無ければ、足りない列と実際の列を示す",
       csv: "ProductId,Date\r\n9P35BW61FN4W,2026-10-08\r\n",
-      message: "PackageVersion, DailySessionCount（列: ProductId, Date）",
+      message:
+        "レポートの CSV に列がありません: PackageVersion, DailySessionCount",
     },
   ])("$name は、原因が分かる例外にする", ({ csv, message }) => {
     expect(() => inspectUsageCsv(csv)).toThrow(message);
@@ -286,6 +287,61 @@ describe("runUsageArchive", () => {
     );
     expect(uploads).toHaveLength(0);
   });
+
+  test.each([
+    {
+      name: "見出しが欠落している（先頭がデータ行）",
+      csv: [
+        "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-08,8123",
+        "9P35BW61FN4W,All,All,0.2.1.0,All,2026-10-10,3456",
+        "",
+      ].join("\r\n"),
+    },
+    {
+      name: "見出しが破損している（列名の代わりに値が並ぶ）",
+      csv: [
+        "8123,3456,7,0.1.1.0",
+        "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-08,8123",
+        "",
+      ].join("\r\n"),
+    },
+  ])(
+    "$name CSV の値は、失敗の報告の全ての出口（標準エラー・run.log・error.json・Step Summary）に残さない",
+    async ({ csv }) => {
+      const { deps, uploads, written } = setup({
+        executions: completed(execution("e1", "2026-10-11T23:42:19Z")),
+        csv,
+      });
+      const error = await runUsageArchive(deps).catch((e) => e);
+      const stderr: string[] = [];
+      const summary: string[] = [];
+      reportFailure(
+        error,
+        {
+          stderr: (text) => stderr.push(text),
+          appendSummary: (text) => summary.push(text),
+          evidence: deps.evidence,
+        },
+        { mode: "usage-archive", evidenceDir: "ev", secrets: [SECRET] },
+      );
+
+      expect(uploads).toHaveLength(0);
+      const everything = [
+        ...stderr,
+        ...summary,
+        ...Object.values(written),
+      ].join("\n");
+      // 足りない既知の列の名前だけを伝える。
+      expect(everything).toContain("レポートの CSV に列がありません: ");
+      for (const value of ["8123", "3456", "9P35BW61FN4W", "2026-10-08"]) {
+        expect(everything).not.toContain(value);
+      }
+      expect(Object.keys(written).sort()).toEqual([
+        join("ev", "error.json"),
+        join("ev", "run.log"),
+      ]);
+    },
+  );
 
   test("Dropbox への書き込みの失敗は、握りつぶさずに伝える", async () => {
     const { deps } = setup({
