@@ -12,14 +12,17 @@ name: Store Insights
 #                問い合わせとレポートが 1 件ずつ残る。CSV は、証跡（artifact）にだけ置く
 #   usage-status: 作成済みのレポート（`report_id`）の実行の状態だけを見直す。新しいレポートは作らない。
 #                状態の指定なしと、状態ごとの一覧の応答を証跡に残し、完了していれば CSV も取得する
+#   usage-schedule: UsageDaily（直近 30 日・日次）を、Partner Center に 24 時間ごと・3 回だけ繰り返し実行させる
+#                レポートを 1 件作る（繰り返しが成立するかの検証）。起動のたびに 1 件増えるので、続けて起動しない。
+#                実行の状態は usage-status で、reportId を指定して確かめる
 
 on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "datasets: データセットと列を調べる（読み取りだけ） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る） / usage-status: 作成済みのレポートの実行の状態を見直す（読み取りだけ。report_id が必要）"
+        description: "datasets: データセットと列を調べる（読み取りだけ） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る） / usage-status: 作成済みのレポートの実行の状態を見直す（読み取りだけ。report_id が必要） / usage-schedule: 繰り返し実行するレポートを 1 件作る（Partner Center に書き込む。起動のたびに 1 件増える）"
         type: choice
-        options: [datasets, usage-once, usage-status]
+        options: [datasets, usage-once, usage-status, usage-schedule]
         default: datasets
       report_id:
         description: "usage-status で見直すレポートの reportId（usage-once のログと証跡 report.json に出る）"

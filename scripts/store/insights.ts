@@ -13,7 +13,9 @@ import { StoreClient } from "./client";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import {
   runUsageOnce,
+  runUsageSchedule,
   runUsageStatus,
+  usageScheduleMarkdown,
   usageStatusMarkdown,
   usageSummaryMarkdown,
 } from "./insights-report";
@@ -23,6 +25,7 @@ export const MODES: readonly string[] = [
   "datasets",
   "usage-once",
   "usage-status",
+  "usage-schedule",
 ];
 
 export const INSIGHTS_BASE_URL =
@@ -195,7 +198,16 @@ if (import.meta.main) {
           writeFileSync(join(evidenceDir as string, name), text)
       : undefined;
 
-    if (mode === "usage-status") {
+    if (mode === "usage-schedule") {
+      const result = await runUsageSchedule({
+        client,
+        productId: appId,
+        evidence,
+        log,
+        now: () => new Date(),
+      });
+      if (summary) appendFileSync(summary, usageScheduleMarkdown(result));
+    } else if (mode === "usage-status") {
       const reportId = values["report-id"];
       if (!reportId) {
         throw new Error("--mode usage-status には --report-id が必要です");

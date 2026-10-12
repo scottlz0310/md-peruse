@@ -5,9 +5,11 @@ import { createEvidence } from "./evidence";
 import {
   buildUsageDailyQuery,
   runUsageOnce,
+  runUsageSchedule,
   runUsageStatus,
   summarizeUsageCsv,
   USAGE_QUERY_NAME,
+  usageScheduleMarkdown,
   usageStatusMarkdown,
   usageSummaryMarkdown,
 } from "./insights-report";
@@ -125,6 +127,8 @@ interface Scenario {
   queryResponse?: unknown;
   reportResponse?: unknown;
   downloadStatus?: number;
+  /** `UsageDaily` のデータセットの宣言を、一部差し替える（既定は、実際の宣言と同じ）。 */
+  usageDataset?: Record<string, unknown>;
 }
 
 function setup(scenario: Scenario) {
@@ -146,7 +150,14 @@ function setup(scenario: Scenario) {
       return json({
         value: [
           { datasetName: "Installs", selectableColumns: ["X"] },
-          { datasetName: "UsageDaily", selectableColumns: COLUMNS },
+          {
+            datasetName: "UsageDaily",
+            selectableColumns: COLUMNS,
+            // 実際の宣言（2026-10-11 の Get Datasets）。
+            availableDateRanges: ["LAST_30_DAYS", "LAST_3_MONTHS"],
+            minimumRecurrenceInterval: 1,
+            ...scenario.usageDataset,
+          },
         ],
       });
     }
@@ -508,6 +519,114 @@ const runningExecution = {
     ],
   },
 };
+
+describe("runUsageSchedule", () => {
+  /** POST の本文を、パスごとに集める。 */
+  function capturePosts(deps: ReturnType<typeof setup>["deps"]) {
+    const posts: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const original = deps.client.post.bind(deps.client);
+    deps.client.post = async (path: string, body: unknown) => {
+      posts.push({ path, body: body as Record<string, unknown> });
+      return original(path, body);
+    };
+    return posts;
+  }
+
+  test("直近 30 日の問い合わせを作り、24 時間ごと・3 回の繰り返しのレポートを 1 件作る（予約でなく executeNow を使わない）", async () => {
+    const { deps, logs } = setup({ executions: [] });
+    const posts = capturePosts(deps);
+
+    const result = await runUsageSchedule(deps);
+
+    expect(result).toEqual({
+      reportId: "rep-1",
+      queryId: "q-new",
+      // setup の now（2026-10-11T11:00:00Z）の 10 分後。ミリ秒を付けない。
+      startTime: "2026-10-11T11:10:00Z",
+      recurrenceInterval: 24,
+      recurrenceCount: 3,
+    });
+    const query = posts.find((p) => p.path === "ScheduledQueries");
+    expect(String(query?.body.query)).toContain(
+      "TIMESPAN LAST_30_DAYS AGGREGATED Daily",
+    );
+    const report = posts.find((p) => p.path === "ScheduledReport");
+    expect(report?.body).toMatchObject({
+      queryId: "q-new",
+      startTime: "2026-10-11T11:10:00Z",
+      recurrenceInterval: 24,
+      recurrenceCount: 3,
+      format: "csv",
+    });
+    expect(report?.body).not.toHaveProperty("executeNow");
+    expect(logs.join("\n")).toContain(
+      "繰り返しのレポートを作成しました（rep-1",
+    );
+  });
+
+  test("問い合わせ・レポートの名前と説明は、英数字と空白だけにする", async () => {
+    const { deps } = setup({ executions: [] });
+    const posts = capturePosts(deps);
+    await runUsageSchedule(deps);
+    const fields = posts.flatMap(({ body }) =>
+      [body.name, body.reportName, body.description].filter(
+        (value) => value !== undefined,
+      ),
+    );
+    expect(fields).toHaveLength(4);
+    for (const value of fields) {
+      expect(value).toMatch(/^[A-Za-z0-9 ]+$/);
+    }
+  });
+
+  test.each([
+    {
+      name: "データセットで LAST_30_DAYS を選べない",
+      scenario: { usageDataset: { availableDateRanges: ["LAST_3_MONTHS"] } },
+      message:
+        "UsageDaily で LAST_30_DAYS を選べません（選べる期間: LAST_3_MONTHS）",
+    },
+    {
+      name: "期間の宣言が無い",
+      scenario: { usageDataset: { availableDateRanges: undefined } },
+      message: "選べる期間: 宣言なし",
+    },
+    {
+      name: "最小の繰り返し間隔が、24 時間より長い",
+      scenario: { usageDataset: { minimumRecurrenceInterval: 48 } },
+      message: "最小の繰り返し間隔（48 時間）が、24 時間の間隔を満たしません",
+    },
+    {
+      name: "最小の繰り返し間隔の宣言が無い",
+      scenario: { usageDataset: { minimumRecurrenceInterval: undefined } },
+      message: "最小の繰り返し間隔（宣言なし 時間）",
+    },
+    {
+      name: "レポートの応答に reportId が無い",
+      scenario: { reportResponse: { value: [] } },
+      message: "ScheduledReport の応答に reportId がありません",
+    },
+  ] as Array<{ name: string; scenario: Partial<Scenario>; message: string }>)(
+    "$name は、レポートを作らずに（または原因が分かる例外で）止まる",
+    async ({ scenario, message }) => {
+      const { deps } = setup({ executions: [], ...scenario });
+      const posts = capturePosts(deps);
+      await expect(runUsageSchedule(deps)).rejects.toThrow(message);
+      // データセットの宣言を満たさないとき、書き込みは起きない。
+      if (message !== "ScheduledReport の応答に reportId がありません") {
+        expect(posts).toHaveLength(0);
+      }
+    },
+  );
+
+  test("Step Summary に、reportId と確認の手順を出す", async () => {
+    const { deps } = setup({ executions: [] });
+    const markdown = usageScheduleMarkdown(await runUsageSchedule(deps));
+    expect(markdown).toContain("| reportId | rep-1 |");
+    expect(markdown).toContain("| 間隔 | 24 時間ごと |");
+    expect(markdown).toContain("`mode=usage-status`");
+  });
+});
 
 describe("runUsageStatus", () => {
   test("完了した実行があれば、CSV を取得して集計する（署名つき URL は証跡に残さない）", async () => {
