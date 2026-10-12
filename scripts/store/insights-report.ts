@@ -20,6 +20,7 @@ interface QueryItem {
 
 interface ReportItem {
   reportId: string;
+  endTime?: string | null;
 }
 
 export interface ExecutionItem {
@@ -96,12 +97,19 @@ function redactLinks(value: unknown): unknown {
   return value;
 }
 
-/** 繰り返しの検証用の問い合わせ（直近 30 日・日次）。条件を変えたら、版の数字を上げる（同じ名前は再利用するため）。 */
+/** 繰り返しレポートの問い合わせ（直近 30 日・日次の集計）。条件を変えたら、版の数字を上げる（同じ名前は再利用するため）。 */
 export const USAGE_SCHEDULE_QUERY_NAME = "md peruse usage daily 30 days v1";
-const USAGE_SCHEDULE_REPORT_NAME = "md peruse usage daily scheduled";
-/** 検証のため、日次で 3 回だけ実行する。3 回で自然に終わり、Partner Center に繰り返しが残り続けない。 */
-const SCHEDULE_INTERVAL_HOURS = 24;
-const SCHEDULE_COUNT = 3;
+const USAGE_SCHEDULE_REPORT_NAME = "md peruse usage weekly scheduled";
+/**
+ * 週次（7 日 + 1 時間）で 51 回（約 359 日）。API の規則（Marketplace 向け API の FAQ のエラー表。同じ基盤で、
+ * 「開始は 4 時間以上先」の規則も一致した）では、間隔が 24〜168 時間のレポートは、終了まで 6 か月以内（日次の区分）で、
+ * 169〜720 時間なら 1 年以内（週次の区分）。厳密な 7 日（168 時間）だと、1 年のレポートは作れない。
+ * 各実行は直近 30 日分を含むので、間隔が約 28 日以下なら日別の欠けは出ない。間隔の厳密さより、継続期間（1 年）を優先する。
+ * 回数は、1 年（Weekly の上限は 52 回）に、終了予定でも、回数 × 間隔でも収まるよう、1 回少ない 51 回にする。
+ * 使い切る前に作り直す（手順書 9.4 ②の3。古さの検出と終了前の警告は `usage-health.ts`）。
+ */
+export const SCHEDULE_INTERVAL_HOURS = 24 * 7 + 1;
+export const SCHEDULE_COUNT = 51;
 /**
  * 開始までの猶予。API は「開始は、現在の UTC から 4 時間以上先」を求める（HTTP 400。run 38192254358）。
  * 承認から実行までの時間と時刻のずれに備えて、10 分の余裕を足す。
@@ -120,14 +128,16 @@ export interface UsageScheduleResult {
   reportId: string;
   queryId: string;
   startTime: string;
+  /** レポートの終了予定（応答の `endTime`）。 */
+  endTime?: string;
   recurrenceInterval: number;
   recurrenceCount: number;
 }
 
 /**
- * UsageDaily（直近 30 日・日次）を、Partner Center に繰り返し実行させるレポートを 1 件作る。作成は 1 回だけで、
- * 以後の取得は `usage-status`（最新の `Completed` の実行を取る）で行う。繰り返しが成立するか（範囲の制約、
- * 実行が積まれるか）を確かめるための検証で、レポートは `SCHEDULE_COUNT` 回で終わる。
+ * UsageDaily（直近 30 日・日次）を、Partner Center に週次で繰り返し実行させるレポートを 1 件作る。作成は
+ * 1 回だけで、以後の取得は `usage-archive`（最新の `Completed` の実行を取る）が行う。起動のたびに 1 件増える
+ * （1 ユーザー 40 件の上限がある）ので、作り直すとき以外は起動しない。`SCHEDULE_COUNT` 回で終わる。
  */
 export async function runUsageSchedule(
   deps: UsageScheduleDeps,
@@ -194,6 +204,7 @@ export async function runUsageSchedule(
     reportId,
     queryId,
     startTime,
+    endTime: created?.value?.[0]?.endTime ?? undefined,
     recurrenceInterval: SCHEDULE_INTERVAL_HOURS,
     recurrenceCount: SCHEDULE_COUNT,
   };
@@ -208,9 +219,11 @@ export function usageScheduleMarkdown(result: UsageScheduleResult): string {
     `| reportId | ${result.reportId} |`,
     `| queryId | ${result.queryId} |`,
     `| 開始（UTC） | ${result.startTime} |`,
+    `| 終了予定（UTC） | ${result.endTime ?? "不明（応答に無い）"} |`,
     `| 間隔 | ${result.recurrenceInterval} 時間ごと |`,
     `| 回数 | ${result.recurrenceCount} |`,
     "",
+    "日次の保存（`Store Usage Archive`）で使うには、リポジトリの変数 `STORE_USAGE_REPORT_ID` を、この reportId に設定（または更新）する。",
     "実行の状態は、`mode=usage-status` の `report_id` に、この reportId を指定して確かめる。",
     "",
   ].join("\n");
