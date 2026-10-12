@@ -1,7 +1,8 @@
 name: Store Usage Archive
 
 # Insights API の繰り返しレポートの最新の完了した実行から、日別の利用統計（CSV）を取り、Dropbox へ保存する。
-# 毎日の自動実行と、手動起動ができる。
+# 毎日の自動実行と、手動起動ができる。保存のあとで、統合した CSV（`merged.csv`）と、人が見る概観（`overview.md`。
+# 表と Mermaid のグラフ）も、Dropbox へ書き直す（生スナップショットが正本で、この 2 つは写し）。
 #
 # 読み取りだけのジョブ（承認なしの Environment `store-readonly`）。Partner Center へは書かない（`--read-only` と、
 # 読み取り専用のクライアントが強制する）。書く先は Dropbox のアプリ専用フォルダー（App folder 型）だけで、

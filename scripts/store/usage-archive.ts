@@ -6,6 +6,10 @@
 // このリポジトリは公開で、artifact・ログ・Step Summary は誰でも読める。日別の値（セッション数など）は、
 // それらに出さない。公開の記録に残すのは、行数・日付の範囲・サイズ・保存先のパスだけ。
 // 保存するファイル名は、実行の生成時刻で決まる。同じ実行を 2 回保存しても、同じ名前を上書きするだけ（冪等）。
+//
+// 生スナップショットが正本。保存のあとで、統合した CSV（`merged.csv`。キーは Date × PackageVersion × Market ×
+// DeviceType × SubscriptionName、後勝ち）と、人が見る概観（`overview.md`）を、Dropbox へ書き直す。
+// どちらも、スナップショットからいつでも作り直せる写しで、公開の記録には、件数だけを出す。
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -16,8 +20,12 @@ import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import { INSIGHTS_BASE_URL } from "./insights";
 import type { ExecutionItem, ListResponse } from "./insights-report";
 import { redactText } from "./redact";
+import { mergeUsage } from "./usage-merged";
+import { renderOverview } from "./usage-overview";
 
 export const SNAPSHOT_DIR = "/usage-daily/snapshots";
+export const MERGED_PATH = "/usage-daily/merged.csv";
+export const OVERVIEW_PATH = "/usage-daily/overview.md";
 
 /** 保存の前に、CSV が日別の利用統計の形かを確かめるための必須の列。 */
 const REQUIRED_COLUMNS = ["Date", "PackageVersion", "DailySessionCount"];
@@ -68,10 +76,14 @@ export function snapshotName(reportGeneratedTime: string): string {
 
 export interface UsageArchiveDeps {
   client: Pick<StoreClient, "get" | "downloadText">;
-  dropbox: { upload: (path: string, text: string) => Promise<UploadResult> };
+  dropbox: {
+    upload: (path: string, text: string) => Promise<UploadResult>;
+    download: (path: string) => Promise<string | undefined>;
+  };
   reportId: string;
   evidence?: Evidence;
   log: (message: string) => void;
+  now: () => Date;
 }
 
 export interface UsageArchiveResult extends UsageCsvInfo {
@@ -80,6 +92,15 @@ export interface UsageArchiveResult extends UsageCsvInfo {
   reportGeneratedTime: string;
   dropboxPath: string;
   bytes: number;
+  /** 統合した CSV の、行数と、今回の取り込みの件数（値は含まない）。 */
+  merged: {
+    path: string;
+    rows: number;
+    added: number;
+    updated: number;
+    unchanged: number;
+  };
+  overviewPath: string;
 }
 
 /** 最新の完了した実行の CSV を、Dropbox へ保存する。完了した実行が無ければ、例外にする（通知で気づけるように）。 */
@@ -119,6 +140,21 @@ export async function runUsageArchive(
     `${SNAPSHOT_DIR}/${snapshotName(latest.reportGeneratedTime)}`,
     csv,
   );
+  deps.log(
+    `Dropbox へ保存しました（${saved.path}、${saved.size} バイト、${info.rows} 行、${info.firstDate ?? "-"} 〜 ${info.lastDate ?? "-"}）`,
+  );
+
+  // 正本の保存のあとで、写し（統合した CSV と概観）を書き直す。失敗しても、正本は残っている。
+  const merge = mergeUsage(await deps.dropbox.download(MERGED_PATH), csv);
+  await deps.dropbox.upload(MERGED_PATH, merge.csv);
+  await deps.dropbox.upload(
+    OVERVIEW_PATH,
+    renderOverview(merge.table, { generatedAt: deps.now() }),
+  );
+  deps.log(
+    `統合した CSV と概観を更新しました（統合 ${merge.table.rows.length} 行。追加 ${merge.added}、更新 ${merge.updated}、変更なし ${merge.unchanged}）`,
+  );
+
   const result: UsageArchiveResult = {
     ...info,
     reportId: deps.reportId,
@@ -126,11 +162,16 @@ export async function runUsageArchive(
     reportGeneratedTime: latest.reportGeneratedTime,
     dropboxPath: saved.path,
     bytes: saved.size,
+    merged: {
+      path: MERGED_PATH,
+      rows: merge.table.rows.length,
+      added: merge.added,
+      updated: merge.updated,
+      unchanged: merge.unchanged,
+    },
+    overviewPath: OVERVIEW_PATH,
   };
   deps.evidence?.json("archive", result);
-  deps.log(
-    `Dropbox へ保存しました（${result.dropboxPath}、${result.bytes} バイト、${info.rows} 行、${info.firstDate ?? "-"} 〜 ${info.lastDate ?? "-"}）`,
-  );
   return result;
 }
 
@@ -145,6 +186,8 @@ export function usageArchiveMarkdown(result: UsageArchiveResult): string {
     `| サイズ | ${result.bytes} バイト |`,
     `| 行数 | ${result.rows} |`,
     `| 日付の範囲 | ${result.firstDate ?? "-"} 〜 ${result.lastDate ?? "-"} |`,
+    `| 統合した CSV | ${result.merged.path}（${result.merged.rows} 行。追加 ${result.merged.added}、更新 ${result.merged.updated}、変更なし ${result.merged.unchanged}） |`,
+    `| 概観 | ${result.overviewPath} |`,
     "",
     "日別の値は、公開の記録に出さない（Dropbox にだけある）。",
     "",
@@ -248,6 +291,7 @@ if (import.meta.main) {
       reportId,
       evidence,
       log,
+      now: () => new Date(),
     });
     if (summary) appendFileSync(summary, usageArchiveMarkdown(result));
   } catch (error) {

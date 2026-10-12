@@ -11,8 +11,9 @@ import { redactText } from "./redact";
 
 const TOKEN_URL = "https://api.dropbox.com/oauth2/token";
 const UPLOAD_URL = "https://content.dropboxapi.com/2/files/upload";
+const DOWNLOAD_URL = "https://content.dropboxapi.com/2/files/download";
 
-/** 書き込みを許す、アプリのフォルダー内の接頭辞。 */
+/** 読み書きを許す、アプリのフォルダー内の接頭辞。 */
 export const DROPBOX_ROOT = "/usage-daily/";
 
 /** 接頭辞の下の、英数字・`_`・`.`・`-`・`/` だけのパス（連続した `/` は拒否する。`.` と `..` の区間は別途拒否する）。 */
@@ -41,6 +42,16 @@ export interface UploadResult {
   /** アプリのフォルダーを起点にした、保存先のパス。 */
   path: string;
   size: number;
+}
+
+/** トークンの取得より前に拒否する（許していない場所のために、資格情報を使わない）。 */
+function assertSafePath(path: string): void {
+  const dotSegment = path.split("/").some((s) => s === "." || s === "..");
+  if (!SAFE_PATH.test(path) || dotSegment) {
+    throw new Error(
+      `Dropbox の読み書き先は、${DROPBOX_ROOT} の下の英数字と . _ - / だけのパスにしてください: ${path}`,
+    );
+  }
 }
 
 export class DropboxClient {
@@ -96,13 +107,7 @@ export class DropboxClient {
 
   /** アプリのフォルダー内の `path`（`/usage-daily/` の下）へ、テキストを書く。同じパスは上書きする。 */
   async upload(path: string, text: string): Promise<UploadResult> {
-    // トークンの取得より前に拒否する（許していない場所のために、資格情報を使わない）。
-    const dotSegment = path.split("/").some((s) => s === "." || s === "..");
-    if (!SAFE_PATH.test(path) || dotSegment) {
-      throw new Error(
-        `Dropbox の書き込み先は、${DROPBOX_ROOT} の下の英数字と . _ - / だけのパスにしてください: ${path}`,
-      );
-    }
+    assertSafePath(path);
     const token = await this.accessToken();
     const response = await this.fetchFn(UPLOAD_URL, {
       method: "POST",
@@ -134,5 +139,29 @@ export class DropboxClient {
       path: saved.path_display ?? path,
       size: saved.size ?? new TextEncoder().encode(text).length,
     };
+  }
+
+  /** アプリのフォルダー内の `path`（`/usage-daily/` の下）のテキストを読む。ファイルが無ければ undefined。 */
+  async download(path: string): Promise<string | undefined> {
+    assertSafePath(path);
+    const token = await this.accessToken();
+    const response = await this.fetchFn(DOWNLOAD_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Dropbox-API-Arg": JSON.stringify({ path }),
+      },
+    });
+    this.trace(`POST Dropbox files/download ${path} → HTTP ${response.status}`);
+    if (response.ok) return response.text();
+    const body = this.scrub((await response.text()).slice(0, 1000));
+    // ファイルが無いときは、HTTP 409 と `path/not_found/...` で返る。それ以外は、握りつぶさず伝える。
+    if (response.status === 409 && body.includes('"path/not_found/')) {
+      return undefined;
+    }
+    throw new DropboxApiError(
+      `Dropbox からの読み取りに失敗しました: ${path}（HTTP ${response.status}）${body}`,
+      response.status,
+    );
   }
 }

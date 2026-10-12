@@ -13,7 +13,11 @@ interface Call {
 }
 
 function setup(
-  handlers: { token?: () => Response; upload?: () => Response } = {},
+  handlers: {
+    token?: () => Response;
+    upload?: () => Response;
+    download?: () => Response;
+  } = {},
 ) {
   const calls: Call[] = [];
   const traces: string[] = [];
@@ -32,6 +36,9 @@ function setup(
           JSON.stringify({ path_display: "/usage-daily/a.csv", size: 7 }),
         )
       );
+    }
+    if (input === "https://content.dropboxapi.com/2/files/download") {
+      return handlers.download?.() ?? new Response("a,b\r\n1,2\r\n");
     }
     throw new Error(`想定外の呼び出し: ${input}`);
   };
@@ -163,5 +170,79 @@ describe("DropboxClient.upload", () => {
       path: "/usage-daily/a.csv",
       size: 6,
     });
+  });
+});
+
+describe("DropboxClient.download", () => {
+  test("トークンを得て、パスを指定してファイルの内容を読む", async () => {
+    const { client, calls } = setup();
+
+    const text = await client.download("/usage-daily/merged.csv");
+
+    expect(text).toBe("a,b\r\n1,2\r\n");
+    expect(calls.map((c) => c.url)).toEqual([
+      "https://api.dropbox.com/oauth2/token",
+      "https://content.dropboxapi.com/2/files/download",
+    ]);
+    const headers = (calls[1]?.init?.headers ?? {}) as Record<string, string>;
+    expect(headers.Authorization).toBe(`Bearer ${ACCESS}`);
+    expect(JSON.parse(headers["Dropbox-API-Arg"] as string)).toEqual({
+      path: "/usage-daily/merged.csv",
+    });
+  });
+
+  test("ファイルが無い（HTTP 409 と path/not_found）ときは、undefined を返す", async () => {
+    const { client } = setup({
+      download: () =>
+        new Response(
+          JSON.stringify({
+            error_summary: "path/not_found/.",
+            error: { ".tag": "path", path: { ".tag": "not_found" } },
+          }),
+          { status: 409 },
+        ),
+    });
+    expect(await client.download("/usage-daily/merged.csv")).toBeUndefined();
+  });
+
+  test.each([
+    {
+      name: "409 でも not_found 以外（権限など）",
+      response: () =>
+        new Response(`{"error_summary":"path/restricted_content/ ${ACCESS}"}`, {
+          status: 409,
+        }),
+      status: 409,
+    },
+    {
+      name: "認証の失敗（401）",
+      response: () =>
+        new Response(`{"error_summary":"missing_scope/ ${ACCESS}"}`, {
+          status: 401,
+        }),
+      status: 401,
+    },
+  ])(
+    "$name は、握りつぶさずに伝え、トークンを含めない",
+    async ({ response, status }) => {
+      const { client } = setup({ download: response });
+      const error = await client
+        .download("/usage-daily/merged.csv")
+        .catch((e) => e);
+      expect(error).toBeInstanceOf(DropboxApiError);
+      expect((error as DropboxApiError).httpStatus).toBe(status);
+      expect((error as Error).message).toContain("/usage-daily/merged.csv");
+      expect((error as Error).message).not.toContain(ACCESS);
+    },
+  );
+
+  test.each([
+    "/other/merged.csv",
+    "/usage-daily/../merged.csv",
+    "/usage-daily//merged.csv",
+  ])("許可の外のパス（%p）は、トークンを取る前に拒否する", async (path) => {
+    const { client, calls } = setup();
+    await expect(client.download(path)).rejects.toThrow("/usage-daily/ の下の");
+    expect(calls).toHaveLength(0);
   });
 });
