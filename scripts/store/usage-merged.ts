@@ -38,6 +38,11 @@ export function parseUsageTable(text: string): UsageTable {
       `日別の利用統計の CSV に列がありません: ${missing.join(", ")}`,
     );
   }
+  // 重複した列名は、行をオブジェクトにするときに後の値が前の値を潰し、行の欠落につながる。見出しが壊れて
+  // いると、列名は未検証の値になるので、名前は例外の文に入れない。
+  if (new Set(columns).size !== columns.length) {
+    throw new Error("日別の利用統計の CSV の見出しに、重複した列名があります");
+  }
   const rows = table.slice(1).map((cells, index) => {
     if (cells.length !== columns.length) {
       throw new Error(

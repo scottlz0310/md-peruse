@@ -415,6 +415,27 @@ describe("runUsageArchive", () => {
       ]);
     });
 
+    test("統合済みの CSV の見出しに重複した列名があれば、行が潰れるので、上書きせず、値を含めずに例外にする", async () => {
+      const broken = [
+        "Date,PackageVersion,Market,DeviceType,SubscriptionName,DailySessionCount,Date",
+        "2026-10-06,All,All,All,All,4777,2026-10-08",
+        "2026-10-07,All,All,All,All,4777,2026-10-08",
+        "",
+      ].join("\r\n");
+      const { deps, uploads, dropboxFiles } = setup({
+        executions,
+        files: { "/usage-daily/merged.csv": broken },
+      });
+      const error = await runUsageArchive(deps).catch((e) => e);
+      expect((error as Error).message).toContain("重複した列名があります");
+      expect((error as Error).message).not.toContain("4777");
+      // 壊れた既存ファイルは、そのまま残る（概観も作らない）。
+      expect(dropboxFiles["/usage-daily/merged.csv"]).toBe(broken);
+      expect(uploads.map((u) => u.path)).toEqual([
+        "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
+      ]);
+    });
+
     test("統合済みの CSV が壊れていたら、上書きせず、値を含めずに例外にする", async () => {
       const { deps, uploads } = setup({
         executions,

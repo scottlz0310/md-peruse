@@ -57,6 +57,16 @@ describe("parseUsageTable", () => {
         "日別の利用統計の CSV に列がありません: Date, PackageVersion, Market, DeviceType, SubscriptionName",
     },
     {
+      name: "キーの列が重複した見出し（行が潰れて、日付が失われる）",
+      text: "Date,PackageVersion,Market,DeviceType,SubscriptionName,DailySessionCount,Date\r\n2026-10-06,All,All,All,All,4777,2026-10-08\r\n2026-10-07,All,All,All,All,4777,2026-10-08\r\n",
+      message: "見出しに、重複した列名があります",
+    },
+    {
+      name: "指標の列が重複した見出し",
+      text: `${HEADER},DailySessionCount\r\nAll,All,0.1.1.0,All,2026-10-06,4777,1,5\r\n`,
+      message: "見出しに、重複した列名があります",
+    },
+    {
       name: "行の列数が見出しと違う",
       text: `${HEADER}\r\nAll,All,0.1.1.0,All,2026-10-06,4777\r\n`,
       message: "2 行目の列数が、見出しと違います",
