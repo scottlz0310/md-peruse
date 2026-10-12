@@ -14,6 +14,8 @@ name: Store Usage Archive
 # 対象のレポートは、リポジトリの変数 `STORE_USAGE_REPORT_ID`（Store Insights の `usage-schedule` が作る
 # 繰り返しレポートの reportId）。変数が未設定のときは、自動実行を行わない（手動起動では `report_id` で指定する）。
 # 繰り返しレポートには回数の上限がある（Daily 180 回、Weekly 52 回、Monthly 24 回）。使い切ったら、作り直して変数を更新する。
+# 気づくための仕組み: 最新の完了した実行が 10 日より前なら、このジョブを失敗させる。終了予定まで残り 60 日を切ったら、
+# 警告を出す（概観の「運用状況」、Step Summary、注釈。失敗にはしない）。scripts/store/usage-health.ts。
 # 自動実行は、リポジトリに 60 日間の活動が無いと、GitHub が止める（その場合は手動で有効化する）。
 
 on:

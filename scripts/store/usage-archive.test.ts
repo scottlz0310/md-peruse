@@ -8,6 +8,7 @@ import {
   snapshotName,
   usageArchiveMarkdown,
 } from "./usage-archive";
+import { describeHealth } from "./usage-health";
 
 const SECRET = "s3cr3t-value";
 const TOKEN_URL = "https://login.example/tenant-1/oauth2/token";
@@ -26,11 +27,16 @@ const CSV = [
   "",
 ].join("\r\n");
 
-const execution = (id: string, generated: string) => ({
+const execution = (
+  id: string,
+  generated: string,
+  extra: Record<string, unknown> = {},
+) => ({
   executionId: id,
   executionStatus: "Completed",
   reportAccessSecureLink: SAS,
   reportGeneratedTime: generated,
+  ...extra,
 });
 
 const completed = (...items: unknown[]) => ({
@@ -453,5 +459,87 @@ describe("runUsageArchive", () => {
         "/usage-daily/snapshots/usage-daily_20261011T234219Z.csv",
       ]);
     });
+  });
+});
+
+describe("繰り返しレポートの古さと終了予定", () => {
+  // setup の now は 2026-10-12T09:00:00Z。
+  const run = (generated: string, extra: Record<string, unknown> = {}) =>
+    setup({
+      executions: completed(execution("e1", generated, extra)),
+    });
+
+  test("健全（生成は半日前、終了予定は 1 年後）: 警告も失敗もなく、概観に運用状況を出す", async () => {
+    const { deps, dropboxFiles } = run("2026-10-11T23:42:19Z", {
+      endTime: "2027-10-11T06:50:42Z",
+    });
+    const result = await runUsageArchive(deps);
+
+    expect(result.health).toMatchObject({
+      generatedTime: "2026-10-11T23:42:19Z",
+      ageDays: 0,
+      stale: false,
+      endTime: "2027-10-11T06:50:42Z",
+      remainingDays: 363,
+      expiringSoon: false,
+    });
+    expect(describeHealth(result.health)).toEqual({
+      warnings: [],
+      failure: undefined,
+    });
+    const overview = dropboxFiles["/usage-daily/overview.md"] ?? "";
+    expect(overview).toContain("## 運用状況");
+    expect(overview).toContain(
+      "| 繰り返しレポートの終了予定 | 2027-10-11T06:50:42Z（残り 363 日） |",
+    );
+    expect(overview).not.toContain("⚠");
+    expect(usageArchiveMarkdown(result)).not.toContain("⚠");
+  });
+
+  test("終了予定まで 60 日を切ると、警告を、概観と Step Summary に出す。失敗にはしない", async () => {
+    const { deps, dropboxFiles } = run("2026-10-11T23:42:19Z", {
+      endTime: "2026-10-14T06:50:42Z",
+    });
+    const result = await runUsageArchive(deps);
+
+    const { warnings, failure } = describeHealth(result.health);
+    expect(failure).toBeUndefined();
+    expect(warnings[0]).toContain(
+      "終了予定（2026-10-14T06:50:42Z）まで、残り 1 日です",
+    );
+    expect(dropboxFiles["/usage-daily/overview.md"]).toContain(
+      "> ⚠ 繰り返しレポートの終了予定（2026-10-14T06:50:42Z）まで、残り 1 日です",
+    );
+    expect(usageArchiveMarkdown(result)).toContain(
+      "⚠ 繰り返しレポートの終了予定",
+    );
+  });
+
+  test("最新の完了した実行が 10 日より前なら、データの処理（保存・統合・概観）はやり切り、失敗の理由を返す", async () => {
+    const { deps, uploads, dropboxFiles } = run("2026-09-28T23:42:19Z", {
+      endTime: "2027-09-27T06:50:42Z",
+    });
+    const result = await runUsageArchive(deps);
+
+    // 3 つとも書いたうえで、呼び出し側（日次のジョブ）が、失敗の理由で失敗にする。
+    expect(uploads).toHaveLength(3);
+    expect(result.health.stale).toBe(true);
+    const { failure } = describeHealth(result.health);
+    expect(failure).toContain("13 日前です");
+    expect(dropboxFiles["/usage-daily/overview.md"]).toContain(
+      "> ⚠ 最新の完了した実行（2026-09-28T23:42:19Z）が 13 日前です",
+    );
+    expect(usageArchiveMarkdown(result)).toContain("⚠ 最新の完了した実行");
+  });
+
+  test("終了予定が応答に無くても、止まらずに、不明として扱う", async () => {
+    const { deps, dropboxFiles } = run("2026-10-11T23:42:19Z");
+    const result = await runUsageArchive(deps);
+
+    expect(result.health.endTime).toBeUndefined();
+    expect(result.health.expiringSoon).toBe(false);
+    expect(dropboxFiles["/usage-daily/overview.md"]).toContain(
+      "| 繰り返しレポートの終了予定 | 不明（応答に無い） |",
+    );
   });
 });

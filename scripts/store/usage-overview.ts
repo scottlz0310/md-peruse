@@ -7,6 +7,11 @@
 // 同じセッションを何重にも数える）。その中で、PackageVersion が `All` の行が全版の合計、
 // それ以外が版別の値になる。
 
+import {
+  describeEndTime,
+  healthNotices,
+  type ReportHealth,
+} from "./usage-health";
 import type { UsageRow, UsageTable } from "./usage-merged";
 
 const ALL = "All";
@@ -17,6 +22,22 @@ export interface OverviewOptions {
   generatedAt: Date;
   /** 表とグラフに出す、直近の日数（最新の日付を末尾とする暦日）。 */
   days?: number;
+  /** 繰り返しレポートの健全性（古さ・終了予定）。あれば「運用状況」の節を出す。 */
+  health?: ReportHealth;
+}
+
+/** 「運用状況」の節。データの有無にかかわらず、レポートの状態を伝える。 */
+function healthSection(health: ReportHealth): string[] {
+  return [
+    "## 運用状況",
+    "",
+    "| 項目 | 値 |",
+    "| --- | --- |",
+    `| 最新の完了した実行 | ${health.generatedTime}（${health.ageDays} 日前） |`,
+    `| 繰り返しレポートの終了予定 | ${describeEndTime(health)} |`,
+    "",
+    ...healthNotices(health).flatMap((message) => [`> ⚠ ${message}`, ""]),
+  ];
 }
 
 const isOverall = (row: UsageRow) =>
@@ -72,6 +93,7 @@ export function renderOverview(
     "",
     `作成: ${options.generatedAt.toISOString()}（Partner Center の Insights API の \`UsageDaily\`。統合した CSV から自動で生成した。手で編集しない）`,
     "",
+    ...(options.health ? healthSection(options.health) : []),
   ];
   if (total.size === 0) {
     return [

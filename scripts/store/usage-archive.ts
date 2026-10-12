@@ -10,6 +10,9 @@
 // 生スナップショットが正本。保存のあとで、統合した CSV（`merged.csv`。キーは Date × PackageVersion × Market ×
 // DeviceType × SubscriptionName、後勝ち）と、人が見る概観（`overview.md`）を、Dropbox へ書き直す。
 // どちらも、スナップショットからいつでも作り直せる写しで、公開の記録には、件数だけを出す。
+//
+// 繰り返しレポートの古さ（最新の完了した実行が 10 日より前）は、ジョブの失敗で、終了前（残り 60 日を切った）は、
+// 警告で伝える（`usage-health.ts`）。失敗は、データの処理をやり切ったあとに出す。
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
@@ -20,6 +23,13 @@ import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import { INSIGHTS_BASE_URL } from "./insights";
 import type { ExecutionItem, ListResponse } from "./insights-report";
 import { redactText } from "./redact";
+import {
+  assessReport,
+  describeEndTime,
+  describeHealth,
+  healthNotices,
+  type ReportHealth,
+} from "./usage-health";
 import { mergeUsage } from "./usage-merged";
 import { renderOverview } from "./usage-overview";
 
@@ -101,6 +111,8 @@ export interface UsageArchiveResult extends UsageCsvInfo {
     unchanged: number;
   };
   overviewPath: string;
+  /** 繰り返しレポートの古さと終了予定。 */
+  health: ReportHealth;
 }
 
 /** 最新の完了した実行の CSV を、Dropbox へ保存する。完了した実行が無ければ、例外にする（通知で気づけるように）。 */
@@ -145,11 +157,18 @@ export async function runUsageArchive(
   );
 
   // 正本の保存のあとで、写し（統合した CSV と概観）を書き直す。失敗しても、正本は残っている。
+  const health = assessReport(
+    {
+      reportGeneratedTime: latest.reportGeneratedTime,
+      endTime: latest.endTime,
+    },
+    deps.now(),
+  );
   const merge = mergeUsage(await deps.dropbox.download(MERGED_PATH), csv);
   await deps.dropbox.upload(MERGED_PATH, merge.csv);
   await deps.dropbox.upload(
     OVERVIEW_PATH,
-    renderOverview(merge.table, { generatedAt: deps.now() }),
+    renderOverview(merge.table, { generatedAt: deps.now(), health }),
   );
   deps.log(
     `統合した CSV と概観を更新しました（統合 ${merge.table.rows.length} 行。追加 ${merge.added}、更新 ${merge.updated}、変更なし ${merge.unchanged}）`,
@@ -170,6 +189,7 @@ export async function runUsageArchive(
       unchanged: merge.unchanged,
     },
     overviewPath: OVERVIEW_PATH,
+    health,
   };
   deps.evidence?.json("archive", result);
   return result;
@@ -188,7 +208,10 @@ export function usageArchiveMarkdown(result: UsageArchiveResult): string {
     `| 日付の範囲 | ${result.firstDate ?? "-"} 〜 ${result.lastDate ?? "-"} |`,
     `| 統合した CSV | ${result.merged.path}（${result.merged.rows} 行。追加 ${result.merged.added}、更新 ${result.merged.updated}、変更なし ${result.merged.unchanged}） |`,
     `| 概観 | ${result.overviewPath} |`,
+    `| 最新の完了した実行 | ${result.health.generatedTime}（${result.health.ageDays} 日前） |`,
+    `| 繰り返しレポートの終了予定 | ${describeEndTime(result.health)} |`,
     "",
+    ...healthNotices(result.health).flatMap((message) => [`⚠ ${message}`, ""]),
     "日別の値は、公開の記録に出さない（Dropbox にだけある）。",
     "",
   ].join("\n");
@@ -294,6 +317,10 @@ if (import.meta.main) {
       now: () => new Date(),
     });
     if (summary) appendFileSync(summary, usageArchiveMarkdown(result));
+    // 警告は、Actions の注釈に出す（失敗にはしない）。古さは、データの処理をやり切ったあとで、失敗にする。
+    const { warnings, failure } = describeHealth(result.health);
+    for (const warning of warnings) console.log(`::warning::${warning}`);
+    if (failure) throw new Error(failure);
   } catch (error) {
     reportFailure(
       error,
