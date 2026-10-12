@@ -1869,7 +1869,27 @@ Microsoft Store版の初回リリースから、利用状況の基準値を取�
 
 2026-10-08に確認したMicrosoftの [Usage report](https://learn.microsoft.com/en-us/windows/apps/publish/analyze-app-performance/usage-report) は、カスタムイベントの発生件数と、market・device type・package versionの組合せ別の内訳を説明している。[Log custom events for Partner Center](https://learn.microsoft.com/en-us/windows/uwp/monetize/log-custom-events-for-dev-center) は、レポートの確認にStore公開が必要としている。この2資料では、カスタムイベントの反映遅延や診断データ設定による収集対象の条件を確認できなかった。Windowsのクラッシュ診断に関する説明（13.7）を、SDKイベントの条件へ転用しない。
 
-確認手順と観測記録は [store-telemetry-verification.md](./store-telemetry-verification.md) に置く。未表示を0件と扱わず、実測結果と資料で確認した事項を区別して、本節へ結論を反映する。初回公開版のイベント、反映遅延、実際のバージョン別フィルター、母集団の条件は引き続き未確認であり、[#21](https://github.com/scottlz0310/md-peruse/issues/21) は閉じない。
+確認手順と観測記録は [store-telemetry-verification.md](./store-telemetry-verification.md) に置く。未表示を0件と扱わず、実測結果と資料で確認した事項を区別して、本節へ結論を反映する。
+
+#### 公開後の確認結果と制約
+
+2026-10-12に、段階4を次のとおり確定し、[#21](https://github.com/scottlz0310/md-peruse/issues/21) の完了条件を満たしたものとして扱う（ユーザーの決定）。実データと資料だけでは確定できなかった項目は、確定できなかったことを制約として残す。
+
+| 項目 | 結果 |
+| --- | --- |
+| イベントの反映 | 2026-10-11に5種類すべての反映を観測した（0.1.1.0、Japan、PC。期間はLast 1 month）。観測記録は [store-telemetry-verification.md](./store-telemetry-verification.md) 5章 |
+| 反映遅延 | 確定しない。最後の未反映の確認（2026-10-08 19:40:54 UTC）から、初回の反映の観測（2026-10-11 10:02 UTC以前）までの、約62時間の幅に収まったというだけである。他の利用が混ざり、操作に帰属できない。画面の「Data refresh details」の「Custom events 3 days」は、保証としても実測としても扱わない |
+| バージョン別フィルター | 判定できない。確認したときのPackage versionの選択肢が0.1.1.0だけだった。0.2.1.0以降の分離は、画面を見る機会に確かめ、観測記録へ追記する |
+| 母集団 | 未確認。標準UsageとSDKのカスタムイベントについて、診断データ設定との関係を、Microsoftの資料でも実データでも裏付けられなかった。件数からインストール数、DAU、全利用者へ外挿しない |
+| 保持期間 | カスタムイベントの保持期間は、資料に記載がなく、未確認。標準Usageは、日次が30日または3か月、月次が6か月または12か月（単一アプリのDownloads hubでは最長4年）である（Microsoftの [Aggregation and timeline](https://learn.microsoft.com/en-us/partner-center/insights/apps-games-aggregation-and-timeline)。2026-10-12確認） |
+| 自動取得 | 手段がない。Insights APIのデータセット（16件）にも、Downloads hubのデータソース（16件）にも、SDKのカスタムイベントはない（2026-10-11に確認）。Usageページの表・グラフの手動エクスポートが、唯一の取得手段である |
+
+継続収集の方針（2026-10-12、ユーザーの決定）:
+
+- アプリから、独自のサーバーへイベントを送らない。`spec.md` 5.5とプライバシーポリシーの約束（開発者が運営するサーバーへ通信しない）を変えないためである。
+- Microsoftが、カスタムイベントをInsights APIまたはDownloads hubのデータセットとして提供するのを待つ。`Store Insights` ワークフローの `datasets` モードで、データセットの一覧を折々に再確認し、提供を求める要望を出す。
+- それまでは、Usageページの表・グラフを手動でエクスポートし、日付つきで保存する。保持期間が資料にないため、保存の間隔は、画面で期間を選べる範囲（最長6か月）より短く保つ（目安は月に1回）。
+- カスタムイベントに限らない継続収集（版別・日別の標準Sessionsなど）は、Insights APIの `UsageDaily` で自動化できる可能性がある。保持期間（日次は最長3か月）に合わせたスケジュール実行は、カスタムイベントとは別の項目として検討する（`tasks.md` のInsights APIの項目）。
 
 ## 12. エラー方針
 

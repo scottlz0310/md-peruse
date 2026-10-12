@@ -300,8 +300,8 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 - [ ] Store提出物とCIで検証した成果物が一致している。
 - [x] プライバシーポリシーとデータ収集申告が提出内容と整合している（初回提出の申告とポリシー公開の証跡は [store-telemetry-verification.md](./store-telemetry-verification.md) 1章）。
 - [ ] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる。
-- [ ] 初回公開版でPartner Centerからカスタムイベントを確認できている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
-- [ ] 標準Usage指標とSDKカスタムイベントの計測母集団について診断データ設定との関係を裏付ける根拠と制約が、反映遅延・バージョン別集計の実測と並べて計測定義へ記載されている（[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
+- [x] 初回公開版でPartner Centerからカスタムイベントを確認できている（2026-10-11に5種類の反映を観測。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4。[design-decisions.md](./design-decisions.md) 11.4「公開後の確認結果と制約」）。
+- [x] 標準Usage指標とSDKカスタムイベントの計測母集団について、診断データ設定との関係は裏付けられなかったため、未確認の制約として、反映遅延・バージョン別集計の実測と並べて計測定義へ記載した（2026-10-12。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 
 ## 8. 未決事項と解決フェーズの対応
 
