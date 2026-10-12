@@ -35,11 +35,15 @@ interface ExecutionItem {
   reportGeneratedTime?: string;
 }
 
+/** `UsageDaily`（日次）で選べる期間（`ScheduledDataset` の `aggregationToDateRangeMapping`）。 */
+export type UsageTimespan = "LAST_30_DAYS" | "LAST_3_MONTHS";
+
 export function buildUsageDailyQuery(
   productId: string,
   columns: readonly string[],
+  timespan: UsageTimespan = "LAST_3_MONTHS",
 ): string {
-  return `SELECT ${columns.join(", ")} FROM UsageDaily WHERE ProductId IN ('${productId}') TIMESPAN LAST_3_MONTHS AGGREGATED Daily`;
+  return `SELECT ${columns.join(", ")} FROM UsageDaily WHERE ProductId IN ('${productId}') TIMESPAN ${timespan} AGGREGATED Daily`;
 }
 
 export interface VersionSummary {
@@ -162,14 +166,21 @@ export interface UsageOnceDeps {
   maxPolls?: number;
 }
 
+interface QuerySpec {
+  /** 英数字と空白だけ（API が、それ以外を 400 で拒否する）。 */
+  name: string;
+  description: string;
+  query: string;
+}
+
 async function findOrCreateQuery(
-  deps: UsageOnceDeps,
-  query: string,
+  deps: { client: Pick<StoreClient, "get" | "post"> },
+  spec: QuerySpec,
 ): Promise<{ queryId: string; reused: boolean }> {
   // 条件に合う問い合わせが無いとき、この API は空の一覧ではなく 404 を返す（run 38135221072 で確認）。
   const found = await deps.client
     .get<ListResponse<QueryItem>>(
-      `ScheduledQueries?queryName=${encodeURIComponent(USAGE_QUERY_NAME)}&includeSystemQueries=false`,
+      `ScheduledQueries?queryName=${encodeURIComponent(spec.name)}&includeSystemQueries=false`,
     )
     .catch((error) => {
       if (error instanceof StoreApiError && error.httpStatus === 404) {
@@ -177,16 +188,12 @@ async function findOrCreateQuery(
       }
       throw error;
     });
-  const existing = found?.value?.find((item) => item.name === USAGE_QUERY_NAME);
+  const existing = found?.value?.find((item) => item.name === spec.name);
   if (existing) return { queryId: existing.queryId, reused: true };
 
   const created = await deps.client.post<ListResponse<QueryItem>>(
     "ScheduledQueries",
-    {
-      name: USAGE_QUERY_NAME,
-      description: "md peruse UsageDaily last 3 months daily",
-      query,
-    },
+    spec,
   );
   const queryId = created?.value?.[0]?.queryId;
   if (!queryId) {
@@ -262,7 +269,11 @@ export async function runUsageOnce(
 
   const query = buildUsageDailyQuery(deps.productId, usage.selectableColumns);
   deps.evidence?.json("query", { name: USAGE_QUERY_NAME, query });
-  const { queryId, reused } = await findOrCreateQuery(deps, query);
+  const { queryId, reused } = await findOrCreateQuery(deps, {
+    name: USAGE_QUERY_NAME,
+    description: "md peruse UsageDaily last 3 months daily",
+    query,
+  });
   deps.log(
     `問い合わせ: ${reused ? "既存を再利用" : "新規に作成"}（${queryId}）`,
   );
@@ -310,6 +321,123 @@ async function downloadUsageCsv(
     `CSV を取得しました（${summary.rows} 行、版: ${summary.byVersion.map((v) => v.packageVersion).join(", ") || "なし"}）`,
   );
   return summary;
+}
+
+/** 繰り返しの検証用の問い合わせ（直近 30 日・日次）。条件を変えたら、版の数字を上げる（同じ名前は再利用するため）。 */
+export const USAGE_SCHEDULE_QUERY_NAME = "md peruse usage daily 30 days v1";
+const USAGE_SCHEDULE_REPORT_NAME = "md peruse usage daily scheduled";
+/** 検証のため、日次で 3 回だけ実行する。3 回で自然に終わり、Partner Center に繰り返しが残り続けない。 */
+const SCHEDULE_INTERVAL_HOURS = 24;
+const SCHEDULE_COUNT = 3;
+/** 開始までの猶予。過去の時刻は拒否されうるので、少し先にする。 */
+const SCHEDULE_START_DELAY_MS = 10 * 60 * 1000;
+
+export interface UsageScheduleDeps {
+  client: Pick<StoreClient, "get" | "post">;
+  productId: string;
+  evidence?: Evidence;
+  log: (message: string) => void;
+  now: () => Date;
+}
+
+export interface UsageScheduleResult {
+  reportId: string;
+  queryId: string;
+  startTime: string;
+  recurrenceInterval: number;
+  recurrenceCount: number;
+}
+
+/**
+ * UsageDaily（直近 30 日・日次）を、Partner Center に繰り返し実行させるレポートを 1 件作る。作成は 1 回だけで、
+ * 以後の取得は `usage-status`（最新の `Completed` の実行を取る）で行う。繰り返しが成立するか（範囲の制約、
+ * 実行が積まれるか）を確かめるための検証で、レポートは `SCHEDULE_COUNT` 回で終わる。
+ */
+export async function runUsageSchedule(
+  deps: UsageScheduleDeps,
+): Promise<UsageScheduleResult> {
+  const datasets =
+    await deps.client.get<ListResponse<InsightsDataset>>("ScheduledDataset");
+  const usage = datasets?.value?.find((d) => d.datasetName === "UsageDaily");
+  if (!usage?.selectableColumns?.length) {
+    throw new Error("ScheduledDataset に UsageDaily の列がありません");
+  }
+  // 期間と間隔は、データセットの宣言で確かめる。宣言が無ければ、満たさないものとして伝える。
+  if (!usage.availableDateRanges?.includes("LAST_30_DAYS")) {
+    throw new Error(
+      `UsageDaily で LAST_30_DAYS を選べません（選べる期間: ${usage.availableDateRanges?.join(", ") ?? "宣言なし"}）`,
+    );
+  }
+  const minimum = usage.minimumRecurrenceInterval;
+  if (minimum === undefined || SCHEDULE_INTERVAL_HOURS < minimum) {
+    throw new Error(
+      `UsageDaily の最小の繰り返し間隔（${minimum ?? "宣言なし"} 時間）が、${SCHEDULE_INTERVAL_HOURS} 時間の間隔を満たしません`,
+    );
+  }
+
+  const query = buildUsageDailyQuery(
+    deps.productId,
+    usage.selectableColumns,
+    "LAST_30_DAYS",
+  );
+  deps.evidence?.json("query", { name: USAGE_SCHEDULE_QUERY_NAME, query });
+  const { queryId, reused } = await findOrCreateQuery(deps, {
+    name: USAGE_SCHEDULE_QUERY_NAME,
+    description: "md peruse UsageDaily last 30 days daily",
+    query,
+  });
+  deps.log(
+    `問い合わせ: ${reused ? "既存を再利用" : "新規に作成"}（${queryId}）`,
+  );
+
+  // 資料の形式は yyyy-MM-ddTHH:mm:ssZ（ミリ秒なし）。
+  const startTime = new Date(deps.now().getTime() + SCHEDULE_START_DELAY_MS)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z");
+  const created = await deps.client.post<ListResponse<ReportItem>>(
+    "ScheduledReport",
+    {
+      reportName: USAGE_SCHEDULE_REPORT_NAME,
+      description: "md peruse UsageDaily scheduled daily to check recurrence",
+      queryId,
+      startTime,
+      recurrenceInterval: SCHEDULE_INTERVAL_HOURS,
+      recurrenceCount: SCHEDULE_COUNT,
+      format: "csv",
+    },
+  );
+  deps.evidence?.json("schedule", redactLinks(created));
+  const reportId = created?.value?.[0]?.reportId;
+  if (!reportId) {
+    throw new Error("ScheduledReport の応答に reportId がありません");
+  }
+  deps.log(
+    `繰り返しのレポートを作成しました（${reportId}。開始 ${startTime}、${SCHEDULE_INTERVAL_HOURS} 時間ごとに ${SCHEDULE_COUNT} 回）`,
+  );
+  return {
+    reportId,
+    queryId,
+    startTime,
+    recurrenceInterval: SCHEDULE_INTERVAL_HOURS,
+    recurrenceCount: SCHEDULE_COUNT,
+  };
+}
+
+export function usageScheduleMarkdown(result: UsageScheduleResult): string {
+  return [
+    "## Insights API: 繰り返しのレポートを作成した",
+    "",
+    "| 項目 | 値 |",
+    "| --- | --- |",
+    `| reportId | ${result.reportId} |`,
+    `| queryId | ${result.queryId} |`,
+    `| 開始（UTC） | ${result.startTime} |`,
+    `| 間隔 | ${result.recurrenceInterval} 時間ごと |`,
+    `| 回数 | ${result.recurrenceCount} |`,
+    "",
+    "実行の状態は、`mode=usage-status` の `report_id` に、この reportId を指定して確かめる。",
+    "",
+  ].join("\n");
 }
 
 // `executionStatus` の有効な値（Get report executions API の資料。
