@@ -26,7 +26,12 @@ import {
 } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { isFailureStatus, StoreClient, waitForIngestion } from "./client";
+import {
+  assertReadOnlyJob,
+  isFailureStatus,
+  StoreClient,
+  waitForIngestion,
+} from "./client";
 import { readListingTable } from "./csv";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import { buildListingPatch, type ListingPatch } from "./listing";
@@ -50,6 +55,20 @@ import {
   verifyReplacement,
 } from "./verify";
 import { createZip } from "./zip";
+
+/**
+ * 読み取りだけのモード（`--apply` を付けない）。承認なしの Environment（`store-readonly`）で動かし、
+ * 書き込みを拒否する読み取り専用のクライアントで動く。ワークフローのジョブの分け方と一致することを、
+ * `workflows.test.ts` が検査する。
+ */
+export const READ_ONLY_SUBMIT_MODES: readonly string[] = ["dry-run", "inspect"];
+
+/** 申請（下書き）を作る・更新する・commit するモード。承認のある Environment（`store-production`）で動かす。 */
+export const WRITE_SUBMIT_MODES: readonly string[] = [
+  "clone-only",
+  "draft-only",
+  "apply",
+];
 
 export interface RunOptions {
   /** `listingData.csv` と画像を直下に置いたフォルダー（インポート用フォルダー）。 */
@@ -402,6 +421,7 @@ if (import.meta.main) {
         "no-commit": { type: "boolean", default: false },
         "clone-only": { type: "boolean", default: false },
         inspect: { type: "boolean", default: false },
+        "read-only": { type: "boolean", default: false },
         "evidence-dir": { type: "string" },
       },
     });
@@ -426,6 +446,12 @@ if (import.meta.main) {
           : options.commit
             ? "apply"
             : "draft-only";
+
+    assertReadOnlyJob(
+      values["read-only"] as boolean,
+      mode,
+      READ_ONLY_SUBMIT_MODES,
+    );
 
     // 証跡は、入力の検査より先に用意する。検査で止まった実走も、記録に残す。
     evidenceDir = values["evidence-dir"];
@@ -484,6 +510,7 @@ if (import.meta.main) {
         clientId,
         clientSecret,
         trace,
+        readOnly: READ_ONLY_SUBMIT_MODES.includes(mode),
       }),
       readText: (path) => readFileSync(path, "utf8"),
       readBytes: (path) => new Uint8Array(readFileSync(path)),
