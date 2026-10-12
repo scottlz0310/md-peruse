@@ -405,7 +405,9 @@ Insights API の繰り返しレポートの最新の `Completed` の実行から
 1. Dropbox の App Console（`https://www.dropbox.com/developers/apps`）で、**Scoped access**・**App folder** のアプリを作る。
 2. **Permissions** で、`files.content.write` と `files.content.read` だけをオンにして、**Submit** する（画面下の黒いバーの Submit は、チェックを変えるまで押せない）。**スコープは、認可した時点の refresh token に固定される**ので、認可は、Submit のあとに行う。
 3. 認可の URL（`https://www.dropbox.com/oauth2/authorize?client_id=<APP_KEY>&response_type=code&token_access_type=offline`）を開いて許可し、出た認可コードで、`https://api.dropbox.com/oauth2/token` に `grant_type=authorization_code` を POST して、`refresh_token` を得る（認可コードは 1 回だけ使え、すぐ失効する）。
-4. `store-readonly` の secrets に、`DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN` を登録する（値は、標準入力から `gh secret set` へ渡す）。
+4. `store-readonly` の secrets に、`DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN` を登録する（値は、標準入力から `gh secret set` へ渡す）。`DROPBOX_REFRESH_TOKEN` は、応答の `refresh_token` の値だけ（引用符の内側。`sl.` で始まる `access_token` ではない）。
+
+**登録の誤りの特定**: Dropbox のトークン取得に失敗（`invalid_grant: refresh token is malformed` など）したとき、失敗の報告に、登録された 3 つの値の**形**（長さ、空白・改行の有無、引用符の有無、英数字と `_` `-` 以外の文字の有無、先頭が `sl.` か）が出る。値そのものは出さない。引用符・改行の混入や、アクセストークンの取り違えを、値を見ずに特定できる。
 
 **限界**: Dropbox の資格情報は、アプリのフォルダー内の読み書きに限られるが、承認なしのジョブが外部へ書く点は、②の2 の限界と同じく、`main` に入るコードの管理に依存する。
 

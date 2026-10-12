@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { FetchLike } from "./client";
-import { DropboxApiError, DropboxClient } from "./dropbox";
+import { DropboxApiError, DropboxClient, describeSecretShape } from "./dropbox";
 
 const APP_KEY = "app-key-1234";
 const APP_SECRET = "app-secret-5678";
@@ -244,5 +244,91 @@ describe("DropboxClient.download", () => {
     const { client, calls } = setup();
     await expect(client.download(path)).rejects.toThrow("/usage-daily/ の下の");
     expect(calls).toHaveLength(0);
+  });
+});
+
+describe("describeSecretShape", () => {
+  test.each([
+    {
+      name: "正しい形（英数字と _ -）",
+      value: "abcDEF123_-xyz",
+      expected:
+        "X: 長さ 14、空白・改行 なし、引用符 なし、英数字と _ - 以外の文字 なし、先頭が sl. なし",
+    },
+    {
+      name: "引用符で囲まれている",
+      value: '"abcDEF123"',
+      expected:
+        "X: 長さ 11、空白・改行 なし、引用符 あり、英数字と _ - 以外の文字 あり、先頭が sl. なし",
+    },
+    {
+      name: "末尾に改行が混ざっている",
+      value: "abcDEF123\n",
+      expected:
+        "X: 長さ 10、空白・改行 あり、引用符 なし、英数字と _ - 以外の文字 あり、先頭が sl. なし",
+    },
+    {
+      name: "アクセストークン（sl. で始まる）を取り違えている",
+      value: "sl.B1abc",
+      expected:
+        "X: 長さ 8、空白・改行 なし、引用符 なし、英数字と _ - 以外の文字 あり、先頭が sl. あり",
+    },
+  ])("$name", ({ value, expected }) => {
+    expect(describeSecretShape("X", value)).toBe(expected);
+  });
+
+  test("値そのものは、説明に含めない", () => {
+    expect(describeSecretShape("X", "super-secret-value")).not.toContain(
+      "super-secret-value",
+    );
+  });
+});
+
+describe("DropboxClient: トークンの取得の失敗に、登録された値の形を添える", () => {
+  const malformed = () =>
+    new Response(
+      JSON.stringify({
+        error: "invalid_grant",
+        error_description: "refresh token is malformed",
+      }),
+      { status: 400 },
+    );
+
+  function clientWith(refreshToken: string) {
+    const fetchFn: FetchLike = async () => malformed();
+    return new DropboxClient({
+      fetch: fetchFn,
+      appKey: APP_KEY,
+      appSecret: APP_SECRET,
+      refreshToken,
+    });
+  }
+
+  test.each([
+    {
+      name: "引用符と改行が混ざった値",
+      token: '"refresh-token-abcd"\n',
+      flags:
+        "長さ 21、空白・改行 あり、引用符 あり、英数字と _ - 以外の文字 あり、先頭が sl. なし",
+    },
+    {
+      name: "アクセストークンを登録した値",
+      token: "sl.accessTokenValue",
+      flags:
+        "長さ 19、空白・改行 なし、引用符 なし、英数字と _ - 以外の文字 あり、先頭が sl. あり",
+    },
+  ])("$name を、値を出さずに特定できる", async ({ token, flags }) => {
+    const error = await clientWith(token)
+      .upload("/usage-daily/a.csv", "x")
+      .catch((e) => e);
+    const message = (error as Error).message;
+    expect(message).toContain("refresh token is malformed");
+    expect(message).toContain(`DROPBOX_REFRESH_TOKEN: ${flags}`);
+    expect(message).toContain("DROPBOX_APP_KEY: 長さ 12");
+    expect(message).toContain("DROPBOX_APP_SECRET: 長さ 15");
+    // 値そのものは、どの形でも出さない。
+    expect(message).not.toContain(token.trim());
+    expect(message).not.toContain(APP_SECRET);
+    expect(message).not.toContain(APP_KEY);
   });
 });
