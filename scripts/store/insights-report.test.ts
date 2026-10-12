@@ -24,13 +24,25 @@ const COLUMNS = [
   "DailySessionCount",
 ];
 
+// 実際の CSV の形（run 38190395495）。SubscriptionName・DeviceType・Market の組み合わせごとに、
+// 個別の行と `All` の集計行が並ぶ。全体の集計行（3 つとも All）だけが、重複なしの値になる。
+const CSV_HEADER =
+  "ProductId,SubscriptionName,DeviceType,PackageVersion,Market,Date,DailySessionCount";
 const CSV = [
-  "ProductId,PackageVersion,Market,Date,DailySessionCount",
-  "9P35BW61FN4W,0.1.1.0,JP,2026-10-08,8",
-  "9P35BW61FN4W,0.1.1.0,JP,2026-10-09,4",
-  "9P35BW61FN4W,0.2.1.0,JP,2026-10-10,3",
+  CSV_HEADER,
+  "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-08,8",
+  "9P35BW61FN4W,null,PC,0.1.1.0,JP,2026-10-08,8",
+  "9P35BW61FN4W,All,PC,0.1.1.0,All,2026-10-08,8",
+  "9P35BW61FN4W,All,All,0.1.1.0,All,2026-10-09,4",
+  "9P35BW61FN4W,null,PC,0.1.1.0,JP,2026-10-09,4",
+  "9P35BW61FN4W,All,All,0.2.1.0,All,2026-10-10,3",
+  "9P35BW61FN4W,null,PC,0.2.1.0,JP,2026-10-10,3",
+  "9P35BW61FN4W,All,All,All,All,2026-10-08,8",
+  "9P35BW61FN4W,All,All,All,All,2026-10-09,4",
+  "9P35BW61FN4W,All,All,All,All,2026-10-10,3",
   "",
 ].join("\r\n");
+const CSV_ROWS = 10;
 
 describe("buildUsageDailyQuery", () => {
   test("製品 ID で絞り、直近 3 か月・日次で取る", () => {
@@ -41,9 +53,9 @@ describe("buildUsageDailyQuery", () => {
 });
 
 describe("summarizeUsageCsv", () => {
-  test("版ごとに、行数・日付の範囲・セッション数を数える（CRLF・末尾の空行）", () => {
+  test("全体の集計行だけで、版ごとの行数・日付の範囲・セッション数を数える（個別の行は二重に数えない。CRLF・末尾の空行）", () => {
     const summary = summarizeUsageCsv(CSV);
-    expect(summary.rows).toBe(3);
+    expect(summary.rows).toBe(CSV_ROWS);
     expect(summary.markets).toEqual(["JP"]);
     expect(summary.byVersion).toEqual([
       {
@@ -61,6 +73,14 @@ describe("summarizeUsageCsv", () => {
         sessions: 3,
       },
     ]);
+    // 版が `All` の全体の集計行は、版別ではなく、全版の合計として分ける。
+    expect(summary.total).toEqual({
+      packageVersion: "All",
+      rows: 3,
+      firstDate: "2026-10-08",
+      lastDate: "2026-10-10",
+      sessions: 15,
+    });
   });
 
   test.each([
@@ -72,18 +92,27 @@ describe("summarizeUsageCsv", () => {
     {
       name: "必要な列が無ければ、足りない列と実際の列を示す",
       csv: "ProductId,Date\r\n9P35BW61FN4W,2026-10-08\r\n",
-      message: "PackageVersion, DailySessionCount, Market",
+      message:
+        "PackageVersion, DailySessionCount, Market, DeviceType, SubscriptionName",
     },
   ])("$name", ({ csv, message }) => {
     expect(() => summarizeUsageCsv(csv)).toThrow(message);
   });
 
   test("行が無い（見出しだけ）の CSV は、0 行として扱う", () => {
-    const summary = summarizeUsageCsv(
-      "ProductId,PackageVersion,Market,Date,DailySessionCount\r\n",
-    );
+    const summary = summarizeUsageCsv(`${CSV_HEADER}\r\n`);
     expect(summary.rows).toBe(0);
     expect(usageSummaryMarkdown(summary)).toContain("行数: 0");
+  });
+
+  test("Markdown に、版別と全版の合計を出す", () => {
+    const markdown = usageSummaryMarkdown(summarizeUsageCsv(CSV));
+    expect(markdown).toContain(
+      "| 0.1.1.0 | 2 | 2026-10-08 〜 2026-10-09 | 12 |",
+    );
+    expect(markdown).toContain(
+      "| （全版の合計） | 3 | 2026-10-08 〜 2026-10-10 | 15 |",
+    );
   });
 });
 
@@ -219,7 +248,7 @@ describe("runUsageOnce", () => {
 
     const summary = await runUsageOnce(deps);
 
-    expect(summary.rows).toBe(3);
+    expect(summary.rows).toBe(CSV_ROWS);
     // CSV の原本が、そのまま証跡のフォルダーへ渡る。
     expect(files["usage-daily.csv"]).toBe(CSV);
     expect(calls).toContain(`POST ${BASE}/ScheduledQueries`);
@@ -263,7 +292,7 @@ describe("runUsageOnce", () => {
     const result = await runUsageOnce(deps).catch((e) => e);
     expect(calls.includes(`POST ${BASE}/ScheduledQueries`)).toBe(created);
     if (created) {
-      expect((result as { rows: number }).rows).toBe(3);
+      expect((result as { rows: number }).rows).toBe(CSV_ROWS);
     } else {
       expect((result as Error).message).toContain("HTTP 403");
     }
@@ -488,7 +517,7 @@ describe("runUsageStatus", () => {
     });
     const result = await runUsageStatus(deps);
 
-    expect(result.csv?.rows).toBe(3);
+    expect(result.csv?.rows).toBe(CSV_ROWS);
     expect(files["usage-daily.csv"]).toBe(CSV);
     expect(result.probes.map((p) => p.status)).toEqual([
       undefined,
