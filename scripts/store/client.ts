@@ -31,6 +31,12 @@ export interface StoreClientOptions {
   trace?: (line: string) => void;
   /** 所要時間の計測に使う時刻（ミリ秒）。テストで差し替える。 */
   now?: () => number;
+  /**
+   * 読み取り専用。トークンの取得と `GET`（署名つき URL からの取得を含む）以外は、送る前に拒否する。
+   * 承認なしで動かす Environment（`store-readonly`）の資格情報は、書き込みもできる強さのため、
+   * 書き込みをしないことは、このクライアントが強制する。
+   */
+  readOnly?: boolean;
 }
 
 export const DEFAULT_BASE_URL =
@@ -72,6 +78,32 @@ export class StoreApiError extends Error {
     this.name = "StoreApiError";
     this.responseBody = detail.responseBody;
     this.correlation = detail.correlation;
+  }
+}
+
+/** 読み取り専用のクライアントが、書き込みの呼び出しを拒否したときの例外。 */
+export class StoreReadOnlyError extends Error {
+  constructor(what: string) {
+    super(
+      `読み取り専用のクライアントでは、書き込みの呼び出しはできません: ${what}`,
+    );
+    this.name = "StoreReadOnlyError";
+  }
+}
+
+/**
+ * 承認のない読み取り専用のジョブ（`--read-only`）で、読み取りでないモードを動かそうとしていないかを確かめる。
+ * ジョブの取り違え（書き込みのモードを `store-readonly` で動かす）を、スクリプト側でも止める。
+ */
+export function assertReadOnlyJob(
+  readOnlyJob: boolean,
+  mode: string,
+  readOnlyModes: readonly string[],
+): void {
+  if (readOnlyJob && !readOnlyModes.includes(mode)) {
+    throw new Error(
+      `承認のない読み取り専用のジョブでは、mode=${mode} は実行できません（読み取りのモード: ${readOnlyModes.join("、")}）`,
+    );
   }
 }
 
@@ -120,6 +152,10 @@ export class StoreClient {
     this.trace(
       `${what} → HTTP ${status}（${this.now() - startedAt} ms${suffix}）`,
     );
+  }
+
+  private assertWritable(what: string): void {
+    if (this.options.readOnly) throw new StoreReadOnlyError(what);
   }
 
   private async accessToken(): Promise<string> {
@@ -177,6 +213,8 @@ export class StoreClient {
     path: string,
     body?: unknown,
   ): Promise<T | undefined> {
+    // トークンの取得より前に拒否する（読み取り専用のとき、書き込みのために資格情報を使わない）。
+    if (method !== "GET") this.assertWritable(`${method} ${path}`);
     const token = await this.accessToken();
     const startedAt = this.now();
     const response = await this.fetchFn(`${this.baseUrl}/${path}`, {
@@ -240,6 +278,7 @@ export class StoreClient {
 
   /** 申請ごとの SAS URL へ ZIP をアップロードする。URL は署名を含むので、メッセージにも記録にも出さない。 */
   async uploadZip(uploadUrl: string, zip: Uint8Array): Promise<void> {
+    this.assertWritable("PUT ZIP のアップロード");
     const startedAt = this.now();
     const response = await this.fetchFn(uploadUrl, {
       method: "PUT",

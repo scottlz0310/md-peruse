@@ -1,11 +1,16 @@
 name: Store Submit
 
 # Microsoft Store の掲載情報（文章・スクリーンショット）を、Submission API で更新して提出する。
-# 手動起動だけで動かし、Environment `store-production` の承認（Required reviewers）を通ってから、
-# 資格情報を使う。方針と運用は docs/store-submission.md 9章。
+# 手動起動だけで動かす。承認（Environment `store-production` の Required reviewers）を残すのは、不可逆な
+# 操作と、外部への書き込みを伴う作業（clone-only、draft-only、apply）だけ（2026-10-12 にユーザーが決めた）。
+# 読み取りだけのモード（dry-run、inspect）は、承認のない Environment `store-readonly` で動かす。その資格情報は
+# 書き込みもできる強さなので、書き込まないことは、`--read-only` と、読み取り専用のクライアント
+# （scripts/store/client.ts の `readOnly`）が強制する。モードの分類の正本は scripts/store/submit.ts の
+# READ_ONLY_SUBMIT_MODES / WRITE_SUBMIT_MODES で、このワークフローのジョブの分け方との一致は
+# scripts/store/workflows.test.ts が検査する。方針と運用は docs/store-submission.md 9章。
 #
 # 運用は段階を踏む: まず mode=dry-run で差分を確かめ（読み取りだけ）、問題がなければ mode=apply で
-# 提出する。どの mode でも承認を求める。初回だけ、clone-only と draft-only で実測してから apply へ進む。
+# 提出する。書き込みのモード（clone-only、draft-only、apply）は承認を求める。初回だけ、clone-only と draft-only で実測してから apply へ進む。
 #   dry-run    : 読み取りだけ。Step Summary に、何が変わるかを出す
 #   clone-only : 申請（下書き）を作って、公開済みの申請との違いを出すだけ。更新も commit もしない
 #   draft-only : 申請を作り、変更して、ZIP をアップロードするが、commit しない
@@ -23,7 +28,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "dry-run: 差分を見るだけ / clone-only: 下書きを作って複製の違いを見るだけ / draft-only: 更新するが commit しない / apply: 提出する / inspect: 申請の状態を読んで CSV と照合する（読み取りだけ）"
+        description: "dry-run: 差分を見るだけ（読み取りだけ。承認なし） / inspect: 申請の状態を読んで CSV と照合する（読み取りだけ。承認なし） / clone-only: 下書きを作って複製の違いを見るだけ（承認あり） / draft-only: 更新するが commit しない（承認あり） / apply: 提出する（承認あり）"
         type: choice
         options: [dry-run, clone-only, draft-only, apply, inspect]
         default: dry-run
@@ -49,9 +54,61 @@ concurrency:
   group: store-submit
   cancel-in-progress: false
 
+# `read` と `write` は、同じ手順で、違いは Environment、`--read-only`、受け付けるモードだけ。片方を直したら、もう片方も直す。
 jobs:
-  submit:
-    name: Store 提出（${{ inputs.mode }}）
+  read:
+    name: Store 読み取り（${{ inputs.mode }}。承認なし）
+    if: ${{ inputs.mode == 'dry-run' || inputs.mode == 'inspect' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: store-readonly
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # 資格情報を渡すジョブなので、依存関係をインストールしない。scripts/store は Bun の標準ライブラリだけで
+      # 動き、パッケージのインストール スクリプトを資格情報の近くで動かす理由がない。
+      # 入力は環境変数で受け、シェルのコマンドへ直接展開しない。
+      - name: 提出
+        env:
+          MODE: ${{ inputs.mode }}
+          LANGUAGES: ${{ inputs.languages }}
+          REPLACE_SCREENSHOTS: ${{ inputs.replace_screenshots }}
+          PUBLISH_MODE: ${{ inputs.publish_mode }}
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: |
+          args=(--listing docs/assets/store --languages "$LANGUAGES" --publish-mode "$PUBLISH_MODE" --evidence-dir "$RUNNER_TEMP/store-evidence" --read-only)
+          if [ "$REPLACE_SCREENSHOTS" = "true" ]; then
+            args+=(--replace-screenshots)
+          fi
+          case "$MODE" in
+            dry-run) ;;
+            inspect) args+=(--inspect) ;;
+            *) echo "mode が不正です（このジョブは dry-run と inspect だけ）: $MODE" >&2; exit 1 ;;
+          esac
+          bun run store:submit "${args[@]}"
+
+      # 失敗しても保存する。Store の API は、実走でしか分からない拒否が多いので、呼び出しのトレース、申請の
+      # JSON、PUT の本文と応答を、あとから読めるようにする（資格情報と署名つき URL は、書き出す前に取り除く）。
+      # 資格情報を渡すステップとは分ける。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: store-evidence-${{ inputs.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/store-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  write:
+    name: Store 提出（${{ inputs.mode }}。承認あり）
+    if: ${{ inputs.mode == 'clone-only' || inputs.mode == 'draft-only' || inputs.mode == 'apply' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: store-production
@@ -81,12 +138,10 @@ jobs:
             args+=(--replace-screenshots)
           fi
           case "$MODE" in
-            dry-run) ;;
             clone-only) args+=(--apply --clone-only) ;;
             draft-only) args+=(--apply --no-commit) ;;
             apply) args+=(--apply) ;;
-            inspect) args+=(--inspect) ;;
-            *) echo "mode が不正です: $MODE" >&2; exit 1 ;;
+            *) echo "mode が不正です（このジョブは clone-only、draft-only、apply だけ）: $MODE" >&2; exit 1 ;;
           esac
           bun run store:submit "${args[@]}"
 

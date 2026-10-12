@@ -9,7 +9,7 @@
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { StoreClient } from "./client";
+import { assertReadOnlyJob, StoreClient } from "./client";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import {
   runUsageOnce,
@@ -21,12 +21,17 @@ import {
 } from "./insights-report";
 import { redactText } from "./redact";
 
-export const MODES: readonly string[] = [
-  "datasets",
-  "usage-once",
-  "usage-status",
-  "usage-schedule",
-];
+/**
+ * 読み取りだけのモード。承認なしの Environment（`store-readonly`）で動かし、書き込みを拒否する
+ * 読み取り専用のクライアントで動く。ワークフローのジョブの分け方と一致することを、
+ * `workflows.test.ts` が検査する。
+ */
+export const READ_ONLY_MODES: readonly string[] = ["datasets", "usage-status"];
+
+/** Partner Center へ書き込むモード。承認のある Environment（`store-production`）で動かす。 */
+export const WRITE_MODES: readonly string[] = ["usage-once", "usage-schedule"];
+
+export const MODES: readonly string[] = [...READ_ONLY_MODES, ...WRITE_MODES];
 
 export const INSIGHTS_BASE_URL =
   "https://manage.devcenter.microsoft.com/consumer/insights/v1.1";
@@ -149,6 +154,7 @@ if (import.meta.main) {
         "evidence-dir": { type: "string" },
         mode: { type: "string", default: "datasets" },
         "report-id": { type: "string" },
+        "read-only": { type: "boolean", default: false },
       },
     });
     mode = values.mode as string;
@@ -157,6 +163,7 @@ if (import.meta.main) {
         `--mode は ${MODES.join(" か ")} を指定してください: ${mode}`,
       );
     }
+    assertReadOnlyJob(values["read-only"] as boolean, mode, READ_ONLY_MODES);
     evidenceDir = values["evidence-dir"];
     if (evidenceDir) {
       evidence = createEvidence({
@@ -191,6 +198,7 @@ if (import.meta.main) {
       clientSecret,
       baseUrl: INSIGHTS_BASE_URL,
       trace: (line) => log(`[trace] ${line}`),
+      readOnly: READ_ONLY_MODES.includes(mode),
     });
 
     const saveFile = evidenceDir

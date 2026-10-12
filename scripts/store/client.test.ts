@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assertReadOnlyJob,
   type FetchLike,
   isFailureStatus,
   StoreApiError,
   StoreClient,
   type StoreClientOptions,
+  StoreReadOnlyError,
   waitForIngestion,
 } from "./client";
 
@@ -512,5 +514,97 @@ describe("waitForIngestion", () => {
     expect(result.timeline).toHaveLength(3);
     // 最後の読み取りの後は、待たない。
     expect(sleeps).toEqual([10_000, 10_000]);
+  });
+});
+
+describe("読み取り専用のクライアント（承認なしの store-readonly で使う）", () => {
+  test("読み取り（GET と、署名つき URL からの取得）は、できる。書き込みの呼び出しは、トークンの取得も含めて、していない", async () => {
+    const { client, calls } = setup(route, { readOnly: true });
+
+    await client.getApplication();
+    await client.getSubmission("sub-1");
+    await client.getStatus("sub-1");
+    await client.get("ScheduledDataset");
+    await client.downloadText("https://blob.example/report.csv?sig=1");
+
+    const apiCalls = calls.filter((c) => c.url !== TOKEN_URL);
+    expect(apiCalls.map((c) => c.method)).toEqual([
+      "GET",
+      "GET",
+      "GET",
+      "GET",
+      "GET",
+    ]);
+  });
+
+  test.each([
+    {
+      name: "post",
+      call: (c: StoreClient) => c.post("ScheduledReport", { a: 1 }),
+    },
+    {
+      name: "createSubmission",
+      call: (c: StoreClient) => c.createSubmission(),
+    },
+    {
+      name: "updateSubmission",
+      call: (c: StoreClient) =>
+        c.updateSubmission({ id: "sub-1" } as unknown as Parameters<
+          StoreClient["updateSubmission"]
+        >[0]),
+    },
+    { name: "commit", call: (c: StoreClient) => c.commit("sub-1") },
+    {
+      name: "uploadZip",
+      call: (c: StoreClient) =>
+        c.uploadZip("https://blob.example/up?sig=1", new Uint8Array([1])),
+    },
+  ])(
+    "書き込み $name は、何も送らずに拒否する（トークンの取得もしない）",
+    async ({ call }) => {
+      const { client, calls } = setup(route, { readOnly: true });
+      await expect(call(client)).rejects.toBeInstanceOf(StoreReadOnlyError);
+      expect(calls).toHaveLength(0);
+    },
+  );
+
+  test("読み取り専用を指定しなければ、書き込みはできる（既存の動き）", async () => {
+    const { client, calls } = setup(route);
+    await client.post("ScheduledReport", { a: 1 });
+    expect(calls.some((c) => c.method === "POST" && c.url !== TOKEN_URL)).toBe(
+      true,
+    );
+  });
+});
+
+describe("assertReadOnlyJob（承認のない読み取り専用のジョブの取り違えを止める）", () => {
+  const READ = ["datasets", "usage-status"];
+
+  test.each([
+    {
+      name: "読み取り専用のジョブで、読み取りのモード",
+      job: true,
+      mode: "datasets",
+      ok: true,
+    },
+    {
+      name: "読み取り専用のジョブで、書き込みのモード",
+      job: true,
+      mode: "usage-schedule",
+      ok: false,
+    },
+    {
+      name: "書き込みのジョブ（--read-only なし）は、どのモードも通す",
+      job: false,
+      mode: "usage-schedule",
+      ok: true,
+    },
+  ])("$name", ({ job, mode, ok }) => {
+    const run = () => assertReadOnlyJob(job, mode, READ);
+    if (ok) expect(run).not.toThrow();
+    else
+      expect(run).toThrow(
+        "承認のない読み取り専用のジョブでは、mode=usage-schedule",
+      );
   });
 });

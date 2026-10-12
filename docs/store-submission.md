@@ -11,7 +11,7 @@
 | 対象アーキテクチャ | x64 のみ。ARM64 は対応外（[design-decisions.md](./design-decisions.md) 3章） |
 | 初回の提出 | 準備とレビュー完了後、GitHub Releaseの公開より先に手動提出する。Partner Center の画面で、あなたが入力し、あなたが提出する |
 | 初回の公開 | 審査に通っても、自動では公開しない（手動公開）。公開の操作は、初回の提出物と掲載内容を確認してから行う |
-| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。資格情報を使う実行（dry-run を含む）の前に、手動承認のゲートを置く。リリースの流れ（版上げ、タグ、GitHub Release、`Package`、Store への提出）は、`release-automate` で自動化する（9.7） |
+| 2回目以降 | Submission API で提出する（パッケージのリリースと、掲載情報だけの更新）。書き込みを伴う実行の前に、手動承認のゲートを置く（読み取りだけの `dry-run` と `inspect` は、承認のない `store-readonly` で動く。9.1、9.4）。リリースの流れ（版上げ、タグ、GitHub Release、`Package`、Store への提出）は、`release-automate` で自動化する（9.7） |
 | 掲載素材（画像、説明文） | ローカルで用意する（イラストの生成を含む）。リポジトリへは、確定した素材と一覧だけを置く（6章） |
 | Partner Center の登録内容との照合 | ローカルで行う（2章の項目） |
 | 実機での確認（MSIX） | ローカルで行う（8章） |
@@ -239,7 +239,7 @@ What it does not do: it does not declare broadFileSystemAccess or any other rest
 | 提出の種類 | ①**パッケージのリリース**（リリースの流れ〔`release.yml`、9.7〕が動かした `Package` の artifact を、そのコミットの掲載情報と一緒に、1 つの申請として送る）。②**掲載情報だけの更新**（タグ、バージョン上げ、GitHub Release は要らない。パッケージは公開済みのまま） |
 | 掲載情報の元 | `docs/assets/store/`（`listingData.csv` と画像）。CSV にある項目のうち、許可リストの項目だけを上書きする。値が空の項目は、申請の値を変えない |
 | 既定の動作 | **dry-run**（読み取りだけ。何が変わるかを表示する）。`--apply` を付けたときだけ、書き込む |
-| 承認 | 資格情報を使う実行は、dry-run も含めて、GitHub の Environment `store-production` の必須レビュアー（あなた）の承認を必要とする（資格情報は Environment の secret で、承認の前は渡らない）。dry-run で差分を確かめてから、`apply` を別の実行として承認する |
+| 承認 | 承認（GitHub の Environment `store-production` の必須レビュアー（あなた））を残すのは、**不可逆な操作と、外部への書き込みを伴う作業**（`clone-only`、`draft-only`、`apply`、リリースの `store` ジョブ、Insights API の書き込み）だけ（2026-10-12にあなたが決めた。資格情報は Environment の secret で、承認の前は渡らない）。読み取りだけの `dry-run` と `inspect` は、承認のない Environment `store-readonly` で動く（9.4 ②の2）。`dry-run` で差分を確かめてから、`apply` を別の実行として承認する |
 | 公開 | 申請が引き継いだ設定に従う。公開方法を `--publish-mode`（既定 `Manual`）で明示し、申請の設定と違えば止める |
 
 進める順序は、次のとおりとする。
@@ -282,7 +282,7 @@ bun run store:submit --listing docs/assets/store
 
 #### ワークフローから使う
 
-GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`）が、このツールを呼ぶ。手動起動だけで動き、起動のたびに Environment `store-production` の承認（必須レビュアー）を求める。承認されるまで、資格情報は使われない。
+GitHub の Actions の **Store Submit**（`.github/workflows/store-submit.yml`）が、このツールを呼ぶ。手動起動だけで動く。書き込みのモード（`clone-only`、`draft-only`、`apply`）は、起動のたびに Environment `store-production` の承認（必須レビュアー）を求め、承認されるまで、資格情報は使われない。読み取りだけのモード（`dry-run`、`inspect`）は、承認のない `store-readonly` で動く（9.4 ②の2）。
 
 | 入力 | 内容 |
 | --- | --- |
@@ -350,9 +350,30 @@ cloud-migrator の `scripts/Configure-StorePublishing.ps1` は、そのままは
 
 **`SELLER_ID` は要らない。** cloud-migrator が使う `msstore` CLI はセットアップでセラー ID を求めるが、Submission API は、テナント ID、クライアント ID、シークレットで認証し、`applications/{Store ID}` を呼ぶだけで、セラー ID を使わない。cloud-migrator の `.env` から値を移すときも、`SELLER_ID` は登録しなくてよい（登録しても使われない）。
 
+#### ②の2 GitHub の Environment `store-readonly`（承認なし。読み取りだけ）
+
+2026-10-12に、承認を残す基準を「不可逆な操作と、外部への書き込みを伴う作業」に絞ると決めた。読み取りだけの `dry-run` と `inspect`（Store Submit）、`datasets` と `usage-status`（Store Insights）は、この Environment で、承認なしで動く。
+
+**保証の変化**: 以前は「資格情報を使う前に、必ず人が見る」だった（2026-10-04に、この保証を保つため、読み取りも `store-production` の承認を求める方針にした）。`store-readonly` の資格情報は、`store-production` と同じ強さで、書き込みもできる。このため、承認の代わりに、次の3つで、書き込まないことを保つ。
+
+1. **モードの分類をコードに置き、ワークフローと一致することをテストで固定する。** 正本は `scripts/store/insights.ts` の `READ_ONLY_MODES`／`WRITE_MODES` と、`scripts/store/submit.ts` の `READ_ONLY_SUBMIT_MODES`／`WRITE_SUBMIT_MODES`。ワークフローは `read`（`store-readonly`）と `write`（`store-production`）の2ジョブに分け、`scripts/store/workflows.test.ts` が、ジョブの `if`、Environment、`--read-only` の有無、入力の選択肢の漏れと重なりを検査する。
+2. **読み取り専用のクライアントが、書き込みを送る前に拒否する。** `StoreClient` の `readOnly` は、トークンの取得と `GET`（署名つき URL からの取得を含む）以外の呼び出し（`POST`、`PUT`、ZIP のアップロード）を、トークンの取得より前に拒否する。読み取りのモードは、常にこのクライアントで動く。`--read-only` のジョブで、書き込みのモードを動かそうとしても、スクリプトが止める（`assertReadOnlyJob`）。
+3. **デプロイできるブランチを `main` だけにする。** `main` に入るコードは、あなたのマージ許可と独立したレビューを通る。
+
+**限界**: 資格情報そのものは、書き込みもできる強さのままで、読み取りの保証は、上の3つに依存する（`main` に入るコードが、承認なしで資格情報を使える）。secret が2か所になるので、ローテーションのときは、両方を更新する。将来の候補（未確認）: Partner Center で Report viewer のロールだけを持つ別の Entra アプリを、Insights の読み取りに使い、資格情報そのものを読み取り専用にする。
+
+**作り方**: リポジトリの Settings の「Environments」で、名前を `store-readonly` にして作る。
+
+1. **Required reviewers は付けない**（承認なし）。Wait timer も付けない。
+2. **Deployment branches and tags** は「Selected branches and tags」にし、ブランチ `main` だけを追加する。
+3. Environment secrets に `AZURE_AD_TENANT_ID`、`AZURE_AD_APPLICATION_CLIENT_ID`、`AZURE_AD_APPLICATION_SECRET` を、Environment variables に `STORE_PRODUCT_ID`（`9P35BW61FN4W`）を登録する。値は `store-production` と同じアプリ（cloud-migrator と共用）のもの。GitHub から secret の値は読めないので、シークレットは、Entra アプリの「証明書とシークレット」で、`store-readonly` 用に新しく発行するとよい（片方が漏れたときに、もう片方を止めずに失効できる）。
+4. **確認**: Actions の **Store Insights** で `datasets`（または **Store Submit** で `dry-run`）を動かし、承認を求められずに成功することを確かめる。
+
+2026-10-12に作成した（Required reviewers なし、デプロイは `main` だけ、secrets 3件、variable 1件）。
+
 #### ③ 初回の実走（確認の手順）
 
-Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**成功しても失敗しても、証跡（呼び出しのトレース、申請の JSON、PUT の本文と応答）が artifact `store-evidence-*` に残る**（9.8。失敗したときは、まずここを読む）。**下の順に、1 つずつ進める。**
+Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。`dry-run` と `inspect` は、承認なしで動く。それ以外は承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**成功しても失敗しても、証跡（呼び出しのトレース、申請の JSON、PUT の本文と応答）が artifact `store-evidence-*` に残る**（9.8。失敗したときは、まずここを読む）。**下の順に、1 つずつ進める。**
 
 1. **`dry-run`**（読み取りだけ）。成功すれば、Entra ID のアプリの資格情報と権限が正しい。失敗の見分け方:
    - 「アクセス トークンを取得できませんでした（HTTP 400／401）」: テナント ID、クライアント ID、シークレットのどれかが違う（シークレットの期限切れも）。

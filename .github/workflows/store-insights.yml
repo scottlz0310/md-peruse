@@ -1,18 +1,25 @@
 name: Store Insights
 
-# Partner Center の Insights API（アプリとゲームの分析データ）で、取得できるデータセットと列を調べる。
-# 読み取りだけで、レポートの作成・予約・ダウンロードはしない。手動起動だけで動かし、Environment
-# `store-production` の承認（Required reviewers）を通ってから資格情報を使う。目的は、継続収集の設計の
-# 前提（SDK のカスタムイベントを返すデータセットがあるか、版別・日別の標準 Sessions が取れるか）を、
+# Partner Center の Insights API（アプリとゲームの分析データ）を呼ぶ。手動起動だけで動かす。目的は、継続収集の
+# 設計の前提（SDK のカスタムイベントを返すデータセットがあるか、版別・日別の標準 Sessions が取れるか）を、
 # 実走で確かめること。
-
-#   datasets   : 読み取りだけ。`Get Datasets` の応答（データセットと列）を証跡に残す
-#   usage-once : UsageDaily（直近 3 か月・日次）の問い合わせを作り（同じ名前は再利用）、レポートを 1 回だけ
-#                実行して CSV を取得する。予約（繰り返し）は作らない。Partner Center の「My reports」に、
-#                問い合わせとレポートが 1 件ずつ残る。CSV は、証跡（artifact）にだけ置く
-#   usage-status: 作成済みのレポート（`report_id`）の実行の状態だけを見直す。新しいレポートは作らない。
+#
+# 承認の基準（2026-10-12 にユーザーが決めた）: 承認（Environment `store-production` の Required reviewers）を
+# 残すのは、不可逆な操作と、外部への書き込みを伴う作業だけ。読み取りだけのモードは、承認のない Environment
+# `store-readonly` で動かす。`store-readonly` の資格情報は、書き込みもできる強さなので、書き込まないことは、
+# `--read-only` と、読み取り専用のクライアント（scripts/store/client.ts の `readOnly`）が強制する。
+# モードの分類の正本は scripts/store/insights.ts の READ_ONLY_MODES / WRITE_MODES で、このワークフローの
+# ジョブの分け方との一致は scripts/store/workflows.test.ts が検査する。
+#
+#   読み取りだけ（`read` ジョブ。承認なし。`store-readonly`）
+#     datasets   : `Get Datasets` の応答（データセットと列）を証跡に残す
+#     usage-status: 作成済みのレポート（`report_id`）の実行の状態だけを見直す。新しいレポートは作らない。
 #                状態の指定なしと、状態ごとの一覧の応答を証跡に残し、完了していれば CSV も取得する
-#   usage-schedule: UsageDaily（直近 30 日・日次）を、Partner Center に 24 時間ごと・3 回だけ繰り返し実行させる
+#   Partner Center へ書き込む（`write` ジョブ。承認あり。`store-production`）
+#     usage-once : UsageDaily（直近 3 か月・日次）の問い合わせを作り（同じ名前は再利用）、レポートを 1 回だけ
+#                実行して CSV を取得する。予約（繰り返し）は作らない。問い合わせとレポートが 1 件ずつ残る。
+#                CSV は、証跡（artifact）にだけ置く
+#     usage-schedule: UsageDaily（直近 30 日・日次）を、Partner Center に 24 時間ごと・3 回だけ繰り返し実行させる
 #                レポートを 1 件作る（繰り返しが成立するかの検証）。開始は、実行の約 4 時間 10 分後（API が 4 時間以上先を求める）。
 #                起動のたびに 1 件増えるので、続けて起動しない。
 #                実行の状態は usage-status で、reportId を指定して確かめる
@@ -21,12 +28,12 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "datasets: データセットと列を調べる（読み取りだけ） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る） / usage-status: 作成済みのレポートの実行の状態を見直す（読み取りだけ。report_id が必要） / usage-schedule: 繰り返し実行するレポートを 1 件作る（Partner Center に書き込む。起動のたびに 1 件増える）"
+        description: "datasets: データセットと列を調べる（読み取りだけ。承認なし） / usage-status: 作成済みのレポートの実行の状態を見直す（読み取りだけ。承認なし。report_id が必要） / usage-once: UsageDaily を 1 回だけ取得する（Partner Center にレポートが 1 件残る。承認あり） / usage-schedule: 繰り返し実行するレポートを 1 件作る（Partner Center に書き込む。起動のたびに 1 件増える。承認あり）"
         type: choice
         options: [datasets, usage-once, usage-status, usage-schedule]
         default: datasets
       report_id:
-        description: "usage-status で見直すレポートの reportId（usage-once のログと証跡 report.json に出る）"
+        description: "usage-status で見直すレポートの reportId（usage-once のログと証跡 report.json、usage-schedule の Step Summary に出る）"
         type: string
         default: ""
 
@@ -37,9 +44,45 @@ concurrency:
   group: store-insights
   cancel-in-progress: false
 
+# `read` と `write` は、同じ手順で、違いは Environment と `--read-only` だけ。片方を直したら、もう片方も直す。
 jobs:
-  datasets:
-    name: Insights API のデータセットを調べる
+  read:
+    name: Insights API を読む（${{ inputs.mode }}。承認なし）
+    if: ${{ inputs.mode == 'datasets' || inputs.mode == 'usage-status' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: store-readonly
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # 資格情報を渡すジョブなので、依存関係をインストールしない（scripts/store は Bun の標準ライブラリだけで動く）。
+      - name: Insights API を読む
+        env:
+          MODE: ${{ inputs.mode }}
+          REPORT_ID: ${{ inputs.report_id }}
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+        run: bun run scripts/store/insights.ts --read-only --mode "$MODE" --report-id "$REPORT_ID" --evidence-dir "$RUNNER_TEMP/insights-evidence"
+
+      # 失敗しても保存する。資格情報を渡すステップとは分ける。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: insights-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/insights-evidence
+          if-no-files-found: warn
+          retention-days: 90
+
+  write:
+    name: Insights API へ書き込む（${{ inputs.mode }}。承認あり）
+    if: ${{ inputs.mode == 'usage-once' || inputs.mode == 'usage-schedule' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: store-production
@@ -51,7 +94,7 @@ jobs:
           bun-version-file: .bun-version
 
       # 資格情報を渡すジョブなので、依存関係をインストールしない（scripts/store は Bun の標準ライブラリだけで動く）。
-      - name: データセットを取得
+      - name: Insights API へ書き込む
         env:
           MODE: ${{ inputs.mode }}
           REPORT_ID: ${{ inputs.report_id }}
