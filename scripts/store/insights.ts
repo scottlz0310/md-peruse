@@ -7,17 +7,14 @@
 // （https://learn.microsoft.com/en-us/partner-center/insights/apps-games-make-your-first-api-call）。
 
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { assertReadOnlyJob, StoreClient } from "./client";
 import { createEvidence, type Evidence, reportFailure } from "./evidence";
 import {
-  runUsageOnce,
   runUsageSchedule,
   runUsageStatus,
   usageScheduleMarkdown,
   usageStatusMarkdown,
-  usageSummaryMarkdown,
 } from "./insights-report";
 import { redactText } from "./redact";
 
@@ -29,7 +26,7 @@ import { redactText } from "./redact";
 export const READ_ONLY_MODES: readonly string[] = ["datasets", "usage-status"];
 
 /** Partner Center へ書き込むモード。承認のある Environment（`store-production`）で動かす。 */
-export const WRITE_MODES: readonly string[] = ["usage-once", "usage-schedule"];
+export const WRITE_MODES: readonly string[] = ["usage-schedule"];
 
 export const MODES: readonly string[] = [...READ_ONLY_MODES, ...WRITE_MODES];
 
@@ -201,11 +198,6 @@ if (import.meta.main) {
       readOnly: READ_ONLY_MODES.includes(mode),
     });
 
-    const saveFile = evidenceDir
-      ? (name: string, text: string) =>
-          writeFileSync(join(evidenceDir as string, name), text)
-      : undefined;
-
     if (mode === "usage-schedule") {
       const result = await runUsageSchedule({
         client,
@@ -224,21 +216,9 @@ if (import.meta.main) {
         client,
         reportId,
         evidence,
-        saveFile,
         log,
       });
       if (summary) appendFileSync(summary, usageStatusMarkdown(result));
-    } else if (mode === "usage-once") {
-      const usage = await runUsageOnce({
-        client,
-        productId: appId,
-        evidence,
-        saveFile,
-        log,
-        sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
-        now: () => new Date(),
-      });
-      if (summary) appendFileSync(summary, usageSummaryMarkdown(usage));
     } else {
       const summaries = await run({ evidence, client, log });
       if (summary) appendFileSync(summary, summaryMarkdown(summaries));

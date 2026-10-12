@@ -101,6 +101,37 @@ describe("store-submit の読み取りのジョブは、書き込みの引数を
   });
 });
 
+describe("store-usage-archive（日別の利用統計を Dropbox へ保存する）", () => {
+  const workflow = load("store-usage-archive.yml");
+  const archive = workflow.jobs.archive as Job;
+
+  test("ジョブは archive の 1 つだけで、承認のない store-readonly で動く", () => {
+    expect(Object.keys(workflow.jobs)).toEqual(["archive"]);
+    expect(archive.environment).toBe("store-readonly");
+  });
+
+  test("読み取り専用（--read-only）で、日別の値を出さない usage-archive.ts だけを動かす", () => {
+    const run = runOf(archive);
+    expect(run).toContain("--read-only");
+    expect(run).toContain("scripts/store/usage-archive.ts");
+    // 書き込みの経路（申請・レポートの作成）は、このワークフローに無い。
+    for (const forbidden of ["submit.ts", "insights.ts", "--apply"]) {
+      expect(run).not.toContain(forbidden);
+    }
+  });
+
+  test("毎日の自動実行と手動起動ができ、変数が未設定のときの自動実行は動かさない", () => {
+    const on = workflow.on as unknown as {
+      schedule?: Array<{ cron: string }>;
+      workflow_dispatch?: unknown;
+    };
+    expect(on.schedule).toHaveLength(1);
+    expect(on.schedule?.[0]?.cron).toMatch(/^\d+ \d+ \* \* \*$/);
+    expect(on.workflow_dispatch).toBeDefined();
+    expect(archive.if).toContain("STORE_USAGE_REPORT_ID != ''");
+  });
+});
+
 describe("全ワークフロー", () => {
   const files = readdirSync(WORKFLOWS_DIR).filter((f) => f.endsWith(".yml"));
 

@@ -1,0 +1,71 @@
+name: Store Usage Archive
+
+# Insights API の繰り返しレポートの最新の完了した実行から、日別の利用統計（CSV）を取り、Dropbox へ保存する。
+# 毎日の自動実行と、手動起動ができる。
+#
+# 読み取りだけのジョブ（承認なしの Environment `store-readonly`）。Partner Center へは書かない（`--read-only` と、
+# 読み取り専用のクライアントが強制する）。書く先は Dropbox のアプリ専用フォルダー（App folder 型）だけで、
+# その中の `/usage-daily/` の下に限る（scripts/store/dropbox.ts）。
+#
+# このリポジトリは公開で、artifact・ログ・Step Summary は誰でも読める。日別の値は、それらに出さない
+# （残すのは、行数・日付の範囲・サイズ・保存先のパスだけ）。値は Dropbox にだけある。
+#
+# 対象のレポートは、リポジトリの変数 `STORE_USAGE_REPORT_ID`（Store Insights の `usage-schedule` が作る
+# 繰り返しレポートの reportId）。変数が未設定のときは、自動実行を行わない（手動起動では `report_id` で指定する）。
+# 繰り返しレポートには回数の上限がある（Daily 180 回、Weekly 52 回、Monthly 24 回）。使い切ったら、作り直して変数を更新する。
+# 自動実行は、リポジトリに 60 日間の活動が無いと、GitHub が止める（その場合は手動で有効化する）。
+
+on:
+  schedule:
+    # 09:00 UTC（18:00 JST）。繰り返しレポートの実行は、開始から約 40 分で完了する。
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+    inputs:
+      report_id:
+        description: "保存するレポートの reportId（空なら、変数 STORE_USAGE_REPORT_ID）"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-usage-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    name: 日別の利用統計を Dropbox へ保存する（承認なし）
+    if: ${{ github.event_name != 'schedule' || vars.STORE_USAGE_REPORT_ID != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: store-readonly
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      # 資格情報を渡すジョブなので、依存関係をインストールしない（scripts/store は Bun の標準ライブラリだけで動く）。
+      - name: 日別の利用統計を Dropbox へ保存する
+        env:
+          REPORT_ID: ${{ inputs.report_id || vars.STORE_USAGE_REPORT_ID }}
+          STORE_PRODUCT_ID: ${{ vars.STORE_PRODUCT_ID }}
+          AZURE_AD_TENANT_ID: ${{ secrets.AZURE_AD_TENANT_ID }}
+          AZURE_AD_APPLICATION_CLIENT_ID: ${{ secrets.AZURE_AD_APPLICATION_CLIENT_ID }}
+          AZURE_AD_APPLICATION_SECRET: ${{ secrets.AZURE_AD_APPLICATION_SECRET }}
+          DROPBOX_APP_KEY: ${{ secrets.DROPBOX_APP_KEY }}
+          DROPBOX_APP_SECRET: ${{ secrets.DROPBOX_APP_SECRET }}
+          DROPBOX_REFRESH_TOKEN: ${{ secrets.DROPBOX_REFRESH_TOKEN }}
+        run: bun run scripts/store/usage-archive.ts --read-only --report-id "$REPORT_ID" --evidence-dir "$RUNNER_TEMP/usage-archive-evidence"
+
+      # 失敗しても保存する（日別の値は含まない）。資格情報を渡すステップとは分ける。
+      - name: 証跡を保存
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: usage-archive-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/usage-archive-evidence
+          if-no-files-found: warn
+          retention-days: 90

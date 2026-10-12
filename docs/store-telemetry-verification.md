@@ -123,4 +123,4 @@
 2. **Microsoftがデータセットを提供するかの再確認**: `Store Insights` ワークフローを `mode=datasets` で起動し（`store-production` の承認が要る）、データセットの一覧（`datasets.json`）に、カスタムイベントを返すものが加わっていないかを確かめる。数か月に1度で足りる。
 3. **要望**: カスタムイベントを、Insights APIまたはDownloads hubのデータセットとして提供するよう、Microsoftへ要望する。
 
-標準Usage（版別・日別のSessionsなど）の継続収集は、Insights APIの `UsageDaily` で自動化できる可能性があり、カスタムイベントとは別の項目として扱う（`tasks.md` のInsights APIの項目）。
+標準Usage（版別・日別のSessionsなど）の継続収集は、Insights APIの `UsageDaily` で自動化する。カスタムイベントとは別の項目として扱う（`tasks.md` のInsights APIの項目）。繰り返しレポートの最新の `Completed` の実行のCSVを、毎日、非公開のDropboxへ保存する（[store-submission.md](./store-submission.md) 9.4 ②の3）。日別の値は、公開リポジトリの artifact・ログ・Step Summary に出さない。

@@ -371,6 +371,30 @@ cloud-migrator の `scripts/Configure-StorePublishing.ps1` は、そのままは
 
 2026-10-12に作成した（Required reviewers なし、デプロイは `main` だけ、secrets 3件、variable 1件）。
 
+#### ②の3 日別の利用統計の Dropbox への保存（`store-usage-archive.yml`）
+
+Insights API の繰り返しレポートの最新の `Completed` の実行から、日別の利用統計（`UsageDaily` の CSV）を取り、Dropbox へ保存する。毎日 18:00 JST（手動起動もできる）。`store-readonly`（承認なし）で動く、読み取りだけのジョブ。
+
+**日別の値は、公開の記録に出さない。** このリポジトリは公開で、artifact・ログ・Step Summary は誰でも読める。残すのは、行数・日付の範囲・サイズ・保存先のパスだけ。値は、非公開の Dropbox にだけある。`Store Insights` の `usage-status` も、状態の確認だけで、CSV は取得しない（2026-10-12に、`usage-once` を削除し、`usage-status` の CSV 取得をやめた）。
+
+**書き込み先は Dropbox のアプリ専用フォルダーだけ。** `store-readonly` の Partner Center の資格情報は、書き込みもできる強さだが、このジョブは、読み取り専用のクライアントで動く（②の2）。Dropbox へ書く資格情報は別で、次の2つで範囲を限る。
+
+1. **Dropbox アプリ `md-peruse-insights`**: Scoped App の **App folder** 型で、アプリ専用のフォルダー（Dropbox 上は `アプリ/md-peruse-insights`）の外へは、書けない。スコープは `files.content.write` と `files.content.read` だけ。
+2. **コード（`scripts/store/dropbox.ts`）**: 書き込み先を、アプリのフォルダー内の `/usage-daily/` の下の、英数字と `.` `_` `-` `/` だけのパスに限る。範囲外は、トークンを取る前に拒否する。API は、トークンの取得と `files/upload` だけを呼ぶ。
+
+**保存の形**: `/usage-daily/snapshots/usage-daily_<実行の生成時刻>.csv`（例 `usage-daily_20261011T234219Z.csv`）に、CSV の原本をそのまま書く。同じ実行は、同じ名前を上書きするだけ（冪等）。各スナップショットは、直近 30 日分を含み、重なる。統合は、分析のときに行う（生スナップショットが正本）。
+
+**対象のレポート**: リポジトリの変数 `STORE_USAGE_REPORT_ID`（`usage-schedule` が作る繰り返しレポートの reportId）。未設定のときは、自動実行は動かない。手動起動では、`report_id` で指定する。完了した実行が無いとき、ジョブは失敗する（失敗の通知で気づく）。繰り返しレポートには、回数の上限がある（Daily 180 回、Weekly 52 回、Monthly 24 回）。使い切る前に、作り直して変数を更新する。
+
+**作り方**:
+
+1. Dropbox の App Console（`https://www.dropbox.com/developers/apps`）で、**Scoped access**・**App folder** のアプリを作る。
+2. **Permissions** で、`files.content.write` と `files.content.read` だけをオンにして、**Submit** する（画面下の黒いバーの Submit は、チェックを変えるまで押せない）。**スコープは、認可した時点の refresh token に固定される**ので、認可は、Submit のあとに行う。
+3. 認可の URL（`https://www.dropbox.com/oauth2/authorize?client_id=<APP_KEY>&response_type=code&token_access_type=offline`）を開いて許可し、出た認可コードで、`https://api.dropbox.com/oauth2/token` に `grant_type=authorization_code` を POST して、`refresh_token` を得る（認可コードは 1 回だけ使え、すぐ失効する）。
+4. `store-readonly` の secrets に、`DROPBOX_APP_KEY`、`DROPBOX_APP_SECRET`、`DROPBOX_REFRESH_TOKEN` を登録する（値は、標準入力から `gh secret set` へ渡す）。
+
+**限界**: Dropbox の資格情報は、アプリのフォルダー内の読み書きに限られるが、承認なしのジョブが外部へ書く点は、②の2 の限界と同じく、`main` に入るコードの管理に依存する。
+
 #### ③ 初回の実走（確認の手順）
 
 Actions の **Store Submit** で「Run workflow」を押し（ブランチは `main`）、`mode` を選ぶ。`dry-run` と `inspect` は、承認なしで動く。それ以外は承認の待ちになるので、実行の画面の「Review deployments」で承認する。結果は、実行の Step Summary とログに出る。**成功しても失敗しても、証跡（呼び出しのトレース、申請の JSON、PUT の本文と応答）が artifact `store-evidence-*` に残る**（9.8。失敗したときは、まずここを読む）。**下の順に、1 つずつ進める。**
