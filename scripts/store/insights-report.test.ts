@@ -6,6 +6,8 @@ import {
   buildUsageDailyQuery,
   runUsageSchedule,
   runUsageStatus,
+  SCHEDULE_COUNT,
+  SCHEDULE_INTERVAL_HOURS,
   USAGE_SCHEDULE_QUERY_NAME,
   usageScheduleMarkdown,
   usageStatusMarkdown,
@@ -247,7 +249,7 @@ describe("runUsageSchedule", () => {
     return posts;
   }
 
-  test("直近 30 日の問い合わせを作り、週次（168 時間ごと）・52 回の繰り返しのレポートを 1 件作る（予約でなく executeNow を使わない）", async () => {
+  test("直近 30 日の問い合わせを作り、週次（169 時間ごと）・51 回の繰り返しのレポートを 1 件作る（予約でなく executeNow を使わない）", async () => {
     const { deps, logs } = setup();
     const posts = capturePosts(deps);
 
@@ -258,8 +260,8 @@ describe("runUsageSchedule", () => {
       queryId: "q-new",
       // setup の now（2026-10-11T11:00:00Z）の 4 時間 10 分後（API は 4 時間以上先を求める）。ミリ秒を付けない。
       startTime: "2026-10-11T15:10:00Z",
-      recurrenceInterval: 168,
-      recurrenceCount: 52,
+      recurrenceInterval: 169,
+      recurrenceCount: 51,
     });
     const query = posts.find((p) => p.path === "ScheduledQueries");
     expect(String(query?.body.query)).toContain(
@@ -269,8 +271,8 @@ describe("runUsageSchedule", () => {
     expect(report?.body).toMatchObject({
       queryId: "q-new",
       startTime: "2026-10-11T15:10:00Z",
-      recurrenceInterval: 168,
-      recurrenceCount: 52,
+      recurrenceInterval: 169,
+      recurrenceCount: 51,
       format: "csv",
     });
     expect(report?.body).not.toHaveProperty("executeNow");
@@ -307,9 +309,9 @@ describe("runUsageSchedule", () => {
       message: "選べる期間: 宣言なし",
     },
     {
-      name: "最小の繰り返し間隔が、168 時間（週次）より長い",
+      name: "最小の繰り返し間隔が、169 時間（週次）より長い",
       scenario: { usageDataset: { minimumRecurrenceInterval: 200 } },
-      message: "最小の繰り返し間隔（200 時間）が、168 時間の間隔を満たしません",
+      message: "最小の繰り返し間隔（200 時間）が、169 時間の間隔を満たしません",
     },
     {
       name: "最小の繰り返し間隔の宣言が無い",
@@ -371,6 +373,26 @@ describe("runUsageSchedule", () => {
     }
   });
 
+  // API の規則（Marketplace 向け API の FAQ のエラー表）。間隔が 24〜168 時間なら終了まで 6 か月以内、
+  // 169〜720 時間なら 1 年以内。Apps and Games の資料では、Weekly の上限は 52 回。
+  test("週次（1 年）の設定は、API の規則（169〜720 時間は 1 年以内、Weekly は 52 回まで）に収まる", () => {
+    const YEAR_HOURS = 365 * 24;
+    expect(SCHEDULE_INTERVAL_HOURS).toBeGreaterThanOrEqual(169);
+    expect(SCHEDULE_INTERVAL_HOURS).toBeLessThanOrEqual(720);
+    expect(SCHEDULE_COUNT).toBeLessThanOrEqual(52);
+    // 終了予定（開始 + (回数 - 1) × 間隔）でも、回数 × 間隔でも、1 年に収まる。
+    expect((SCHEDULE_COUNT - 1) * SCHEDULE_INTERVAL_HOURS).toBeLessThanOrEqual(
+      YEAR_HOURS,
+    );
+    expect(SCHEDULE_COUNT * SCHEDULE_INTERVAL_HOURS).toBeLessThanOrEqual(
+      YEAR_HOURS,
+    );
+  });
+
+  test("各実行は直近 30 日分を含むので、間隔が 30 日（720 時間）以内なら、日別の欠けは出ない", () => {
+    expect(SCHEDULE_INTERVAL_HOURS).toBeLessThanOrEqual(30 * 24);
+  });
+
   test("応答の終了予定（endTime）を、結果と Step Summary に出す。無ければ『不明』と書く", async () => {
     const withEnd = setup({
       reportResponse: {
@@ -400,7 +422,7 @@ describe("runUsageSchedule", () => {
     const { deps } = setup();
     const markdown = usageScheduleMarkdown(await runUsageSchedule(deps));
     expect(markdown).toContain("| reportId | rep-1 |");
-    expect(markdown).toContain("| 間隔 | 168 時間ごと |");
+    expect(markdown).toContain("| 間隔 | 169 時間ごと |");
     expect(markdown).toContain("`mode=usage-status`");
   });
 });
