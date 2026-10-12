@@ -53,33 +53,54 @@ export interface VersionSummary {
 export interface UsageCsvSummary {
   rows: number;
   columns: string[];
+  /** 全体の集計行（SubscriptionName・DeviceType・Market がすべて `All`）による、版別の値。 */
   byVersion: VersionSummary[];
+  /** 全版の合計（PackageVersion が `All` の全体の集計行）。 */
+  total?: VersionSummary;
+  /** 個別の行にある市場（`All` を除く）。 */
   markets: string[];
 }
 
-/** 版別の行数・日付の範囲・セッション数。必要な列が無ければ、足りない列の名前で例外にする。 */
+/** 実際の CSV で、次元で分けない行（全体の集計）が持つ値（run 38190395495）。 */
+const ALL = "All";
+
+/**
+ * 版別の行数・日付の範囲・セッション数。必要な列が無ければ、足りない列の名前で例外にする。
+ *
+ * 実際の CSV は、SubscriptionName・DeviceType・Market の全組み合わせを、`All` の集計行とともに返す
+ * （1 日あたり 8 行。run 38190395495）。個別の行も足すと、同じセッションを何重にも数えるので、
+ * 3 つとも `All` の全体の集計行だけを数える。
+ */
 export function summarizeUsageCsv(text: string): UsageCsvSummary {
   const table = parseCsv(text).filter((row) => row.some((cell) => cell !== ""));
   const header = table[0];
   if (!header) throw new Error("レポートの CSV が空です");
   const index = (name: string) => header.indexOf(name);
-  const required = ["PackageVersion", "Date", "DailySessionCount", "Market"];
+  const required = [
+    "PackageVersion",
+    "Date",
+    "DailySessionCount",
+    "Market",
+    "DeviceType",
+    "SubscriptionName",
+  ];
   const missing = required.filter((name) => index(name) < 0);
   if (missing.length > 0) {
     throw new Error(
       `レポートの CSV に列がありません: ${missing.join(", ")}（列: ${header.join(", ")}）`,
     );
   }
-  const [iVersion, iDate, iSessions, iMarket] = required.map(index) as [
-    number,
-    number,
-    number,
-    number,
-  ];
+  const [iVersion, iDate, iSessions, iMarket, iDevice, iSubscription] =
+    required.map(index) as [number, number, number, number, number, number];
 
   const byVersion = new Map<string, VersionSummary>();
   const markets = new Set<string>();
   for (const row of table.slice(1)) {
+    const market = row[iMarket] ?? "";
+    if (market !== ALL) markets.add(market);
+    const isOverall =
+      market === ALL && row[iDevice] === ALL && row[iSubscription] === ALL;
+    if (!isOverall) continue;
     const version = row[iVersion] ?? "";
     const date = row[iDate] ?? "";
     const entry = byVersion.get(version) ?? {
@@ -94,29 +115,33 @@ export function summarizeUsageCsv(text: string): UsageCsvSummary {
     if (date > entry.lastDate) entry.lastDate = date;
     entry.sessions += Number(row[iSessions] ?? 0) || 0;
     byVersion.set(version, entry);
-    markets.add(row[iMarket] ?? "");
   }
+  const total = byVersion.get(ALL);
+  byVersion.delete(ALL);
   return {
     rows: table.length - 1,
     columns: header,
     byVersion: [...byVersion.values()].sort((a, b) =>
       a.packageVersion.localeCompare(b.packageVersion),
     ),
+    total,
     markets: [...markets].sort(),
   };
 }
 
 export function usageSummaryMarkdown(summary: UsageCsvSummary): string {
-  const rows = summary.byVersion.map(
-    (v) =>
-      `| ${v.packageVersion || "（空）"} | ${v.rows} | ${v.firstDate} 〜 ${v.lastDate} | ${v.sessions} |`,
-  );
+  const line = (label: string, v: VersionSummary) =>
+    `| ${label} | ${v.rows} | ${v.firstDate} 〜 ${v.lastDate} | ${v.sessions} |`;
+  const rows = [
+    ...summary.byVersion.map((v) => line(v.packageVersion || "（空）", v)),
+    ...(summary.total ? [line("（全版の合計）", summary.total)] : []),
+  ];
   return [
     "## Insights API: UsageDaily（直近 3 か月・日次）",
     "",
     `行数: ${summary.rows}、市場: ${summary.markets.join(", ") || "なし"}`,
     "",
-    "| PackageVersion | 行数 | 日付の範囲 | DailySessionCount の合計 |",
+    "| PackageVersion | 全体の集計行の数 | 日付の範囲 | DailySessionCount の合計 |",
     "| --- | --- | --- | --- |",
     ...rows,
     "",
