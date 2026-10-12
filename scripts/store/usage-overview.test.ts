@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import mermaid from "mermaid";
+import { assessReport } from "./usage-health";
 import { parseUsageTable } from "./usage-merged";
 import { renderOverview } from "./usage-overview";
 
@@ -108,6 +109,66 @@ describe("renderOverview", () => {
     });
     expect(md).toContain("| 2026-10-06 | - | - | - | - | - | - |");
     expect(md).toContain("bar [0]");
+  });
+
+  describe("運用状況", () => {
+    const health = (extra: Record<string, unknown> = {}) =>
+      assessReport(
+        {
+          reportGeneratedTime: "2026-10-11T23:42:19Z",
+          endTime: "2027-10-11T06:50:42Z",
+          ...extra,
+        },
+        GENERATED,
+      );
+
+    test("健全なら、表だけを出し、警告は出さない（要約より前）", () => {
+      const md = renderOverview(data, {
+        generatedAt: GENERATED,
+        health: health(),
+      });
+      expect(md).toContain("## 運用状況");
+      expect(md).toContain(
+        "| 最新の完了した実行 | 2026-10-11T23:42:19Z（0 日前） |",
+      );
+      expect(md).toContain(
+        "| 繰り返しレポートの終了予定 | 2027-10-11T06:50:42Z（残り 363 日） |",
+      );
+      expect(md).not.toContain("⚠");
+      expect(md.indexOf("## 運用状況")).toBeLessThan(md.indexOf("## 要約"));
+    });
+
+    test("古い・終了前の警告は、引用の行で出す（失敗の理由が先）", () => {
+      const md = renderOverview(data, {
+        generatedAt: GENERATED,
+        health: assessReport(
+          {
+            reportGeneratedTime: "2026-09-20T00:00:00Z",
+            endTime: "2026-10-20T00:00:00Z",
+          },
+          GENERATED,
+        ),
+      });
+      const notices = md.split("\n").filter((l) => l.startsWith("> ⚠ "));
+      expect(notices).toHaveLength(2);
+      expect(notices[0]).toContain("22 日前です");
+      expect(notices[1]).toContain("残り 7 日です");
+    });
+
+    test("health が無ければ、運用状況の節を出さない", () => {
+      expect(renderOverview(data, { generatedAt: GENERATED })).not.toContain(
+        "## 運用状況",
+      );
+    });
+
+    test("データがまだ無くても、運用状況は出す", () => {
+      const md = renderOverview(
+        table("null,PC,0.1.1.0,JP,2026-10-06,4,1,1,1,0,1"),
+        { generatedAt: GENERATED, health: health() },
+      );
+      expect(md).toContain("## 運用状況");
+      expect(md).toContain("全体の集計行");
+    });
   });
 
   test("全体の集計行が無ければ、その旨だけを書く", () => {

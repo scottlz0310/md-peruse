@@ -391,6 +391,13 @@ Insights API の繰り返しレポートの最新の `Completed` の実行から
 
 **対象のレポート**: リポジトリの変数 `STORE_USAGE_REPORT_ID`（`usage-schedule` が作る繰り返しレポートの reportId）。未設定のときは、自動実行は動かない。手動起動では、`report_id` で指定する。完了した実行が無いとき、ジョブは失敗する（失敗の通知で気づく）。繰り返しレポートには、回数の上限がある（Daily 180 回、Weekly 52 回、Monthly 24 回）。使い切る前に、作り直して変数を更新する。
 
+**作り直しに気づくための仕組み**（実行の一覧の応答の `reportGeneratedTime` と `endTime` から計算する。追加の API は要らない。`scripts/store/usage-health.ts`）:
+
+1. **古さ（失敗で通知）**: 最新の完了した実行の生成時刻が、**10 日より前**なら、日次のジョブを失敗させる（GitHub の失敗の通知で気づく）。週次の実行は、通常 7 日以内に新しい実行がある。データの処理（保存・統合・概観）はやり切ったあとで失敗にする。
+2. **終了前（警告）**: レポートの終了予定まで、**残り 60 日を切ったら**、警告を出す（失敗にはしない。検証用の短いレポートで、動作確認の実行が失敗しないように）。`overview.md` の「運用状況」、Step Summary、Actions の注釈に出る。
+
+**作り直し**: `Store Insights` の `usage-schedule` を起動し（Partner Center へ書き込むので承認が要る）、出た `reportId` で、リポジトリの変数 `STORE_USAGE_REPORT_ID` を更新する。古いレポートは、そのまま終わる。各実行は直近 30 日分を含むので、古いレポートが終わってから 30 日以内に、新しいレポートの最初の実行が済めば、データに欠けは出ない。
+
 **作り方**:
 
 1. Dropbox の App Console（`https://www.dropbox.com/developers/apps`）で、**Scoped access**・**App folder** のアプリを作る。

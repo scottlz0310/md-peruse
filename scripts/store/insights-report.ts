@@ -27,6 +27,8 @@ export interface ExecutionItem {
   executionStatus?: string;
   reportAccessSecureLink?: string;
   reportGeneratedTime?: string;
+  /** レポートの終了予定（繰り返しレポート）。 */
+  endTime?: string | null;
 }
 
 /** `UsageDaily`（日次）で選べる期間（`ScheduledDataset` の `aggregationToDateRangeMapping`）。 */
