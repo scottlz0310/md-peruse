@@ -329,8 +329,11 @@ const USAGE_SCHEDULE_REPORT_NAME = "md peruse usage daily scheduled";
 /** 検証のため、日次で 3 回だけ実行する。3 回で自然に終わり、Partner Center に繰り返しが残り続けない。 */
 const SCHEDULE_INTERVAL_HOURS = 24;
 const SCHEDULE_COUNT = 3;
-/** 開始までの猶予。過去の時刻は拒否されうるので、少し先にする。 */
-const SCHEDULE_START_DELAY_MS = 10 * 60 * 1000;
+/**
+ * 開始までの猶予。API は「開始は、現在の UTC から 4 時間以上先」を求める（HTTP 400。run 38192254358）。
+ * 承認から実行までの時間と時刻のずれに備えて、10 分の余裕を足す。
+ */
+const SCHEDULE_START_DELAY_MS = (4 * 60 + 10) * 60 * 1000;
 
 export interface UsageScheduleDeps {
   client: Pick<StoreClient, "get" | "post">;

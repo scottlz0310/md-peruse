@@ -541,8 +541,8 @@ describe("runUsageSchedule", () => {
     expect(result).toEqual({
       reportId: "rep-1",
       queryId: "q-new",
-      // setup の now（2026-10-11T11:00:00Z）の 10 分後。ミリ秒を付けない。
-      startTime: "2026-10-11T11:10:00Z",
+      // setup の now（2026-10-11T11:00:00Z）の 4 時間 10 分後（API は 4 時間以上先を求める）。ミリ秒を付けない。
+      startTime: "2026-10-11T15:10:00Z",
       recurrenceInterval: 24,
       recurrenceCount: 3,
     });
@@ -553,7 +553,7 @@ describe("runUsageSchedule", () => {
     const report = posts.find((p) => p.path === "ScheduledReport");
     expect(report?.body).toMatchObject({
       queryId: "q-new",
-      startTime: "2026-10-11T11:10:00Z",
+      startTime: "2026-10-11T15:10:00Z",
       recurrenceInterval: 24,
       recurrenceCount: 3,
       format: "csv",
