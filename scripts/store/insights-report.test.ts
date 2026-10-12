@@ -247,7 +247,7 @@ describe("runUsageSchedule", () => {
     return posts;
   }
 
-  test("直近 30 日の問い合わせを作り、24 時間ごと・3 回の繰り返しのレポートを 1 件作る（予約でなく executeNow を使わない）", async () => {
+  test("直近 30 日の問い合わせを作り、週次（168 時間ごと）・52 回の繰り返しのレポートを 1 件作る（予約でなく executeNow を使わない）", async () => {
     const { deps, logs } = setup();
     const posts = capturePosts(deps);
 
@@ -258,8 +258,8 @@ describe("runUsageSchedule", () => {
       queryId: "q-new",
       // setup の now（2026-10-11T11:00:00Z）の 4 時間 10 分後（API は 4 時間以上先を求める）。ミリ秒を付けない。
       startTime: "2026-10-11T15:10:00Z",
-      recurrenceInterval: 24,
-      recurrenceCount: 3,
+      recurrenceInterval: 168,
+      recurrenceCount: 52,
     });
     const query = posts.find((p) => p.path === "ScheduledQueries");
     expect(String(query?.body.query)).toContain(
@@ -269,8 +269,8 @@ describe("runUsageSchedule", () => {
     expect(report?.body).toMatchObject({
       queryId: "q-new",
       startTime: "2026-10-11T15:10:00Z",
-      recurrenceInterval: 24,
-      recurrenceCount: 3,
+      recurrenceInterval: 168,
+      recurrenceCount: 52,
       format: "csv",
     });
     expect(report?.body).not.toHaveProperty("executeNow");
@@ -307,9 +307,9 @@ describe("runUsageSchedule", () => {
       message: "選べる期間: 宣言なし",
     },
     {
-      name: "最小の繰り返し間隔が、24 時間より長い",
-      scenario: { usageDataset: { minimumRecurrenceInterval: 48 } },
-      message: "最小の繰り返し間隔（48 時間）が、24 時間の間隔を満たしません",
+      name: "最小の繰り返し間隔が、168 時間（週次）より長い",
+      scenario: { usageDataset: { minimumRecurrenceInterval: 200 } },
+      message: "最小の繰り返し間隔（200 時間）が、168 時間の間隔を満たしません",
     },
     {
       name: "最小の繰り返し間隔の宣言が無い",
@@ -371,11 +371,36 @@ describe("runUsageSchedule", () => {
     }
   });
 
+  test("応答の終了予定（endTime）を、結果と Step Summary に出す。無ければ『不明』と書く", async () => {
+    const withEnd = setup({
+      reportResponse: {
+        value: [{ reportId: "rep-1", endTime: "2027-10-11T15:10:00Z" }],
+      },
+    });
+    const result = await runUsageSchedule(withEnd.deps);
+    expect(result.endTime).toBe("2027-10-11T15:10:00Z");
+    expect(usageScheduleMarkdown(result)).toContain(
+      "| 終了予定（UTC） | 2027-10-11T15:10:00Z |",
+    );
+
+    const withoutEnd = await runUsageSchedule(setup().deps);
+    expect(withoutEnd.endTime).toBeUndefined();
+    expect(usageScheduleMarkdown(withoutEnd)).toContain(
+      "| 終了予定（UTC） | 不明（応答に無い） |",
+    );
+  });
+
+  test("Step Summary に、日次の保存で使うための変数（STORE_USAGE_REPORT_ID）の案内を出す", async () => {
+    const { deps } = setup();
+    const markdown = usageScheduleMarkdown(await runUsageSchedule(deps));
+    expect(markdown).toContain("STORE_USAGE_REPORT_ID");
+  });
+
   test("Step Summary に、reportId と確認の手順を出す", async () => {
     const { deps } = setup();
     const markdown = usageScheduleMarkdown(await runUsageSchedule(deps));
     expect(markdown).toContain("| reportId | rep-1 |");
-    expect(markdown).toContain("| 間隔 | 24 時間ごと |");
+    expect(markdown).toContain("| 間隔 | 168 時間ごと |");
     expect(markdown).toContain("`mode=usage-status`");
   });
 });

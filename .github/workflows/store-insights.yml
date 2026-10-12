@@ -17,9 +17,11 @@ name: Store Insights
 #                状態の指定なしと、状態ごとの一覧の応答を証跡に残す。CSV は取得しない（日別の値を、公開の
 #                artifact・ログ・Step Summary に出さないため。日別の取得と保存は store-usage-archive.yml）
 #   Partner Center へ書き込む（`write` ジョブ。承認あり。`store-production`）
-#     usage-schedule: UsageDaily（直近 30 日・日次）を、Partner Center に 24 時間ごと・3 回だけ繰り返し実行させる
-#                レポートを 1 件作る（繰り返しが成立するかの検証）。開始は、実行の約 4 時間 10 分後（API が 4 時間以上先を求める）。
-#                起動のたびに 1 件増えるので、続けて起動しない。
+#     usage-schedule: UsageDaily（直近 30 日・日次）を、Partner Center に週次（168 時間ごと）・52 回（約 1 年）
+#                繰り返し実行させるレポートを 1 件作る。各実行が直近 30 日分を含むので、週次でも日別の欠けは出ない。
+#                開始は、実行の約 4 時間 10 分後（API が 4 時間以上先を求める）。
+#                起動のたびに 1 件増える（1 ユーザー 40 件の上限）ので、作り直すとき以外は起動しない。
+#                出た reportId を、リポジトリの変数 STORE_USAGE_REPORT_ID に設定する（store-usage-archive.yml が使う）。
 #                実行の状態は usage-status で、reportId を指定して確かめる
 
 on:
