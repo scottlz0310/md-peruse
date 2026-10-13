@@ -68,7 +68,7 @@ imagesize = { version = "0.15.0", default-features = false, features = [
 # スコープID（`watch_runtime.rs`）のように `RandomState` から作らず、OSの乱数源から直接取る。
 getrandom = "0.4.3"
 hmac = "0.13.0"
-sha2 = "0.11.0"
+sha2 = "0.11.1"
 tauri-plugin-dialog = "2.8.2"
 # 関連付け起動を起動中のインスタンスへ渡す（design-decisions.md 9.2）。2つ目のプロセスは
 # 引数を渡して終了し、起動中のインスタンスがそれを受け取る。
