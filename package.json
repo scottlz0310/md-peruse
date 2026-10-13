@@ -24,7 +24,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.3",
     "@tauri-apps/plugin-opener": "^2.7.1",
-    "dompurify": "^3.4.16",
+    "dompurify": "^3.4.17",
     "github-slugger": "^2.0.0",
     "hast-util-from-html-isomorphic": "^2.0.0",
     "hast-util-heading-rank": "^3.0.0",
