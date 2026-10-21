@@ -15,10 +15,10 @@ name = "md_peruse_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.3", features = [] }
+tauri-build = { version = "2.7.4", features = [] }
 
 [dependencies]
-tauri = { version = "2.12.4", features = [] }
+tauri = { version = "2.12.5", features = [] }
 tauri-plugin-opener = "2.7.2"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
@@ -77,7 +77,7 @@ tauri-plugin-single-instance = "2.5.4"
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。
 # dev-dependencies の feature は通常ビルドへ波及しないため、製品バイナリには入らない。
-tauri = { version = "2.12.4", features = ["test"] }
+tauri = { version = "2.12.5", features = ["test"] }
 # アクセラレータ文字列を実際のパーサーで検証するために使う。Tauriが内部で使う
 # muda と同じ系列へ解決させる（cargo は semver 互換なら1つへ統一する）。
 muda = "0.20.0"
