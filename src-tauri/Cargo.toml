@@ -50,7 +50,7 @@ tokio = { version = "1.53.3", default-features = false, features = ["sync"] }
 # `default-features = false` はmacOS向けのFSEventsを外すためであり、Windowsの
 # バックエンドは既定機能に依存しない。畳み込みは自前の規則で行うため
 # （6.5、`src/watch.rs` の `coalesce`）、notify-debouncer-full は使わない。
-notify = { version = "8.2.0", default-features = false }
+notify = { version = "8.2.1", default-features = false }
 # 画像ヘッダーからの形式判定と寸法取得（design-decisions.md 7.3）。デコーダーを持つcrateを
 # 使わないのは、上限の判定に必要なのが宣言された寸法だけであり、デコードすると上限で
 # 防ごうとしているメモリをその場で確保してしまうためである。機能は許可形式のものだけへ
