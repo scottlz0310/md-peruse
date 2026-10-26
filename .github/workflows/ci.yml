@@ -164,4 +164,3 @@ jobs:
       # このジョブは条文を取得できないパッケージがあれば生成が失敗することを検査する。
       - name: ライセンス一覧を生成
         run: bun run generate:licenses
-

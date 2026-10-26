@@ -163,14 +163,14 @@ body {
   outline-offset: -2px;
 }
 
-/* 次のプレビューで差し替えられるタブは斜体で示す（VS Codeと同じ）。 */
-.tab-preview .tab-title {
-  font-style: italic;
-}
-
 .tab-title {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* 次のプレビューで差し替えられるタブは斜体で示す（VS Codeと同じ）。 */
+.tab-preview .tab-title {
+  font-style: italic;
 }
 
 /* 削除されたファイルのタブ（6.5）。色だけに頼らず、文字で示す。 */
