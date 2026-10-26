@@ -10,11 +10,11 @@ North Star Notes is a fictional knowledge project for small teams.
 
 ## This week at a glance
 
-| Theme | What we're working on | Next step |
-| :--- | :--- | :--- |
-| Design | Smoothing the reader's path | Review the [architecture diagram](02-architecture.md) |
-| Analysis | Sharing the reasoning behind priorities | Read [Formula and Code](03-formula-and-code.md) |
-| Release | Stacking up small improvements | Write up the [release notes](04-release-notes.md) |
+| Theme    | What we're working on                   | Next step                                             |
+| :------- | :-------------------------------------- | :---------------------------------------------------- |
+| Design   | Smoothing the reader's path             | Review the [architecture diagram](02-architecture.md) |
+| Analysis | Sharing the reasoning behind priorities | Read [Formula and Code](03-formula-and-code.md)       |
+| Release  | Stacking up small improvements          | Write up the [release notes](04-release-notes.md)     |
 
 ## What we value
 

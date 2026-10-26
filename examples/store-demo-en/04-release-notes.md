@@ -12,11 +12,11 @@ This month, we improved how readers enter our documents and how records connect 
 
 ## What's easier to revisit
 
-| Before | After |
-| --- | --- |
+| Before                             | After                                             |
+| ---------------------------------- | ------------------------------------------------- |
 | We looked for documents one by one | Move around with relative links from the overview |
-| Only the conclusion was kept | The reasoning and assumptions are kept too |
-| ~~Finish everything at once~~ | Keep delivering small improvements |
+| Only the conclusion was kept       | The reasoning and assumptions are kept too        |
+| ~~Finish everything at once~~      | Keep delivering small improvements                |
 
 ## What's next
 

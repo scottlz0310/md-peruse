@@ -48,7 +48,7 @@
     "unist-util-visit-parents": "^6.0.2"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.15",
+    "@biomejs/biome": "^2.6.2",
     "@happy-dom/global-registrator": "^21.0.4",
     "@microsoft/winappcli": "0.7.1",
     "@tauri-apps/cli": "^2.12.4",
