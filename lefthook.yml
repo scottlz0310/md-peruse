@@ -5,7 +5,7 @@ pre-commit:
   parallel: true
   jobs:
     - name: biome
-      glob: "*.{js,jsx,ts,tsx,json,jsonc,css,html}"
+      glob: "*.{js,jsx,ts,tsx,json,jsonc,css,html,md,yml,yaml}"
       run: bunx biome check --no-errors-on-unmatched --files-ignore-unknown=true {staged_files}
 
     - name: typecheck
