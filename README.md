@@ -6,12 +6,12 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 
 ## コアバリュー
 
-| 価値 | 内容 |
-| --- | --- |
-| 完全Read-only | 本文の編集手段を持たず、閲覧対象のファイルを変更しない |
-| 低負荷 | 常駐プロセス、バックグラウンドインデックス、定期的なディスクI/Oを持たない |
-| 高速な起動 | WebView2とRustの構成で、コールドスタートからの操作受付を短く保つ |
-| 確実な可視化 | Mermaid、GFM、数式、シンタックスハイライトを安全に描画する |
+| 価値          | 内容                                                                      |
+| ------------- | ------------------------------------------------------------------------- |
+| 完全Read-only | 本文の編集手段を持たず、閲覧対象のファイルを変更しない                    |
+| 低負荷        | 常駐プロセス、バックグラウンドインデックス、定期的なディスクI/Oを持たない |
+| 高速な起動    | WebView2とRustの構成で、コールドスタートからの操作受付を短く保つ          |
+| 確実な可視化  | Mermaid、GFM、数式、シンタックスハイライトを安全に描画する                |
 
 ## 主な機能
 
@@ -33,34 +33,34 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 
 ## 技術スタック
 
-| レイヤー | 採用技術 |
-| --- | --- |
-| デスクトップシェル | Tauri v2 |
-| Backend | Rust |
-| Frontend | React + TypeScript + Vite |
-| ツールチェーン | Bun |
-| Markdown | unified（remark + rehype） |
-| コード品質 | Biome、`tsc --noEmit`、Lefthook |
-| パッケージング | MSIX、winapp CLI |
+| レイヤー           | 採用技術                        |
+| ------------------ | ------------------------------- |
+| デスクトップシェル | Tauri v2                        |
+| Backend            | Rust                            |
+| Frontend           | React + TypeScript + Vite       |
+| ツールチェーン     | Bun                             |
+| Markdown           | unified（remark + rehype）      |
+| コード品質         | Biome、`tsc --noEmit`、Lefthook |
+| パッケージング     | MSIX、winapp CLI                |
 
 選定理由と却下理由は [design-decisions.md](./docs/design-decisions.md) の第4章に記載する。
 
 ## ドキュメント
 
-| 文書 | 役割 | 更新責務 |
-| --- | --- | --- |
-| [docs/spec.md](./docs/spec.md) | プロダクト要件、機能要件、非機能要件、配布方針 | 要件が変わったときに更新する |
-| [docs/design-decisions.md](./docs/design-decisions.md) | 設計判断と未決事項の**正本** | 設計判断を下したとき、未決事項の状態が変わったときに更新する |
-| [docs/dev-flow.md](./docs/dev-flow.md) | 実装順序、フェーズごとの作業と完了条件の**正本** | フェーズの構成、着手順、完了条件が変わったときに更新する |
-| [docs/store-submission.md](./docs/store-submission.md) | Microsoft Storeへの提出の手順書（初回の手動提出、更新時の連動、記録表） | 提出の方針や手順が変わったとき、提出のたびに更新する |
-| [docs/privacy-policy.md](./docs/privacy-policy.md) | プライバシーポリシー（日本語と英語）。Storeの提示先 | 送るイベント、保存する情報、通信が変わるときに更新する |
-| [docs/test-matrix.md](./docs/test-matrix.md) | `spec.md` の要件と、それを確かめるテスト・実機確認の対応。Phase 4 の完了条件との対応も示す | 要件、またはそれを確認するテストが変わったときに更新する |
-| [scripts/README.md](./scripts/README.md) | 開発・保守の道具（性能測定、実機の確認）の使い方。CIへは載せない | 道具を足したとき、使い方が変わったときに更新する |
-| [docs/uimock.html](./docs/uimock.html) | 画面構成の視覚参考（要件は定義しない） | 参考資料のため随時 |
-| [tasks.md](./tasks.md) | 進捗とタスクの**正本** | タスクの着手・完了ごとに更新する |
-| [CHANGELOG.md](./CHANGELOG.md) | 利用者から見た変更履歴 | リリースに影響する変更ごとに更新する |
+| 文書                                                                     | 役割                                                                                                      | 更新責務                                                                            |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [docs/spec.md](./docs/spec.md)                                           | プロダクト要件、機能要件、非機能要件、配布方針                                                            | 要件が変わったときに更新する                                                        |
+| [docs/design-decisions.md](./docs/design-decisions.md)                   | 設計判断と未決事項の**正本**                                                                              | 設計判断を下したとき、未決事項の状態が変わったときに更新する                        |
+| [docs/dev-flow.md](./docs/dev-flow.md)                                   | 実装順序、フェーズごとの作業と完了条件の**正本**                                                          | フェーズの構成、着手順、完了条件が変わったときに更新する                            |
+| [docs/store-submission.md](./docs/store-submission.md)                   | Microsoft Storeへの提出の手順書（初回の手動提出、更新時の連動、記録表）                                   | 提出の方針や手順が変わったとき、提出のたびに更新する                                |
+| [docs/privacy-policy.md](./docs/privacy-policy.md)                       | プライバシーポリシー（日本語と英語）。Storeの提示先                                                       | 送るイベント、保存する情報、通信が変わるときに更新する                              |
+| [docs/test-matrix.md](./docs/test-matrix.md)                             | `spec.md` の要件と、それを確かめるテスト・実機確認の対応。Phase 4 の完了条件との対応も示す                | 要件、またはそれを確認するテストが変わったときに更新する                            |
+| [scripts/README.md](./scripts/README.md)                                 | 開発・保守の道具（性能測定、実機の確認）の使い方。CIへは載せない                                          | 道具を足したとき、使い方が変わったときに更新する                                    |
+| [docs/uimock.html](./docs/uimock.html)                                   | 画面構成の視覚参考（要件は定義しない）                                                                    | 参考資料のため随時                                                                  |
+| [tasks.md](./tasks.md)                                                   | 進捗とタスクの**正本**                                                                                    | タスクの着手・完了ごとに更新する                                                    |
+| [CHANGELOG.md](./CHANGELOG.md)                                           | 利用者から見た変更履歴                                                                                    | リリースに影響する変更ごとに更新する                                                |
 | [docs/assets/store/listingData.csv](./docs/assets/store/listingData.csv) | Store 掲載データ（説明、「新機能」、スクリーンショットの参照）。リリースで、パッケージと一緒にStoreへ出る | 利用者から見える変更ごとに更新する（`ReleaseNotes` は、CHANGELOG と同じ内容にする） |
-| [SECURITY.md](./SECURITY.md) | 脆弱性の報告経路と想定する脅威 | 報告経路やサポート対象が変わったときに更新する |
+| [SECURITY.md](./SECURITY.md)                                             | 脆弱性の報告経路と想定する脅威                                                                            | 報告経路やサポート対象が変わったときに更新する                                      |
 
 記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、実装順序と完了条件について `dev-flow.md`、進捗について `tasks.md` を優先する。
 
@@ -68,13 +68,13 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 
 ### 前提ツール
 
-| ツール | バージョン | 用途 |
-| --- | --- | --- |
-| [Bun](https://bun.com/) | 1.4.0 | JavaScript依存関係の管理、Frontendのビルドとテスト |
-| [Rust](https://www.rust-lang.org/) | 1.98.0 | Tauri backendのビルド（`rust-toolchain.toml` で固定） |
-| [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | — | Visual Studio Build Tools、WebView2 Runtime |
-| winapp CLI | `package.json` で固定 | MSIXの生成と署名（npm `@microsoft/winappcli`。`bun install` が導入する） |
-| Windows SDK | 10.0.26100.0 | `makeappx`、`signtool`、Windows App Certification Kit |
+| ツール                                                           | バージョン            | 用途                                                                     |
+| ---------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------ |
+| [Bun](https://bun.com/)                                          | 1.4.0                 | JavaScript依存関係の管理、Frontendのビルドとテスト                       |
+| [Rust](https://www.rust-lang.org/)                               | 1.98.0                | Tauri backendのビルド（`rust-toolchain.toml` で固定）                    |
+| [Tauri v2 の前提条件](https://v2.tauri.app/start/prerequisites/) | —                     | Visual Studio Build Tools、WebView2 Runtime                              |
+| winapp CLI                                                       | `package.json` で固定 | MSIXの生成と署名（npm `@microsoft/winappcli`。`bun install` が導入する） |
+| Windows SDK                                                      | 10.0.26100.0          | `makeappx`、`signtool`、Windows App Certification Kit                    |
 
 各依存の初期バージョンは [design-decisions.md](./docs/design-decisions.md) の4.10に記載する。
 
@@ -86,19 +86,19 @@ bun install
 
 ### コマンド
 
-| コマンド | 内容 |
-| --- | --- |
-| `bun run tauri dev` | 開発用にアプリを起動する |
-| `bun run tauri build` | ライセンス一覧を生成してからReleaseビルドを生成する（`cargo-about` が必要。MSIX生成は別工程） |
-| `bun run build` | 型検査とFrontendのビルドを実行する |
-| `bun run check` | BiomeでLintとFormattingを検査する |
-| `bun run check:fix` | Biomeの自動修正を適用する |
-| `bun run typecheck` | `tsc --noEmit` で型検査する |
-| `bun test` | Frontendのテストを実行する |
-| `bun run test:coverage` | テストを実行し、`coverage/lcov.info` を生成する |
-| `bun run generate:licenses` | サードパーティライセンス一覧を `public/` へ生成する（`cargo-about` が必要） |
-| `bun run check:icons` | `src-tauri/icons` が原本 `assets/app-icon.png` と一致するか検査する |
-| `bun run check:versions` | `package.json`、`tauri.conf.json`、`Cargo.toml`、`Cargo.lock` の版が一致し、マニフェストテンプレートが置換子のままであることを検査する |
+| コマンド                    | 内容                                                                                                                                   |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun run tauri dev`         | 開発用にアプリを起動する                                                                                                               |
+| `bun run tauri build`       | ライセンス一覧を生成してからReleaseビルドを生成する（`cargo-about` が必要。MSIX生成は別工程）                                          |
+| `bun run build`             | 型検査とFrontendのビルドを実行する                                                                                                     |
+| `bun run check`             | BiomeでLintとFormattingを検査する                                                                                                      |
+| `bun run check:fix`         | Biomeの自動修正を適用する                                                                                                              |
+| `bun run typecheck`         | `tsc --noEmit` で型検査する                                                                                                            |
+| `bun test`                  | Frontendのテストを実行する                                                                                                             |
+| `bun run test:coverage`     | テストを実行し、`coverage/lcov.info` を生成する                                                                                        |
+| `bun run generate:licenses` | サードパーティライセンス一覧を `public/` へ生成する（`cargo-about` が必要）                                                            |
+| `bun run check:icons`       | `src-tauri/icons` が原本 `assets/app-icon.png` と一致するか検査する                                                                    |
+| `bun run check:versions`    | `package.json`、`tauri.conf.json`、`Cargo.toml`、`Cargo.lock` の版が一致し、マニフェストテンプレートが置換子のままであることを検査する |
 
 `bun test` はReactコンポーネントのDOMテストを含む。`bunfig.toml` のpreloadで `test/setup.ts` を読み込み、happy-domをグローバルへ登録したうえでTesting Libraryを使用する（[design-decisions.md](./docs/design-decisions.md) 14.5）。
 
@@ -128,10 +128,10 @@ winapp CLI は `package.json` の devDependencies（`@microsoft/winappcli`）に
 ./scripts/build-msix.ps1 -Sign
 ```
 
-| オプション | 内容 |
-| --- | --- |
+| オプション   | 内容                                                            |
+| ------------ | --------------------------------------------------------------- |
 | `-SkipBuild` | Releaseビルドを省略し、既存の成果物からパッケージだけを作り直す |
-| `-Sign` | 開発用自己署名証明書で署名する。証明書がなければ生成する |
+| `-Sign`      | 開発用自己署名証明書で署名する。証明書がなければ生成する        |
 
 成果物は `build/msix/` に出力する。`-Sign` で生成する `devcert.pfx` はローカル検証とWACK専用で、Store配布には使えない。署名済みMSIXをインストールするには、証明書を一度だけ信頼ストアへ登録する（管理者権限が必要）。
 
@@ -164,27 +164,27 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 `bun install` の `prepare` スクリプトでLefthookがGit Hooksへ導入される。`lefthook.yml` に定義したpre-commitで、CIと同じ検査をコミット前に実行する。
 
-| ジョブ | 対象 | 内容 |
-| --- | --- | --- |
-| `biome` | ステージした JS/TS/JSON/CSS/HTML | `biome check` |
-| `typecheck` | ステージした TS/TSX | `tsc --noEmit` |
-| `frontend-test` | ステージした TS/TSX | `bun test` |
-| `rust-types` | ステージした Rust | `cargo test` の後に `src/types/generated` の差分を検査 |
-| `icons` | ステージした `assets/app-icon.png` と `src-tauri/icons` | `bun run check:icons` |
-| `versions` | ステージしたバージョンを持つファイル | `bun run check:versions` |
-| `rust-fmt` | ステージした Rust | `cargo fmt --check` |
-| `rust-clippy` | ステージした Rust | `cargo clippy --all-targets -- -D warnings` |
+| ジョブ          | 対象                                                    | 内容                                                   |
+| --------------- | ------------------------------------------------------- | ------------------------------------------------------ |
+| `biome`         | ステージした JS/TS/JSON/CSS/HTML                        | `biome check`                                          |
+| `typecheck`     | ステージした TS/TSX                                     | `tsc --noEmit`                                         |
+| `frontend-test` | ステージした TS/TSX                                     | `bun test`                                             |
+| `rust-types`    | ステージした Rust                                       | `cargo test` の後に `src/types/generated` の差分を検査 |
+| `icons`         | ステージした `assets/app-icon.png` と `src-tauri/icons` | `bun run check:icons`                                  |
+| `versions`      | ステージしたバージョンを持つファイル                    | `bun run check:versions`                               |
+| `rust-fmt`      | ステージした Rust                                       | `cargo fmt --check`                                    |
+| `rust-clippy`   | ステージした Rust                                       | `cargo clippy --all-targets -- -D warnings`            |
 
 ### CI
 
 `.github/workflows/ci.yml` がPull Requestと `main` へのpushで動作する。
 
-| ジョブ | ランナー | 内容 |
-| --- | --- | --- |
-| `Frontend` | `ubuntu-latest` | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons`、`bun run check:versions` |
-| `Rust` | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存） |
-| `Coverage` | `ubuntu-latest` | Rustのlcovをダウンロードし、Codecovへアップロードする |
-| `Licenses` | `ubuntu-latest` | ライセンス一覧を生成し、条文を取得できないパッケージと、許容リストにないライセンスの依存がないことを検査する |
+| ジョブ     | ランナー         | 内容                                                                                                                            |
+| ---------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `Frontend` | `ubuntu-latest`  | `bun run check`、`bun run typecheck`、`bun run test:coverage`、`bun run build`、`bun run check:icons`、`bun run check:versions` |
+| `Rust`     | `windows-latest` | `cargo fmt --check`、`cargo clippy`、`cargo llvm-cov`（lcovをartifactへ保存）                                                   |
+| `Coverage` | `ubuntu-latest`  | Rustのlcovをダウンロードし、Codecovへアップロードする                                                                           |
+| `Licenses` | `ubuntu-latest`  | ライセンス一覧を生成し、条文を取得できないパッケージと、許容リストにないライセンスの依存がないことを検査する                    |
 
 `.github/workflows/package.yml`（`Package`）は必須CIに含めない。手動起動とリリースの流れ（`release.yml` が呼ぶ）で `windows-latest` 上に x64 版のMSIXを生成し、WACKを実行して、MSIX、SHA-256、WACKの報告書を artifact（`md-peruse-msix-x64`）へ保存する。署名は開発用の自己署名で、Store配布には使えない。
 

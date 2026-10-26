@@ -392,6 +392,7 @@
 - CIからCodecovへカバレッジをアップロード。Frontendは `bun test --coverage`、Rustは `cargo llvm-cov` でlcovを生成し、OIDCで認証してflagsを `frontend` と `rust` に分けて集計する。RustのlcovはWindowsのジョブがartifactへ保存し、`Coverage` ジョブ（ubuntu）がアップロードする
 
 ### Changed
+
 - Store提出の手順書の入力先を、Partner Centerの画面で確認した内容に合わせた。審査ノートは申請オプションではなく、左メニュー「追加のテスト情報」（アプリ単位）の「説明」へ入力する。掲載言語はパッケージのアップロード後に現れる。年齢区分はプロパティと別のページである
 - `Package` ワークフローを、winapp CLI の更新 Pull Request で動かす契機から、`opened` を外した（`synchronize`、`reopened`、`labeled`）。Renovate の最初の更新 Pull Request で、`opened` と `labeled` の両方が起動して、同じ検証が2回走ったため
 - winapp CLI の導入経路を、WinGet から npm（`@microsoft/winappcli`）へ変えた。`package.json` の devDependencies で `0.6.1` に固定し、`bun install` が導入する（Windowsのみ）。`scripts/build-msix.ps1` は同梱の実行ファイルを直接呼ぶ。版の更新はRenovateに任せ、更新Pull Requestでは `Package` ワークフローが MSIX の生成と WACK を検証する。開発機でのWinGetによる導入は不要になった
@@ -433,6 +434,7 @@
   - ARM64実機での検証（[#8](https://github.com/scottlz0310/md-peruse/issues/8)）は廃案とした
 
 ### Fixed
+
 - `scripts/build-msix.ps1` の winapp CLI の版の照合が、初回起動時の利用規約のバナーが出力に混ざると、版が合っていても失敗するのを直した
 - `@tauri-apps/plugin-opener` を Rust 側の `tauri-plugin-opener`（2.7.0）に揃えた。`tauri build` が npm と crate の版の不一致で失敗していた。あわせて Renovate が、Tauri の npm パッケージと crate を1つの Pull Request で更新するようにした
 - アクセシビリティ木が有効な環境（スクリーンリーダーなど）で、書式なしで表示する大きい文書が応答しなくなる問題を直した（[design-decisions.md](./docs/design-decisions.md) 8.7、13.6）。本文を1つの巨大なテキストノードとして置いていたため、アクセシビリティ木の更新が長さの二乗に近く伸び、2 MiBで次のフレームまで6.6秒、10 MiBで150秒超かかっていた。1行が極端に長いテキストは、レイアウトも二乗に伸びた（109万文字の1行で約81秒）。本文を、改行または空白の直後で、5,000〜10,000文字ごとの隣り合うテキストノードに分けるようにした。文字（書記素）を途中で切らず（結合文字、肌色の修飾子、国旗など）、結合文字が続く入力でも、1つのテキストノードは10,033文字を超えない。表示、選択、コピー、文書内検索は変わらない。アクセシビリティを有効にした実機で、2 MiBが0.44〜0.49秒、10 MiBが2.10〜2.32秒、1行が109万文字のテキストが0.78〜0.95秒になった
