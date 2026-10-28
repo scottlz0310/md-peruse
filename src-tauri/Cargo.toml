@@ -69,10 +69,10 @@ imagesize = { version = "0.15.0", default-features = false, features = [
 getrandom = "0.4.3"
 hmac = "0.13.0"
 sha2 = "0.11.1"
-tauri-plugin-dialog = "2.8.3"
+tauri-plugin-dialog = "2.8.4"
 # 関連付け起動を起動中のインスタンスへ渡す（design-decisions.md 9.2）。2つ目のプロセスは
 # 引数を渡して終了し、起動中のインスタンスがそれを受け取る。
-tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-single-instance = "2.5.5"
 
 [dev-dependencies]
 # `tauri::test::mock_app` を使うために `test` feature を足す（design-decisions.md 14.2）。
