@@ -28,7 +28,7 @@
     "github-slugger": "^2.0.0",
     "hast-util-from-html-isomorphic": "^2.0.0",
     "hast-util-heading-rank": "^3.0.0",
-    "hast-util-to-jsx-runtime": "^2.3.6",
+    "hast-util-to-jsx-runtime": "^2.3.7",
     "hast-util-to-string": "^3.0.1",
     "hast-util-to-text": "^4.0.3",
     "highlight.js": "^11.12.0",
