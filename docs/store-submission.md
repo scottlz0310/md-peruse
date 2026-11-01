@@ -481,7 +481,7 @@ Actions の **Store Submit** で「Run workflow」を押し（ブランチは `m
 
 前提:
 
-- 組織の secret `RELEASE_BOT_APP_ID` と `RELEASE_BOT_PRIVATE_KEY` が、このリポジトリから使えること（2026-10-04に確認済み。リポジトリ単位の secret ではなく、組織単位の secret）。リリース Bot の GitHub App がこのリポジトリにインストールされていること。
+- 組織の secret `RELEASE_BOT_CLIENT_ID`（release-automate v3 で旧 `RELEASE_BOT_APP_ID` から変更）と `RELEASE_BOT_PRIVATE_KEY` が、このリポジトリから使えること（旧名での確認は2026-10-04。リポジトリ単位の secret ではなく、組織単位の secret）。リリース Bot の GitHub App がこのリポジトリにインストールされていること。
 - 初めて使う前に、Prepare Release を 1 回実行して、PR の内容を確かめ、**マージせずに閉じる**ことを勧める（上記の差分が、実際のファイルで意図どおりになるかを、公開の前に確かめられる）。md-peruse では、2026-10-04 に実施した（PR #160。閉じた）。
 - リリース PR は Bot 名義なので、thread-owl の許可リスト（allowlist）に `scottlz0310-release-bot` が無いと、自動レビューに登録できない（`enqueue_review` が `author_not_allowed` を返す）。2026-10-04 に、あなたが許可リストへ追加した。差分は機械的（版の 1 行ずつと、CHANGELOG の見出し）なので、上の確認を人が行えば足りる。
 
