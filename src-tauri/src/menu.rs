@@ -65,6 +65,8 @@ pub enum MenuCommand {
     About,
     /// 同梱した日英の使い方を表示する。
     UserGuide,
+    /// アクティブな文書の全文を、WebView2の標準印刷プレビューで印刷する（10.7）。
+    Print,
     /// アプリを終了する。
     Exit,
 }
@@ -91,8 +93,9 @@ pub enum MenuCommand {
 /// `End`）はメニュー項目を持たず、WebView内で処理する（10章）。ここに載せないのは、
 /// メニューに現れない操作のアクセラレータをネイティブ側で奪うと、フォーカスのある
 /// 要素へキーが届かなくなるためである。
-pub const ACCELERATORS: [(MenuCommand, &str); 7] = [
+pub const ACCELERATORS: [(MenuCommand, &str); 8] = [
     (MenuCommand::OpenFolder, "Ctrl+O"),
+    (MenuCommand::Print, "Ctrl+P"),
     (MenuCommand::CloseTab, "Ctrl+W"),
     (MenuCommand::ToggleSidebar, "Ctrl+B"),
     (MenuCommand::ReloadDocument, "F5"),
@@ -128,10 +131,11 @@ impl MenuCommand {
 ///
 /// 処理を実装したものだけを載せる。押しても何も起きない項目を見せないためであり、
 /// 無効表示にもしない。実装が進むたびにここへ加え、10.1の構成へ近づける。
-pub const IMPLEMENTED: [MenuCommand; 18] = [
+pub const IMPLEMENTED: [MenuCommand; 19] = [
     MenuCommand::OpenFolder,
     MenuCommand::OpenRecentFolder,
     MenuCommand::CloseWorkspace,
+    MenuCommand::Print,
     MenuCommand::CloseTab,
     MenuCommand::Exit,
     MenuCommand::ToggleSidebar,
@@ -161,6 +165,8 @@ fn label(command: MenuCommand, language: Language) -> &'static str {
         (MenuCommand::OpenRecentFolder, Language::En) => "&Recent Folders",
         (MenuCommand::CloseWorkspace, Language::Ja) => "ワークスペースを閉じる(&K)",
         (MenuCommand::CloseWorkspace, Language::En) => "Close Wor&kspace",
+        (MenuCommand::Print, Language::Ja) => "印刷(&P)...",
+        (MenuCommand::Print, Language::En) => "&Print...",
         (MenuCommand::CloseTab, Language::Ja) => "タブを閉じる(&W)",
         (MenuCommand::CloseTab, Language::En) => "&Close Tab",
         (MenuCommand::Exit, Language::Ja) => "終了(&X)",
@@ -292,6 +298,8 @@ pub fn build<R: Runtime, M: Manager<R>>(
             &item(MenuCommand::OpenFolder)?,
             &recent,
             &item(MenuCommand::CloseWorkspace)?,
+            &PredefinedMenuItem::separator(manager)?,
+            &item(MenuCommand::Print)?,
             &PredefinedMenuItem::separator(manager)?,
             &item(MenuCommand::CloseTab)?,
             &PredefinedMenuItem::separator(manager)?,

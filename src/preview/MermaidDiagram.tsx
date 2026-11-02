@@ -8,6 +8,8 @@ import {
   type MermaidTheme,
   renderMermaid,
 } from "../markdown/mermaid";
+import { PENDING_ATTRIBUTE } from "../print/print-document";
+import { usePrinting } from "../print/print-state";
 
 /** 図を描画できなかったことをブロックの直後に示す要素のクラス。 */
 export const MERMAID_ERROR_CLASS = "mermaid-error";
@@ -80,7 +82,9 @@ export function MermaidDiagram({
   render = renderMermaid,
 }: Props) {
   const messages = useMessages().mermaid;
-  const theme = useSyncExternalStore(subscribeTheme, currentTheme);
+  const screenTheme = useSyncExternalStore(subscribeTheme, currentTheme);
+  // 印刷は白地に合う配色にそろえる。画面のテーマには依存させない（10.7）。
+  const theme: MermaidTheme = usePrinting() ? "default" : screenTheme;
   const overLimit = index >= MERMAID_LIMITS.perDocumentDiagrams;
   const [state, setState] = useState<State>({ status: "pending" });
 
@@ -124,7 +128,11 @@ export function MermaidDiagram({
       : null;
   return (
     <>
-      <pre>
+      <pre
+        {...(!overLimit && state.status === "pending"
+          ? { [PENDING_ATTRIBUTE]: "" }
+          : {})}
+      >
         <code className="language-mermaid">{source}</code>
       </pre>
       {reason !== null && <p className={MERMAID_ERROR_CLASS}>{reason}</p>}

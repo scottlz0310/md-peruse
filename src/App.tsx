@@ -39,6 +39,7 @@ import { loadLicenses } from "./licenses/licenses";
 import type { LinkTarget } from "./markdown/link-target";
 import { DocumentFind } from "./preview/DocumentFind";
 import { MarkdownDocument } from "./preview/MarkdownDocument";
+import { printDocument } from "./print/print-document";
 import { currentEntry, updateCurrentScroll } from "./state/doc-history";
 import {
   completeLoad,
@@ -408,6 +409,9 @@ export default function App() {
         return;
       case "toggleSidebar":
         if (current) saveUi({ sidebarVisible: !current.sidebarVisible });
+        return;
+      case "print":
+        if (documentRef.current) void printDocument(documentRef.current);
         return;
       case "increaseFontSize":
         if (current) saveFontScale(increaseFontScale(current.fontScalePercent));

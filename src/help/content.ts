@@ -109,6 +109,7 @@ export const HELP: Record<Language, HelpContent> = {
           "Ctrl+Fで文書内を検索します。F3 / Shift+F3で次／前の一致へ移動し、Escで検索を閉じます。検索対象は現在表示している本文で、ツリーのファイル名や他の文書ではありません。",
           "相対リンクは同じスコープのMarkdownへ移動します。見出しリンクは本文内を移動します。Alt+← / Alt+→、マウスのサイドボタンで戻る／進む操作を行います。HTTP / HTTPSリンクは既定ブラウザーで開きます。",
           "Mermaid図、数式、言語を指定したコードブロックを表示します。図や数式の構文エラーはその位置に表示されます。複雑すぎる文書は、書式を付けずに表示する場合があります。",
+          "「ファイル」→「印刷…」（Ctrl+P）で、表示中の文書の全文を印刷します。サイドバーやタブは印刷せず、白地に黒の配色で、テーマや文字サイズの設定に関係なく出力します。用紙・向き・余白・ページ範囲は印刷プレビューで選び、PDFへの出力もプレビューから行えます。図や画像の描画を待ってから開きますが、10秒たっても終わらない場合はその時点の表示で開きます。",
         ],
       },
       {
@@ -145,6 +146,7 @@ export const HELP: Record<Language, HelpContent> = {
     shortcutsTitle: "主要ショートカット",
     shortcuts: [
       ["Ctrl+O", "フォルダーを開く"],
+      ["Ctrl+P", "文書を印刷"],
       ["Ctrl+W", "アクティブタブを閉じる"],
       ["Ctrl+Tab / Ctrl+Shift+Tab", "次／前のタブ"],
       ["F5", "文書の再読み込み"],
@@ -253,6 +255,7 @@ export const HELP: Record<Language, HelpContent> = {
           "Ctrl+F searches the visible document. F3 / Shift+F3 move to the next / previous match; Esc closes search. Search does not include tree file names or other documents.",
           "Relative links open Markdown within the same scope. Heading links move within the document. Use Alt+Left / Alt+Right or mouse side buttons to go back / forward. HTTP / HTTPS links open in your default browser.",
           "Mermaid diagrams, math and code blocks with an explicit language are rendered. Diagram or math syntax errors appear in place. Very complex documents may be displayed as plain text.",
+          "Choose File → Print... (Ctrl+P) to print the whole of the open document. The sidebar and tabs are not printed, and the output is black on white regardless of your theme or font size. Choose paper, orientation, margins and page range in the print preview, which can also save a PDF. Printing waits for diagrams and images to finish rendering, and opens the preview as it is after 10 seconds.",
         ],
       },
       {
@@ -289,6 +292,7 @@ export const HELP: Record<Language, HelpContent> = {
     shortcutsTitle: "Essential shortcuts",
     shortcuts: [
       ["Ctrl+O", "Open a folder"],
+      ["Ctrl+P", "Print the document"],
       ["Ctrl+W", "Close the active tab"],
       ["Ctrl+Tab / Ctrl+Shift+Tab", "Next / previous tab"],
       ["F5", "Reload the document"],

@@ -49,6 +49,7 @@ pub fn handle_command<R: Runtime>(app: &AppHandle<R>, command: MenuCommand) {
         MenuCommand::CloseTab
         | MenuCommand::ToggleSidebar
         | MenuCommand::ReloadDocument
+        | MenuCommand::Print
         | MenuCommand::IncreaseFontSize
         | MenuCommand::DecreaseFontSize
         | MenuCommand::ResetFontSize
@@ -84,6 +85,7 @@ mod tests {
             (MenuCommand::CloseTab, "\"closeTab\""),
             (MenuCommand::ToggleSidebar, "\"toggleSidebar\""),
             (MenuCommand::ReloadDocument, "\"reloadDocument\""),
+            (MenuCommand::Print, "\"print\""),
             (MenuCommand::IncreaseFontSize, "\"increaseFontSize\""),
             (MenuCommand::DecreaseFontSize, "\"decreaseFontSize\""),
             (MenuCommand::ResetFontSize, "\"resetFontSize\""),

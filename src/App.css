@@ -771,3 +771,135 @@ body {
 .path-menu button:hover {
   background: var(--color-border);
 }
+
+/*
+ * 印刷（10.7）。アクティブな文書の全文を、白地に黒の配色と固定の文字サイズで出す。
+ * 画面のテーマ、本文の拡大率、サイドバーの表示状態、スクロール位置には依存させない。
+ * 右クリックの「印刷」も同じ規則を使うため、印刷専用の経路には頼らず、CSSで完結させる。
+ * このブロックは配色の規則より後ろに置く。同じ詳細度で、後の規則が勝つためである。
+ */
+@media print {
+  /* 配色は画面のテーマから切り離し、ライトの値へ戻す。 */
+  :root {
+    color-scheme: light;
+    --color-bg: #ffffff;
+    --color-fg: #000000;
+    --color-fg-muted: #3d444d;
+    --color-border: #8c959f;
+    --hl-comment: #59636e;
+    --hl-keyword: #cf222e;
+    --hl-string: #0a3069;
+    --hl-number: #0550ae;
+    --hl-title: #6639ba;
+    --hl-type: #953800;
+    --hl-tag: #116329;
+    --hl-addition-bg: #dafbe1;
+    --hl-deletion-bg: #ffebe9;
+    font-size: 11pt;
+    line-height: 1.5;
+  }
+
+  @page {
+    margin: 15mm;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+
+  /*
+   * 操作UI。サイドバーは表示状態によらず出さない。通知（`role="status"` / `alert`）も
+   * 文書の一部ではない。
+   */
+  .sidebar,
+  .resizer,
+  .tab-bar,
+  .breadcrumb,
+  .find-bar,
+  .path-menu,
+  .drag-overlay,
+  dialog,
+  .preview-area > [role="alert"],
+  .preview-area > [role="status"] {
+    display: none;
+  }
+
+  /* 画面用の100vhとスクロール領域をやめ、文書をページへ流す。 */
+  .sidebar-layout,
+  .sidebar-layout[data-sidebar="hidden"] {
+    display: block;
+    height: auto;
+  }
+
+  .preview-column {
+    display: block;
+  }
+
+  .preview-area {
+    overflow: visible;
+    padding: 0;
+  }
+
+  /* 画面の拡大率に依存させず、基準の文字サイズに固定する。 */
+  .preview-area .markdown-body {
+    font-size: 1em;
+    color: #000;
+  }
+
+  /* 見出しだけがページの末尾に残らないようにする。 */
+  .markdown-body :is(h1, h2, h3, h4, h5, h6) {
+    break-after: avoid;
+  }
+
+  /*
+   * 長い表とコードはページをまたげる。横にはみ出さないよう、行と列の幅は用紙に収め、
+   * 長い行は折り返す（欠落させない）。行の途中ではページを分けず、表の見出し行は
+   * ページごとに繰り返す。
+   */
+  .markdown-body pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    overflow: visible;
+  }
+
+  .markdown-body table {
+    max-width: 100%;
+    table-layout: auto;
+  }
+
+  .markdown-body :is(th, td) {
+    overflow-wrap: anywhere;
+  }
+
+  .markdown-body thead {
+    display: table-header-group;
+  }
+
+  .markdown-body tr {
+    break-inside: avoid;
+  }
+
+  /*
+   * 画像とMermaidの図は用紙の幅に収め、途中で分けない。1ページより大きい図は、
+   * 1ページに収まる大きさまで縮める。
+   */
+  .markdown-body img,
+  .markdown-body .mermaid-diagram {
+    break-inside: avoid;
+  }
+
+  .markdown-body img,
+  .markdown-body .mermaid-diagram svg {
+    max-width: 100%;
+    max-height: 90vh;
+    object-fit: contain;
+  }
+
+  /* 画面用の強調（文書内検索の一致。8.6）は印刷に載せない。 */
+  ::highlight(md-peruse-find),
+  ::highlight(md-peruse-find-active) {
+    background-color: transparent;
+    color: inherit;
+  }
+}
