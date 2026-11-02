@@ -7,6 +7,8 @@ import {
   MermaidRenderError,
   type MermaidTheme,
 } from "../markdown/mermaid";
+import { PENDING_ATTRIBUTE, waitForSettled } from "../print/print-document";
+import { setPrinting } from "../print/print-state";
 import {
   MERMAID_DIAGRAM_CLASS,
   MERMAID_ERROR_CLASS,
@@ -14,6 +16,7 @@ import {
 } from "./MermaidDiagram";
 
 afterEach(() => {
+  setPrinting(false);
   cleanup();
 });
 
@@ -229,5 +232,54 @@ describe("MermaidDiagram: UI言語（10.5）", () => {
     expect(
       container.querySelector(`.${MERMAID_ERROR_CLASS}`)?.textContent,
     ).toBe(expected);
+  });
+});
+
+describe("印刷中の再描画（10.7）", () => {
+  const original = globalThis.matchMedia;
+  afterEach(() => {
+    globalThis.matchMedia = original;
+  });
+
+  test("印刷の状態にすると、ライトの配色での再描画が終わるまで待ち合わせが完了しない", async () => {
+    // 画面はダーク。印刷は画面のテーマによらずライトの配色で描く。
+    globalThis.matchMedia = ((query: string) => ({
+      matches: query === "(prefers-color-scheme: dark)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof matchMedia;
+    const themes: MermaidTheme[] = [];
+    let resolve: (svg: string) => void = () => {};
+    const renderDiagram = mock((_source: string, theme: MermaidTheme) => {
+      themes.push(theme);
+      return new Promise<string>((r) => {
+        resolve = r;
+      });
+    });
+    const { container } = render(
+      <MermaidDiagram source={SOURCE} index={0} render={renderDiagram} />,
+    );
+    await act(async () => resolve("<svg><g></g></svg>"));
+    await waitFor(() =>
+      expect(
+        container.querySelector(`.${MERMAID_DIAGRAM_CLASS}`),
+      ).not.toBeNull(),
+    );
+    expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).toBeNull();
+
+    // 注: `act` はeffectを同期的に流すため、実機で起きた「effectの前に印刷が始まる」順序は
+    // ここでは再現できない（`stale` の導出を外しても通る）。この試験が固定するのは、
+    // 印刷の状態にしたあと、再描画が終わるまで待ち合わせが「未完了」を返し、ライトの配色で
+    // 描き直し、終わると「完了」に戻ることである。上の順序は実機（WebView2）で確かめる。
+    act(() => setPrinting(true));
+    expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).not.toBeNull();
+    expect(await waitForSettled(container, 50)).toBe(false);
+
+    await act(async () => resolve("<svg><g></g></svg>"));
+    expect(themes).toEqual(["dark", "default"]);
+    await waitFor(() =>
+      expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).toBeNull(),
+    );
+    expect(await waitForSettled(container, 50)).toBe(true);
   });
 });

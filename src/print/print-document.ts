@@ -1,0 +1,67 @@
+import { setPrinting } from "./print-state";
+
+/** 描画中の図に付ける属性。印刷の前に、描画が終わるのを待つ目印にする。 */
+export const PENDING_ATTRIBUTE = "data-print-pending";
+
+/** 図と画像の描画を待つ上限（ミリ秒）。超えたら、その時点の表示で印刷する。 */
+export const SETTLE_TIMEOUT_MS = 10_000;
+
+const POLL_INTERVAL_MS = 50;
+
+/**
+ * 印刷の前に、図と画像の描画が終わるのを待つ。
+ *
+ * 画像は `loading="lazy"` で描くため、画面外の画像は読み込まれていない。印刷では全文を
+ * 出すので、先に読み込ませる。待つ対象は、描画中のMermaidの図（`PENDING_ATTRIBUTE`）と、
+ * 読み込み中の画像である。読み込みに失敗した画像は待たない。
+ *
+ * 上限までに終わらなければ `false` を返す。待ち続けると、描画できない図や応答しない
+ * 画像で印刷を始められなくなるため、その時点の表示で進める。
+ */
+export async function waitForSettled(
+  root: ParentNode,
+  timeoutMs: number = SETTLE_TIMEOUT_MS,
+): Promise<boolean> {
+  for (const image of root.querySelectorAll("img")) image.loading = "eager";
+  const deadline = Date.now() + timeoutMs;
+  while (!isSettled(root)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  }
+  return true;
+}
+
+function isSettled(root: ParentNode): boolean {
+  if (root.querySelector(`[${PENDING_ATTRIBUTE}]`) !== null) return false;
+  for (const image of root.querySelectorAll("img")) {
+    // 読み込みに失敗した画像は `complete` が真になる。
+    if (!image.complete) return false;
+  }
+  return true;
+}
+
+/**
+ * 表示中の文書を、WebView2の標準印刷プレビューで印刷する。
+ *
+ * 印刷中の状態にして図を印刷用の配色で描き直させ、描画を待ってから `window.print()` を
+ * 呼ぶ。状態は印刷ダイアログを閉じたとき（`afterprint`）に戻す。プレビューは設定の変更の
+ * たびに文書を取り直すため、`print()` が戻った時点では戻さない。
+ */
+export async function printDocument(
+  root: ParentNode,
+  print: () => void = () => window.print(),
+): Promise<void> {
+  setPrinting(true);
+  window.addEventListener("afterprint", () => setPrinting(false), {
+    once: true,
+  });
+  try {
+    // 印刷用の配色での再描画は、状態の更新を受けてから始まる。1回待ってから確認する。
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await waitForSettled(root);
+    print();
+  } catch (error) {
+    setPrinting(false);
+    throw error;
+  }
+}

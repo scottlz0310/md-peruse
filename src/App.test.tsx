@@ -3296,3 +3296,47 @@ test.each(["closeTab", "reloadDocument"] as const)(
     else await waitFor(() => expect(screen.queryByRole("tab")).toBeNull());
   },
 );
+
+describe("印刷（10.7）", () => {
+  test("printコマンドは本文を描画してから window.print を呼ぶ", async () => {
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "## 本文\n"),
+    });
+    const printed: number[] = [];
+    const original = window.print;
+    window.print = () => {
+      printed.push(1);
+    };
+    try {
+      render(<App />);
+      await openReadme();
+      await screen.findByRole("heading", { name: "本文" });
+      await act(async () => {
+        await emit("menu-command", "print");
+      });
+      await waitFor(() => expect(printed).toEqual([1]));
+    } finally {
+      window.print = original;
+      window.dispatchEvent(new Event("afterprint"));
+    }
+  });
+
+  test("文書がないときのprintコマンドは何もしない", async () => {
+    mockBackend({ scan: () => ROOT });
+    const printed: number[] = [];
+    const original = window.print;
+    window.print = () => {
+      printed.push(1);
+    };
+    try {
+      render(<App />);
+      await act(async () => {
+        await emit("menu-command", "print");
+      });
+      expect(printed).toEqual([]);
+    } finally {
+      window.print = original;
+    }
+  });
+});

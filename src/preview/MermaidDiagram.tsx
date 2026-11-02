@@ -8,6 +8,8 @@ import {
   type MermaidTheme,
   renderMermaid,
 } from "../markdown/mermaid";
+import { PENDING_ATTRIBUTE } from "../print/print-document";
+import { usePrinting } from "../print/print-state";
 
 /** 図を描画できなかったことをブロックの直後に示す要素のクラス。 */
 export const MERMAID_ERROR_CLASS = "mermaid-error";
@@ -26,7 +28,7 @@ type Props = {
 
 type State =
   | { status: "pending" }
-  | { status: "done"; svg: string }
+  | { status: "done"; svg: string; theme: MermaidTheme }
   | { status: "failed"; failure: MermaidFailure };
 
 const DARK = "(prefers-color-scheme: dark)";
@@ -80,9 +82,15 @@ export function MermaidDiagram({
   render = renderMermaid,
 }: Props) {
   const messages = useMessages().mermaid;
-  const theme = useSyncExternalStore(subscribeTheme, currentTheme);
+  const screenTheme = useSyncExternalStore(subscribeTheme, currentTheme);
+  // 印刷は白地に合う配色にそろえる。画面のテーマには依存させない（10.7）。
+  const theme: MermaidTheme = usePrinting() ? "default" : screenTheme;
   const overLimit = index >= MERMAID_LIMITS.perDocumentDiagrams;
   const [state, setState] = useState<State>({ status: "pending" });
+  // テーマが変わった直後は、描画済みの図が古い配色のままである。effectが `pending` にする
+  // のを待つと、その前に印刷の待ち合わせが「描画済み」と判断して印刷を始めてしまう。
+  // 描画と同じコミットで描画中として扱い、印を付ける（10.7）。
+  const stale = state.status === "done" && state.theme !== theme;
 
   useEffect(() => {
     if (overLimit) return;
@@ -90,7 +98,7 @@ export function MermaidDiagram({
     setState({ status: "pending" });
     render(source, theme).then(
       (svg) => {
-        if (current) setState({ status: "done", svg });
+        if (current) setState({ status: "done", svg, theme });
       },
       (error: unknown) => {
         if (!current) return;
@@ -108,7 +116,7 @@ export function MermaidDiagram({
     };
   }, [source, theme, overLimit, render]);
 
-  if (!overLimit && state.status === "done") {
+  if (!overLimit && state.status === "done" && !stale) {
     return (
       <div
         className={MERMAID_DIAGRAM_CLASS}
@@ -124,7 +132,11 @@ export function MermaidDiagram({
       : null;
   return (
     <>
-      <pre>
+      <pre
+        {...(!overLimit && (state.status === "pending" || stale)
+          ? { [PENDING_ATTRIBUTE]: "" }
+          : {})}
+      >
         <code className="language-mermaid">{source}</code>
       </pre>
       {reason !== null && <p className={MERMAID_ERROR_CLASS}>{reason}</p>}
