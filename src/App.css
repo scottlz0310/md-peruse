@@ -881,19 +881,23 @@ body {
   }
 
   /*
-   * 画像とMermaidの図は用紙の幅に収め、途中で分けない。1ページより大きい図は、
-   * 1ページに収まる大きさまで縮める。
+   * 画像とMermaidの図は用紙の幅に収め、1ページに収まるものは途中で分けない。
+   * 画像は1ページに収まる大きさまで縮める。Mermaidの図は高さを抑えず、1ページより高い図は
+   * 読み取れる大きさのまま、ページをまたいで出す（縮めると読み取れなくなるため。10.7）。
    */
   .markdown-body img,
   .markdown-body .mermaid-diagram {
     break-inside: avoid;
   }
 
-  .markdown-body img,
-  .markdown-body .mermaid-diagram svg {
+  .markdown-body img {
     max-width: 100%;
     max-height: 90vh;
     object-fit: contain;
+  }
+
+  .markdown-body .mermaid-diagram svg {
+    max-width: 100%;
   }
 
   /* 画面用の強調（文書内検索の一致。8.6）は印刷に載せない。 */
