@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useMessages } from "../i18n/LanguageContext";
 import type { Messages } from "../i18n/messages";
 import { MERMAID_LIMITS } from "../markdown/limits";
@@ -72,15 +72,61 @@ function failureMessage(
   }
 }
 
+/** 印刷用ブロックを包む要素のクラス。画面では隠し、印刷だけで出す（10.7）。 */
+export const MERMAID_PRINT_CLASS = "mermaid-print";
+
+/** SVGの `viewBox` から、図の幅と高さを読む。読めなければ `null`。 */
+function viewBoxSize(svg: string): { width: number; height: number } | null {
+  const match =
+    /viewBox="\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)\s*"/.exec(
+      svg,
+    );
+  if (match === null) return null;
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  return width > 0 && height > 0 ? { width, height } : null;
+}
+
+/**
+ * 1ページに収まるとみなす図の高さ（CSSピクセル）の上限。縦向きの本文領域は約1000px、横向きは
+ * 約680pxである。図は幅を超えれば縮むため、`viewBox` の高さは実際の高さの上限になる。
+ * これ以下の図だけ、途中で分けない。それより高い図に付けると、1ページに収まらないのに
+ * 次のページの先頭へ送られ、前のページに大きな余白ができる（10.7）。
+ */
+const PRINT_FITS_ON_PAGE_PX = 640;
+
+/**
+ * 印刷用の図。インラインSVGは分割できない塊で、収まらなければ次のページの先頭へ送られる。
+ * 分割できるブロックの背景にSVGを置けば、見出しと同じページから始まり、ページをまたげる。
+ * 背景のURLは `style` 属性では渡せない（CSP。5.5）ため、`style` 要素へ書く。
+ */
+function PrintBlock({ svg }: { svg: string }) {
+  const id = `mermaid-print-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
+  const size = viewBoxSize(svg);
+  if (size === null) return null;
+  const url = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  return (
+    <>
+      <style>
+        {`.${id}{aspect-ratio:${size.width}/${size.height};width:min(100%,${size.width}px);background:url("${url}") top left/100% 100% no-repeat${size.height <= PRINT_FITS_ON_PAGE_PX ? ";break-inside:avoid" : ""}}`}
+      </style>
+      <div className={`${MERMAID_PRINT_CLASS} ${id}`} aria-hidden="true" />
+    </>
+  );
+}
+
 /** 描画済みの図。描画中の印は、印刷の待ち合わせが見る（10.7）。 */
 function Diagram({ svg, pending = false }: { svg: string; pending?: boolean }) {
   return (
-    <div
-      className={MERMAID_DIAGRAM_CLASS}
-      {...(pending ? { [PENDING_ATTRIBUTE]: "" } : {})}
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: 本文描画で唯一の例外（8.4）。Mermaidが生成したSVGを `sanitizeMermaidSvg`（DOMPurify）で処理した文字列だけを渡す。
-      dangerouslySetInnerHTML={{ __html: svg }}
-    />
+    <>
+      <div
+        className={MERMAID_DIAGRAM_CLASS}
+        {...(pending ? { [PENDING_ATTRIBUTE]: "" } : {})}
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: 本文描画で唯一の例外（8.4）。Mermaidが生成したSVGを `sanitizeMermaidSvg`（DOMPurify）で処理した文字列だけを渡す。
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+      <PrintBlock svg={svg} />
+    </>
   );
 }
 

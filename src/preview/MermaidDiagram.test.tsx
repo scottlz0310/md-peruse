@@ -12,6 +12,7 @@ import { setPrinting } from "../print/print-state";
 import {
   MERMAID_DIAGRAM_CLASS,
   MERMAID_ERROR_CLASS,
+  MERMAID_PRINT_CLASS,
   MermaidDiagram,
 } from "./MermaidDiagram";
 
@@ -391,5 +392,54 @@ describe("再描画の間の表示（10.7）", () => {
     expect(container.querySelector("pre code")?.textContent).toContain(
       "X --> Y",
     );
+  });
+});
+
+describe("印刷用ブロック（10.7）", () => {
+  async function rendered(svg: string) {
+    const result = render(
+      <MermaidDiagram
+        source={SOURCE}
+        index={0}
+        render={() => Promise.resolve(svg)}
+      />,
+    );
+    await waitFor(() =>
+      expect(
+        result.container.querySelector(`.${MERMAID_DIAGRAM_CLASS}`),
+      ).not.toBeNull(),
+    );
+    return result.container;
+  }
+
+  test("図の幅と高さから、背景のSVGと縦横比を `style` 要素へ書く", async () => {
+    const container = await rendered(
+      '<svg viewBox="4 4 200 300"><g></g></svg>',
+    );
+    const block = container.querySelector(`.${MERMAID_PRINT_CLASS}`);
+    expect(block?.getAttribute("aria-hidden")).toBe("true");
+    // CSPが `style` 属性を許可しないため、属性には書かない。
+    expect(block?.getAttribute("style")).toBeNull();
+    const rule = container.querySelector("style")?.textContent ?? "";
+    expect(rule).toContain("aspect-ratio:200/300");
+    expect(rule).toContain("width:min(100%,200px)");
+    expect(rule).toContain('url("data:image/svg+xml;charset=utf-8,%3Csvg');
+  });
+
+  test("1ページに収まる高さの図だけ、途中で分けない", async () => {
+    const short = await rendered('<svg viewBox="0 0 200 640"><g></g></svg>');
+    expect(short.querySelector("style")?.textContent).toContain(
+      "break-inside:avoid",
+    );
+    cleanup();
+    const tall = await rendered('<svg viewBox="0 0 200 641"><g></g></svg>');
+    expect(tall.querySelector("style")?.textContent).not.toContain(
+      "break-inside",
+    );
+  });
+
+  test("viewBox を読めない図には、印刷用ブロックを出さない", async () => {
+    const container = await rendered("<svg><g></g></svg>");
+    expect(container.querySelector(`.${MERMAID_PRINT_CLASS}`)).toBeNull();
   });
 });

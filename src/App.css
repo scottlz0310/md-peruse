@@ -486,6 +486,11 @@ body {
   }
 }
 
+/* 印刷用の図（10.7）。画面では出さない。 */
+.markdown-body .mermaid-print {
+  display: none;
+}
+
 /* 描画できなかった図の理由（8.4、12章）。 */
 .markdown-body .mermaid-error {
   color: var(--color-fg-muted);
@@ -896,8 +901,14 @@ body {
     object-fit: contain;
   }
 
-  .markdown-body .mermaid-diagram svg {
-    max-width: 100%;
+  /* 印刷では、分割できる背景ブロックを出し、インラインSVGは隠す（10.7）。 */
+  .markdown-body .mermaid-diagram {
+    display: none;
+  }
+
+  /* 途中で分けるかは、図の高さに応じて、図ごとの規則が決める（`PrintBlock`）。 */
+  .markdown-body .mermaid-print {
+    display: block;
   }
 
   /* 画面用の強調（文書内検索の一致。8.6）は印刷に載せない。 */
