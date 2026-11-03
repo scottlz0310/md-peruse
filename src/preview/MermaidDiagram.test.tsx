@@ -441,6 +441,56 @@ describe("再描画の間の表示（10.7）", () => {
     );
   });
 
+  test("右クリックの印刷で画面のテーマが一時的に切り替わっても、印刷用の図はライトのままである", async () => {
+    const change = fakeMedia(["(prefers-color-scheme: dark)"]);
+    const calls: Array<{
+      theme: MermaidTheme;
+      resolve: (svg: string) => void;
+    }> = [];
+    const renderDiagram = mock(
+      (_source: string, theme: MermaidTheme) =>
+        new Promise<string>((resolve) => {
+          calls.push({ theme, resolve });
+        }),
+    );
+    const { container } = render(
+      <MermaidDiagram source={SOURCE} index={0} render={renderDiagram} />,
+    );
+    const resolveTheme = (theme: MermaidTheme) =>
+      act(async () => {
+        for (const call of calls.filter((c) => c.theme === theme)) {
+          call.resolve(`<svg viewBox="0 0 100 100" id="${theme}"></svg>`);
+        }
+        calls.splice(
+          0,
+          calls.length,
+          ...calls.filter((c) => c.theme !== theme),
+        );
+      });
+    /** 印刷用ブロックの背景に書かれたSVG（`data:` URLを復号したもの）。 */
+    const printed = () => {
+      const css = container.querySelector("style")?.textContent ?? "";
+      const match = /url\("data:image\/svg\+xml;charset=utf-8,([^"]*)"\)/.exec(
+        css,
+      );
+      return match?.[1] ? decodeURIComponent(match[1]) : "";
+    };
+    await resolveTheme("dark");
+    await waitFor(() =>
+      expect(calls.some((c) => c.theme === "default")).toBe(true),
+    );
+    await resolveTheme("default");
+    await waitFor(() => expect(printed()).toContain('id="default"'));
+
+    // dark → light の間も、印刷用の図は、描き終えたライトの図のままである。
+    act(() => change([]));
+    expect(printed()).toContain('id="default"');
+    expect(printed()).not.toContain('id="dark"');
+
+    act(() => change(["(prefers-color-scheme: dark)"]));
+    expect(printed()).toContain('id="default"');
+  });
+
   test("描画に失敗した図は、テーマが変わった再描画の間、定義のコードブロックを出す", async () => {
     const change = fakeMedia(["(prefers-color-scheme: dark)"]);
     let screenCalls = 0;

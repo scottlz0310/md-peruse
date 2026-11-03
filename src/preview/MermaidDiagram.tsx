@@ -170,6 +170,9 @@ export function MermaidDiagram({
   const stale = state.status === "done" && state.theme !== theme;
   // 印刷用の図は、画面のテーマによらず、常に白地に合う配色（`default`）で描く（10.7）。
   // 画面が `default` なら、その図を使う。そうでなければ（ダーク、`forced-colors`）、別に描く。
+  // 描き終えた印刷用の図は、画面のテーマが変わっても保持する。右クリックの印刷は、開始の
+  // 前後で画面のテーマが一時的に切り替わる。その間に、画面側の古い図（ダーク）で
+  // 代用すると、その図が印刷される。
   const needsLight = theme !== "default";
   // 画面の図を先に描く。印刷用の描画で、画面の表示を遅らせない。
   const screenDone = state.status === "done";
@@ -177,8 +180,9 @@ export function MermaidDiagram({
     source: string;
     svg: string | null;
   } | null>(null);
+  const haveLight = light !== null && light.source === source;
   useEffect(() => {
-    if (overLimit || !needsLight || !screenDone) return;
+    if (overLimit || !needsLight || !screenDone || haveLight) return;
     let current = true;
     render(source, "default").then(
       (svg) => {
@@ -192,10 +196,10 @@ export function MermaidDiagram({
     return () => {
       current = false;
     };
-  }, [source, needsLight, screenDone, overLimit, render]);
+  }, [source, needsLight, screenDone, haveLight, overLimit, render]);
   const lightForSource =
     light !== null && light.source === source ? light : null;
-  const lightPending = needsLight && lightForSource === null;
+  const lightPending = lightForSource === null;
 
   useEffect(() => {
     if (overLimit) return;
@@ -214,7 +218,10 @@ export function MermaidDiagram({
     }));
     render(source, theme).then(
       (svg) => {
-        if (current) setState({ status: "done", svg, theme, source });
+        if (!current) return;
+        setState({ status: "done", svg, theme, source });
+        // 画面が `default` で描けた図は、そのまま印刷用にも使う。
+        if (theme === "default") setLight({ source, svg });
       },
       (error: unknown) => {
         if (!current) return;
@@ -241,9 +248,8 @@ export function MermaidDiagram({
         : null;
   if (!overLimit && shown !== null && shown.source === source) {
     const screenPending = state.status !== "done" || stale;
-    // 印刷用の図が描けるまでは、画面の図で代用する。
-    const printSvg =
-      needsLight && lightForSource?.svg ? lightForSource.svg : shown.svg;
+    // 印刷用の図が描けるまで（または描けなかったとき）は、画面の図で代用する。
+    const printSvg = lightForSource?.svg ?? shown.svg;
     return (
       <Diagram
         svg={shown.svg}
