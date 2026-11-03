@@ -426,16 +426,14 @@ describe("印刷用ブロック（10.7）", () => {
     expect(rule).toContain('url("data:image/svg+xml;charset=utf-8,%3Csvg');
   });
 
-  test("1ページに収まる高さの図だけ、途中で分けない", async () => {
-    const short = await rendered('<svg viewBox="0 0 200 640"><g></g></svg>');
-    expect(short.querySelector("style")?.textContent).toContain(
-      "break-inside:avoid",
+  test("途中で分けない規則は、ページの高さが図の高さと見出しの余白以上のときだけ効く", async () => {
+    const container = await rendered(
+      '<svg viewBox="0 0 200 300"><g></g></svg>',
     );
-    cleanup();
-    const tall = await rendered('<svg viewBox="0 0 200 641"><g></g></svg>');
-    expect(tall.querySelector("style")?.textContent).not.toContain(
-      "break-inside",
-    );
+    const rule = container.querySelector("style")?.textContent ?? "";
+    // 300px + 見出しの余白80px。ページがこれより低ければ、分けない規則は効かない。
+    expect(rule).toContain("@media (min-height:380px){.mermaid-print-");
+    expect(rule).toContain("break-inside:avoid");
   });
 
   test("viewBox を読めない図には、印刷用ブロックを出さない", async () => {

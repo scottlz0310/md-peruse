@@ -147,7 +147,7 @@ WebView2を採用する構成では、アプリプロセス単体が数十MBに�
 
 - Raw HTMLとMarkdown内JavaScriptを実行せず、ソースとして表示する。
 - 解析結果をstrict allowlistでsanitizeし、sanitize済みの構造だけを描画する。
-- `javascript:`、`data:`、`file:`、任意の `ms-` schemeを遮断する。
+- 本文のリンクと画像のURLは、`javascript:`、`data:`、`file:`、任意の `ms-` schemeを遮断する（sanitizeによる）。CSPの `img-src` は、アプリ自身が生成する印刷用の図の背景のため `data:` を許可する（設計 5.5、10.7）。本文の `data:` 画像は表示しない。
 - リモート画像とワークスペース外の画像を初期版では遮断する。許可するUIは初期版に含めない。
 - Frontendへネイティブ絶対パスや汎用ファイルシステム権限を渡さない。
 - 外部script、任意通信、iframe、objectをCSPで遮断する。

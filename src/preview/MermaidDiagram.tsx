@@ -88,17 +88,20 @@ function viewBoxSize(svg: string): { width: number; height: number } | null {
 }
 
 /**
- * 1ページに収まるとみなす図の高さ（CSSピクセル）の上限。縦向きの本文領域は約1000px、横向きは
- * 約680pxである。図は幅を超えれば縮むため、`viewBox` の高さは実際の高さの上限になる。
- * これ以下の図だけ、途中で分けない。それより高い図に付けると、1ページに収まらないのに
- * 次のページの先頭へ送られ、前のページに大きな余白ができる（10.7）。
+ * 図の直前の見出しの分として、図の高さへ足す余白（CSSピクセル）。見出しは図と同じページに
+ * 置く（`break-after: avoid`）ため、図だけがページに収まっても、見出しと合わせて収まらない
+ * ことがある。その場合に「分けない」を付けると、図の末尾のノードだけが次のページへ割れる。
  */
-const PRINT_FITS_ON_PAGE_PX = 640;
+const PRINT_HEADING_ALLOWANCE_PX = 80;
 
 /**
  * 印刷用の図。インラインSVGは分割できない塊で、収まらなければ次のページの先頭へ送られる。
  * 分割できるブロックの背景にSVGを置けば、見出しと同じページから始まり、ページをまたげる。
  * 背景のURLは `style` 属性では渡せない（CSP。5.5）ため、`style` 要素へ書く。
+ *
+ * 途中で分けるかは、印刷のページの高さ（`min-height` メディアクエリ）で決める。図が1ページに
+ * 収まるときだけ分けない。収まらない図に付けると、次のページの先頭へ送られ、前のページに
+ * 大きな余白ができる。用紙の向きと大きさに追従するため、印刷の開始時の処理は要らない。
  */
 function PrintBlock({ svg }: { svg: string }) {
   const id = `mermaid-print-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
@@ -108,7 +111,7 @@ function PrintBlock({ svg }: { svg: string }) {
   return (
     <>
       <style>
-        {`.${id}{aspect-ratio:${size.width}/${size.height};width:min(100%,${size.width}px);background:url("${url}") top left/100% 100% no-repeat${size.height <= PRINT_FITS_ON_PAGE_PX ? ";break-inside:avoid" : ""}}`}
+        {`.${id}{aspect-ratio:${size.width}/${size.height};width:min(100%,${size.width}px);background:url("${url}") top left/100% 100% no-repeat}@media (min-height:${Math.ceil(size.height) + PRINT_HEADING_ALLOWANCE_PX}px){.${id}{break-inside:avoid}}`}
       </style>
       <div className={`${MERMAID_PRINT_CLASS} ${id}`} aria-hidden="true" />
     </>

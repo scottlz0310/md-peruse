@@ -906,9 +906,13 @@ body {
     display: none;
   }
 
-  /* 途中で分けるかは、図の高さに応じて、図ごとの規則が決める（`PrintBlock`）。 */
+  /* 途中で分けるかは、ページの高さに応じて、図ごとの規則が決める（`PrintBlock`）。 */
   .markdown-body .mermaid-print {
     display: block;
+
+    /* 背景のグラフィックスは、既定では印刷されない。図は背景として置くため、明示して出す。 */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* 画面用の強調（文書内検索の一致。8.6）は印刷に載せない。 */
