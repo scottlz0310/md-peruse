@@ -342,6 +342,28 @@ describe("再描画の間の表示（10.7）", () => {
     expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).toBeNull();
   });
 
+  test("描画に失敗した図は、テーマが変わった再描画の間、定義のコードブロックを出す", async () => {
+    const change = fakeMedia(["(prefers-color-scheme: dark)"]);
+    let calls = 0;
+    const renderDiagram = mock(() => {
+      calls += 1;
+      return calls === 1
+        ? Promise.reject(new MermaidRenderError({ kind: "timeout" }))
+        : new Promise<string>(() => {});
+    });
+    const { container } = render(
+      <MermaidDiagram source={SOURCE} index={0} render={renderDiagram} />,
+    );
+    await waitFor(() =>
+      expect(container.querySelector(`.${MERMAID_ERROR_CLASS}`)).not.toBeNull(),
+    );
+
+    act(() => change([]));
+    await waitFor(() => expect(calls).toBe(2));
+    expect(container.querySelector("pre code")?.textContent).toBe(SOURCE);
+    expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).not.toBeNull();
+  });
+
   test("定義が変わった図は、古い図を残さずコードブロックを出す", async () => {
     const resolvers: Array<(svg: string) => void> = [];
     const renderDiagram = mock(
