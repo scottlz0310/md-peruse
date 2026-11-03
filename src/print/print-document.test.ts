@@ -4,7 +4,6 @@ import {
   printDocument,
   waitForSettled,
 } from "./print-document";
-import { setPrinting } from "./print-state";
 
 let root: HTMLElement;
 
@@ -15,7 +14,6 @@ beforeEach(() => {
 
 afterEach(() => {
   root.remove();
-  setPrinting(false);
 });
 
 test("図と画像が描画済みなら、待たずに終わる", async () => {
@@ -43,17 +41,13 @@ test("画面外の画像も先に読み込ませる", async () => {
   expect(root.querySelector("img")?.loading).toBe("eager");
 });
 
-test("印刷は描画を待ってから呼び、afterprint で状態を戻す", async () => {
+test("印刷は、描画の待ち合わせが終わってから呼ぶ", async () => {
+  root.innerHTML = `<pre ${PENDING_ATTRIBUTE}></pre>`;
   const calls: string[] = [];
+  setTimeout(() => {
+    calls.push("settled");
+    root.querySelector("pre")?.removeAttribute(PENDING_ATTRIBUTE);
+  }, 80);
   await printDocument(root, () => calls.push("print"));
-  expect(calls).toEqual(["print"]);
-  window.dispatchEvent(new Event("afterprint"));
-});
-
-test("印刷の呼び出しが失敗したら状態を戻して例外を伝える", async () => {
-  await expect(
-    printDocument(root, () => {
-      throw new Error("boom");
-    }),
-  ).rejects.toThrow("boom");
+  expect(calls).toEqual(["settled", "print"]);
 });

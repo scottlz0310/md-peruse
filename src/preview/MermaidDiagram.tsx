@@ -9,7 +9,6 @@ import {
   renderMermaid,
 } from "../markdown/mermaid";
 import { PENDING_ATTRIBUTE } from "../print/print-document";
-import { usePrinting } from "../print/print-state";
 
 /** 図を描画できなかったことをブロックの直後に示す要素のクラス。 */
 export const MERMAID_ERROR_CLASS = "mermaid-error";
@@ -118,8 +117,20 @@ function PrintBlock({ svg }: { svg: string }) {
   );
 }
 
-/** 描画済みの図。描画中の印は、印刷の待ち合わせが見る（10.7）。 */
-function Diagram({ svg, pending = false }: { svg: string; pending?: boolean }) {
+/**
+ * 描画済みの図。描画中の印は、印刷の待ち合わせが見る（10.7）。
+ *
+ * 画面は `svg`（画面のテーマ）、印刷は `printSvg`（常にライト）を使う。
+ */
+function Diagram({
+  svg,
+  printSvg,
+  pending = false,
+}: {
+  svg: string;
+  printSvg: string;
+  pending?: boolean;
+}) {
   return (
     <>
       <div
@@ -128,7 +139,7 @@ function Diagram({ svg, pending = false }: { svg: string; pending?: boolean }) {
         // biome-ignore lint/security/noDangerouslySetInnerHtml: 本文描画で唯一の例外（8.4）。Mermaidが生成したSVGを `sanitizeMermaidSvg`（DOMPurify）で処理した文字列だけを渡す。
         dangerouslySetInnerHTML={{ __html: svg }}
       />
-      <PrintBlock svg={svg} />
+      <PrintBlock svg={printSvg} />
     </>
   );
 }
@@ -147,8 +158,7 @@ export function MermaidDiagram({
 }: Props) {
   const messages = useMessages().mermaid;
   const screenTheme = useSyncExternalStore(subscribeTheme, currentTheme);
-  // 印刷は白地に合う配色にそろえる。画面のテーマには依存させない（10.7）。
-  const theme: MermaidTheme = usePrinting() ? "default" : screenTheme;
+  const theme = screenTheme;
   const overLimit = index >= MERMAID_LIMITS.perDocumentDiagrams;
   const [state, setState] = useState<State>({
     status: "pending",
@@ -158,6 +168,34 @@ export function MermaidDiagram({
   // のを待つと、その前に印刷の待ち合わせが「描画済み」と判断して印刷を始めてしまう。
   // 描画と同じコミットで描画中として扱い、印を付ける（10.7）。
   const stale = state.status === "done" && state.theme !== theme;
+  // 印刷用の図は、画面のテーマによらず、常に白地に合う配色（`default`）で描く（10.7）。
+  // 画面が `default` なら、その図を使う。そうでなければ（ダーク、`forced-colors`）、別に描く。
+  const needsLight = theme !== "default";
+  // 画面の図を先に描く。印刷用の描画で、画面の表示を遅らせない。
+  const screenDone = state.status === "done";
+  const [light, setLight] = useState<{
+    source: string;
+    svg: string | null;
+  } | null>(null);
+  useEffect(() => {
+    if (overLimit || !needsLight || !screenDone) return;
+    let current = true;
+    render(source, "default").then(
+      (svg) => {
+        if (current) setLight({ source, svg });
+      },
+      // 描けなかったときは、画面の図で代用する。待ち続けない。
+      () => {
+        if (current) setLight({ source, svg: null });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [source, needsLight, screenDone, overLimit, render]);
+  const lightForSource =
+    light !== null && light.source === source ? light : null;
+  const lightPending = needsLight && lightForSource === null;
 
   useEffect(() => {
     if (overLimit) return;
@@ -194,10 +232,7 @@ export function MermaidDiagram({
     };
   }, [source, theme, overLimit, render]);
 
-  if (!overLimit && state.status === "done" && !stale) {
-    return <Diagram svg={state.svg} />;
-  }
-  // 再描画の間は、描画済みの図を残し、描画中の印を付ける。
+  // 画面に出す図。再描画の間は、描画済みの図を残し、描画中の印を付ける。
   const shown =
     state.status === "done"
       ? { svg: state.svg, source: state.source }
@@ -205,7 +240,17 @@ export function MermaidDiagram({
         ? state.previous
         : null;
   if (!overLimit && shown !== null && shown.source === source) {
-    return <Diagram svg={shown.svg} pending />;
+    const screenPending = state.status !== "done" || stale;
+    // 印刷用の図が描けるまでは、画面の図で代用する。
+    const printSvg =
+      needsLight && lightForSource?.svg ? lightForSource.svg : shown.svg;
+    return (
+      <Diagram
+        svg={shown.svg}
+        printSvg={printSvg}
+        pending={screenPending || lightPending}
+      />
+    );
   }
   const reason = overLimit
     ? messages.tooManyInDocument
