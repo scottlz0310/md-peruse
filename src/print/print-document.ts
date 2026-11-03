@@ -1,5 +1,3 @@
-import { setPrinting } from "./print-state";
-
 /** 描画中の図に付ける属性。印刷の前に、描画が終わるのを待つ目印にする。 */
 export const PENDING_ATTRIBUTE = "data-print-pending";
 
@@ -43,25 +41,13 @@ function isSettled(root: ParentNode): boolean {
 /**
  * 表示中の文書を、WebView2の標準印刷プレビューで印刷する。
  *
- * 印刷中の状態にして図を印刷用の配色で描き直させ、描画を待ってから `window.print()` を
- * 呼ぶ。状態は印刷ダイアログを閉じたとき（`afterprint`）に戻す。プレビューは設定の変更の
- * たびに文書を取り直すため、`print()` が戻った時点では戻さない。
+ * 図と画像の描画を待ってから `window.print()` を呼ぶ。印刷用の図は、画面のテーマによらず
+ * ライトの配色で描いてあるため（10.7）、印刷の状態へ切り替える処理は要らない。
  */
 export async function printDocument(
   root: ParentNode,
   print: () => void = () => window.print(),
 ): Promise<void> {
-  setPrinting(true);
-  window.addEventListener("afterprint", () => setPrinting(false), {
-    once: true,
-  });
-  try {
-    // 印刷用の配色での再描画は、状態の更新を受けてから始まる。1回待ってから確認する。
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await waitForSettled(root);
-    print();
-  } catch (error) {
-    setPrinting(false);
-    throw error;
-  }
+  await waitForSettled(root);
+  print();
 }

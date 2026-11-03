@@ -88,7 +88,7 @@
 | 入力 | テスト |
 | --- | --- |
 | Raw HTML | `raw-html.test.ts`、`render.test.tsx`「Raw HTML はソース文字列として…」、`pipeline.test.ts`「危険な入力」、`sanitize-schema.test.ts`（`on*` と `style` の除去） |
-| `javascript:` リンク、`data:` 画像、`ms-` scheme | `sanitize-schema.test.ts`（リンクのプロトコル、画像の `src`。`ms-settings:` を含む）、`link-target.test.ts`（拒否するリンク） |
+| `javascript:` リンク、`data:` 画像、`ms-` scheme | `sanitize-schema.test.ts`（リンクのプロトコル、画像の `src`。`ms-settings:` を含む）、`link-target.test.ts`（拒否するリンク）、`test/tauri-csp.test.ts`（CSPの許可元の固定。`data:` は `img-src` だけ。5.5） |
 | `..` を含む相対パス、UNC、device path、絶対パス | Rust: `path_guard`（形式の検証、境界、ハンドルでの最終確認）、`image::reference`（範囲外、UNC 表記）、`ipc::commands`（要求のパスをエラーに含めない）。Frontend: `link-target.test.ts`（スキーム相対 URL） |
 | 巨大画像 | `image::format`（バイト数、ピクセル寸法）、`image::protocol` |
 | 巨大な Mermaid | `mermaid.test.ts`（入力サイズの上限、打ち切り、同時数） |
