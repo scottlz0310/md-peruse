@@ -283,3 +283,91 @@ describe("印刷中の再描画（10.7）", () => {
     expect(await waitForSettled(container, 50)).toBe(true);
   });
 });
+
+describe("再描画の間の表示（10.7）", () => {
+  const original = globalThis.matchMedia;
+  afterEach(() => {
+    globalThis.matchMedia = original;
+  });
+
+  /** 一致するクエリを切り替えられる `matchMedia` に差し替える。 */
+  function fakeMedia(initial: string[]) {
+    const matching = new Set(initial);
+    const listeners = new Set<() => void>();
+    globalThis.matchMedia = ((query: string) => ({
+      matches: matching.has(query),
+      addEventListener: (_: string, listener: () => void) =>
+        listeners.add(listener),
+      removeEventListener: (_: string, listener: () => void) =>
+        listeners.delete(listener),
+    })) as unknown as typeof matchMedia;
+    return (next: string[]) => {
+      matching.clear();
+      for (const query of next) matching.add(query);
+      for (const listener of listeners) listener();
+    };
+  }
+
+  test("テーマが変わった再描画の間も、図を定義のコードブロックへ戻さない", async () => {
+    const change = fakeMedia(["(prefers-color-scheme: dark)"]);
+    const resolvers: Array<(svg: string) => void> = [];
+    const renderDiagram = mock(
+      () =>
+        new Promise<string>((r) => {
+          resolvers.push(r);
+        }),
+    );
+    const { container } = render(
+      <MermaidDiagram source={SOURCE} index={0} render={renderDiagram} />,
+    );
+    await act(async () => resolvers[0]?.('<svg id="dark-svg"></svg>'));
+    await waitFor(() =>
+      expect(container.querySelector("#dark-svg")).not.toBeNull(),
+    );
+
+    // 右クリックの印刷では、テーマが一時的に切り替わる。
+    act(() => change([]));
+    expect(container.querySelector("#dark-svg")).not.toBeNull();
+    expect(container.querySelector("pre")).toBeNull();
+    expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).not.toBeNull();
+
+    act(() => change(["(prefers-color-scheme: dark)"]));
+    expect(container.querySelector("#dark-svg")).not.toBeNull();
+    expect(container.querySelector("pre")).toBeNull();
+
+    await act(async () => resolvers.at(-1)?.('<svg id="dark-svg-2"></svg>'));
+    await waitFor(() =>
+      expect(container.querySelector("#dark-svg-2")).not.toBeNull(),
+    );
+    expect(container.querySelector(`[${PENDING_ATTRIBUTE}]`)).toBeNull();
+  });
+
+  test("定義が変わった図は、古い図を残さずコードブロックを出す", async () => {
+    const resolvers: Array<(svg: string) => void> = [];
+    const renderDiagram = mock(
+      () =>
+        new Promise<string>((r) => {
+          resolvers.push(r);
+        }),
+    );
+    const { container, rerender } = render(
+      <MermaidDiagram source={SOURCE} index={0} render={renderDiagram} />,
+    );
+    await act(async () => resolvers[0]?.('<svg id="old-svg"></svg>'));
+    await waitFor(() =>
+      expect(container.querySelector("#old-svg")).not.toBeNull(),
+    );
+
+    rerender(
+      <MermaidDiagram
+        source={"flowchart LR\n  X --> Y"}
+        index={0}
+        render={renderDiagram}
+      />,
+    );
+    expect(container.querySelector("#old-svg")).toBeNull();
+    expect(container.querySelector("pre code")?.textContent).toContain(
+      "X --> Y",
+    );
+  });
+});

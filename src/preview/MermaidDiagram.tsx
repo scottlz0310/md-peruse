@@ -26,9 +26,12 @@ type Props = {
   render?: (source: string, theme: MermaidTheme) => Promise<string>;
 };
 
+/** 再描画の間も表示し続ける、描画済みの図。定義が変わった図には使わない。 */
+type Shown = { svg: string; source: string };
+
 type State =
-  | { status: "pending" }
-  | { status: "done"; svg: string; theme: MermaidTheme }
+  | { status: "pending"; previous: Shown | null }
+  | { status: "done"; svg: string; theme: MermaidTheme; source: string }
   | { status: "failed"; failure: MermaidFailure };
 
 const DARK = "(prefers-color-scheme: dark)";
@@ -69,6 +72,18 @@ function failureMessage(
   }
 }
 
+/** 描画済みの図。描画中の印は、印刷の待ち合わせが見る（10.7）。 */
+function Diagram({ svg, pending = false }: { svg: string; pending?: boolean }) {
+  return (
+    <div
+      className={MERMAID_DIAGRAM_CLASS}
+      {...(pending ? { [PENDING_ATTRIBUTE]: "" } : {})}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: 本文描画で唯一の例外（8.4）。Mermaidが生成したSVGを `sanitizeMermaidSvg`（DOMPurify）で処理した文字列だけを渡す。
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
 /**
  * Mermaidの図（design-decisions.md 8.4）。
  *
@@ -86,7 +101,10 @@ export function MermaidDiagram({
   // 印刷は白地に合う配色にそろえる。画面のテーマには依存させない（10.7）。
   const theme: MermaidTheme = usePrinting() ? "default" : screenTheme;
   const overLimit = index >= MERMAID_LIMITS.perDocumentDiagrams;
-  const [state, setState] = useState<State>({ status: "pending" });
+  const [state, setState] = useState<State>({
+    status: "pending",
+    previous: null,
+  });
   // テーマが変わった直後は、描画済みの図が古い配色のままである。effectが `pending` にする
   // のを待つと、その前に印刷の待ち合わせが「描画済み」と判断して印刷を始めてしまう。
   // 描画と同じコミットで描画中として扱い、印を付ける（10.7）。
@@ -95,10 +113,21 @@ export function MermaidDiagram({
   useEffect(() => {
     if (overLimit) return;
     let current = true;
-    setState({ status: "pending" });
+    // 再描画の間も、描画済みの図を残す。定義のコードブロックへ戻すと、その間に取られる
+    // 印刷の文書（右クリックの印刷は、開始の前後でテーマが一時的に切り替わる）が、図ではなく
+    // 定義で出る（10.7）。定義が変わった図は、古い図を残さない。
+    setState((current) => ({
+      status: "pending",
+      previous:
+        current.status === "done"
+          ? { svg: current.svg, source: current.source }
+          : current.status === "pending"
+            ? current.previous
+            : null,
+    }));
     render(source, theme).then(
       (svg) => {
-        if (current) setState({ status: "done", svg, theme });
+        if (current) setState({ status: "done", svg, theme, source });
       },
       (error: unknown) => {
         if (!current) return;
@@ -117,13 +146,17 @@ export function MermaidDiagram({
   }, [source, theme, overLimit, render]);
 
   if (!overLimit && state.status === "done" && !stale) {
-    return (
-      <div
-        className={MERMAID_DIAGRAM_CLASS}
-        // biome-ignore lint/security/noDangerouslySetInnerHtml: 本文描画で唯一の例外（8.4）。Mermaidが生成したSVGを `sanitizeMermaidSvg`（DOMPurify）で処理した文字列だけを渡す。
-        dangerouslySetInnerHTML={{ __html: state.svg }}
-      />
-    );
+    return <Diagram svg={state.svg} />;
+  }
+  // 再描画の間は、描画済みの図を残し、描画中の印を付ける。
+  const shown =
+    state.status === "done"
+      ? { svg: state.svg, source: state.source }
+      : state.status === "pending"
+        ? state.previous
+        : null;
+  if (!overLimit && shown !== null && shown.source === source) {
+    return <Diagram svg={shown.svg} pending />;
   }
   const reason = overLimit
     ? messages.tooManyInDocument
