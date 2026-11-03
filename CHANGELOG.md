@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-03
+
 ### Added
 
 - 表示中の文書の全文を印刷できるようにした（「ファイル」→「印刷…」、`Ctrl+P`、右クリックの「印刷」）。WebView2の標準の印刷プレビューを使い、サイドバー・タブ・検索などの操作UIは印刷しない。白地に黒の配色と固定の文字サイズで、画面のテーマ、文字サイズ、スクロール位置に依存せず、長い表やコード、縦に長いMermaidの図は読み取れる大きさのまま、見出しと同じページから、ページをまたいで出力する（画像は1ページに収まる大きさに縮める）。メニューとキーからの印刷は、Mermaidの図と画像の描画を待ってからプレビューを開く。Mermaidの図は、画面のテーマが切り替わって描き直される間も、定義のコードブロックには戻らない。印刷用の図は、画面のテーマ（ダーク、ハイコントラスト）によらず、白地に合う配色で出力する。
@@ -463,7 +465,8 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/scottlz0310/md-peruse/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/scottlz0310/md-peruse/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/scottlz0310/md-peruse/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/scottlz0310/md-peruse/compare/v0.1.0...v0.1.1
