@@ -2,7 +2,7 @@
 
 AI駆動開発で更新される設計書・仕様書・タスクリストの観測とレビューに特化した、Windows向けの閲覧専用Markdownビューワー。
 
-> **開発状況**: Phase 1。アプリケーションのスケルトンを配置した段階で、Markdownの閲覧機能はまだ実装していない。MSIXパッケージングも未検証。進捗は [tasks.md](./tasks.md) を参照。
+> **開発状況**: Phase 0〜5 は完了し、Microsoft Store で公開している。以後は機能追加・改良・保守を、[Issue](https://github.com/scottlz0310/md-peruse/issues) と Pull Request で進める。
 
 ## コアバリュー
 
@@ -57,12 +57,11 @@ AI駆動開発で更新される設計書・仕様書・タスクリストの観
 | [docs/test-matrix.md](./docs/test-matrix.md)                             | `spec.md` の要件と、それを確かめるテスト・実機確認の対応。Phase 4 の完了条件との対応も示す                | 要件、またはそれを確認するテストが変わったときに更新する                            |
 | [scripts/README.md](./scripts/README.md)                                 | 開発・保守の道具（性能測定、実機の確認）の使い方。CIへは載せない                                          | 道具を足したとき、使い方が変わったときに更新する                                    |
 | [docs/uimock.html](./docs/uimock.html)                                   | 画面構成の視覚参考（要件は定義しない）                                                                    | 参考資料のため随時                                                                  |
-| [tasks.md](./tasks.md)                                                   | 進捗とタスクの**正本**                                                                                    | タスクの着手・完了ごとに更新する                                                    |
 | [CHANGELOG.md](./CHANGELOG.md)                                           | 利用者から見た変更履歴                                                                                    | リリースに影響する変更ごとに更新する                                                |
 | [docs/assets/store/listingData.csv](./docs/assets/store/listingData.csv) | Store 掲載データ（説明、「新機能」、スクリーンショットの参照）。リリースで、パッケージと一緒にStoreへ出る | 利用者から見える変更ごとに更新する（`ReleaseNotes` は、CHANGELOG と同じ内容にする） |
 | [SECURITY.md](./SECURITY.md)                                             | 脆弱性の報告経路と想定する脅威                                                                            | 報告経路やサポート対象が変わったときに更新する                                      |
 
-記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、実装順序と完了条件について `dev-flow.md`、進捗について `tasks.md` を優先する。
+記述が競合する場合は、設計判断について `design-decisions.md`、要件について `spec.md`、実装順序と完了条件について `dev-flow.md` を優先する。
 
 ## 開発
 
@@ -204,7 +203,10 @@ Windows以外の生成物（`src-tauri/icons/android`、`ios`、`icon.icns`）�
 
 - コミットメッセージは [Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) 形式とする。
 - Pull Requestは300行程度を目安に分割する。分解が難しい場合は超えてよい。
-- 変更内容に応じて `CHANGELOG.md` と `tasks.md` を更新する。利用者から見える変更は、Store 掲載データ（`docs/assets/store/listingData.csv` の `ReleaseNotes` と、必要なら `Description`）も同じPull Requestで更新する。リリースの流れが、このCSVの内容を、パッケージと一緒にStoreへ出すため、更新を忘れると、古い「新機能」の文が公開される（手順書 9.7）。
+- 進捗とタスクは、GitHub の Issue と Pull Request で追跡する。リポジトリにタスク管理のファイルは置かない。
+- 作業中に見つけた、その Pull Request のスコープ外の事項は、その場で直さず Issue にする。
+- 設計上の未決事項を解決したら、結論を [design-decisions.md](./docs/design-decisions.md) へ記載する。
+- 変更内容に応じて `CHANGELOG.md` を更新する。利用者から見える変更は、Store 掲載データ（`docs/assets/store/listingData.csv` の `ReleaseNotes` と、必要なら `Description`）も同じPull Requestで更新する。リリースの流れが、このCSVの内容を、パッケージと一緒にStoreへ出すため、更新を忘れると、古い「新機能」の文が公開される（手順書 9.7）。
 - `main` は保護されており、直接pushできない。CIの `Frontend`、`Rust`、`Coverage`、`Licenses` を通過し、レビュースレッドをすべて解決したPull Requestのみマージできる。
 - 人が作成する変更は、CIの通過に加えてthread-owlのレビューとVerdictコメントを必須とする。マージ方式はsquashのみ。
 - Renovateによる定型依存更新は、CIの通過をもってゲートとし自動マージする（独立レビューは求めない）。範囲と根拠は [design-decisions.md](./docs/design-decisions.md) 4.12「レビューの適用範囲」を参照。
