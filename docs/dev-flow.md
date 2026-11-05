@@ -22,7 +22,7 @@
 
 スケルトンとCI/CDを先に立てることで、Phase 1のスパイクを含む以降の変更をPull Requestとレビューサイクルへ乗せられる状態を早期に確保する。各フェーズの完了条件は、この着手順を経てフェーズを閉じる時点で判定する。
 
-進捗の追跡は[tasks.md](../tasks.md)で行う。本書は着手順と完了条件を、`tasks.md` は各タスクの状態をそれぞれ担当し、着手順を二重に定義しない。
+進捗とタスクは、GitHub の Issue と Pull Request で追跡する（当初は `tasks.md` に置いたが、撤去した）。本書は着手順と完了条件を担当し、着手順を二重に定義しない。
 
 ## 2. Phase 0: リポジトリ整備
 
@@ -36,7 +36,7 @@
 - `README.md` を作成し、プロダクト概要とドキュメントの入口を示す。
 - ライセンスを選定し、`LICENSE` を配置する。
 - `CHANGELOG.md` を作成し、Keep a Changelog形式で運用する。
-- `tasks.md` を作成し、フェーズごとのタスクと未決事項の解決状況を追跡する。
+- 進捗とタスクの追跡の方法を決める（当初は `tasks.md` を置いたが、撤去し、Issue と Pull Request に移した）。
 - Conventional Commitsを規約として明記する。
 - `.gitignore`、`.editorconfig`、PRテンプレートを配置する。
 
@@ -44,7 +44,7 @@
 
 - [ ] ドキュメントの入口と更新責務が定義されている。
 - [ ] ライセンスが確定している。
-- [ ] CHANGELOGとtasks.mdの更新タイミングが規約として明文化されている。
+- [ ] CHANGELOGの更新タイミングと、進捗とタスクの追跡の方法が規約として明文化されている。
 
 ## 3. Phase 1: MSIX技術スパイク
 
@@ -299,7 +299,7 @@ Phase 4は6.1から6.3の順に、層ごとに着手する。最小経路を先�
 - [x] 対象MSIXについてWACKが完了している（v0.2.1の `wack-report.xml` は `OVERALL_RESULT="PASS"`。24テスト中23がPASSで、FAILは任意テスト `[88] Blocked executables` の1件だけ。[design-decisions.md](./design-decisions.md) 13.3。2026-10-12に確認）。
 - [x] Store提出物とCIで検証した成果物が一致している（v0.2.1の `verify` が成功し、`.msixupload` と内側の `.msix` のSHA-256が `SHA256SUMS.txt` と一致することを、2026-10-12に独立に照合した）。
 - [x] プライバシーポリシーとデータ収集申告が提出内容と整合している（初回提出の申告とポリシー公開の証跡は [store-telemetry-verification.md](./store-telemetry-verification.md) 1章）。
-- [x] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる（2026-10-12に確認。[tasks.md](../tasks.md) Phase 5）。
+- [x] Tauri Updaterや `.appinstaller` に依存せず、Store更新だけで更新できる（2026-10-12に確認。記録は、撤去前の [tasks.md](https://github.com/scottlz0310/md-peruse/blob/1fb5ec77a3a297475dc9123f2d216124548a863f/tasks.md) Phase 5）。
 - [x] 初回公開版でPartner Centerからカスタムイベントを確認できている（2026-10-11に5種類の反映を観測。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4。[design-decisions.md](./design-decisions.md) 11.4「公開後の確認結果と制約」）。
 - [x] 標準Usage指標とSDKカスタムイベントの計測母集団について、診断データ設定との関係は裏付けられなかったため、未確認の制約として、反映遅延・バージョン別集計の実測と並べて計測定義へ記載した（2026-10-12。[#21](https://github.com/scottlz0310/md-peruse/issues/21) 段階4）。
 

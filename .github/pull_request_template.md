@@ -16,15 +16,13 @@ docs/design-decisions.md の記述を変更した場合は、その差分をこ�
 ## 関連
 
 - Issue:
-- tasks.md:
 
 ## 確認事項
 
 - [ ] Conventional Commits 形式でコミットしている
 - [ ] `CHANGELOG.md` を更新した（または記載方針の対象外である）
 - [ ] 利用者から見える変更なら、Store 掲載データ（`docs/assets/store/listingData.csv` の `ReleaseNotes` と、必要なら `Description`）も更新した（または掲載内容に影響しない）
-- [ ] `tasks.md` の関連タスクを更新した（または該当なし）
-- [ ] フェーズ最後のタスクを閉じる場合、進捗サマリと `dev-flow.md` の完了条件も更新した（または該当なし）
+- [ ] フェーズの完了条件に関わる変更なら、`dev-flow.md` の完了条件も更新した（または該当なし）
 - [ ] `bun run check` と `tsc --noEmit` が通る（Frontend変更時）
 - [ ] `cargo fmt --check`、`cargo clippy -- -D warnings`、`cargo test` が通る（Rust変更時）
 - [ ] 設計判断を変更した場合、`docs/design-decisions.md` へ反映した
