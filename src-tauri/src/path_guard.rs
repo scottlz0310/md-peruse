@@ -142,8 +142,16 @@ impl WorkspaceRoot {
     /// 扱えない。監視イベント（design-decisions.md 6.4）が運ぶパスは
     /// `relativize_literal` で相対化する。
     pub fn relativize(&self, absolute: &Path) -> Option<String> {
-        let absolute = fs::canonicalize(absolute).ok()?;
-        if !is_within(&self.path, &absolute) {
+        self.relativize_canonical(&fs::canonicalize(absolute).ok()?)
+    }
+
+    /// `canonicalize` 済みの絶対パスを、ワークスペース相対パスへ直す。I/Oをしない。
+    ///
+    /// 正規化は遅いストレージで長く待ちうるため、呼び出し側が開閉のロックの外で済ませておき、
+    /// ロックの内側ではこちらで判定する（design-decisions.md 9.2）。正規化していないパスを渡すと
+    /// `relativize` が避けている誤判定になるため、`relativize` 以外からは、正規化の結果だけを渡す。
+    pub fn relativize_canonical(&self, absolute: &Path) -> Option<String> {
+        if !is_within(&self.path, absolute) {
             return None;
         }
         let segments: Vec<String> = absolute
