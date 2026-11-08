@@ -13,6 +13,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-08
+
 ### Fixed
 
 - 応答しない共有を開いている間、ほかのフォルダーやファイルを開く操作が、その共有の応答まで（実測で約21秒）待たされていたのを直した。共有の上のファイルを開いている間も、ほかのフォルダーを待たずに開く（2つ目のプロセスで渡したファイルは、従来どおり届いた順に開く）。待たずに開き、後から開けた共有は、後に出した指示（別のフォルダー、文書、ワークスペースを閉じる）を上書きしない（最後に指示したものが勝つ）。後から開けた共有を捨てたときは、通知も記録もしない。
@@ -470,7 +472,8 @@
   - 検索欄に入力中でも、メニューのショートカットはメニューの操作になる
 - WebView2のブラウザー向けショートカットを無効にした。`Ctrl+R` でアプリの画面全体が読み直される、`Ctrl+P` で印刷が、`F12` で開発者ツールが、本文がないときの `Ctrl+F` で標準の検索バーが開く、といった製品にない操作が起きなくなった（[design-decisions.md](./docs/design-decisions.md) 10.1）
 
-[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/scottlz0310/md-peruse/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/scottlz0310/md-peruse/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/scottlz0310/md-peruse/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/scottlz0310/md-peruse/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/scottlz0310/md-peruse/compare/v0.1.1...v0.2.0
