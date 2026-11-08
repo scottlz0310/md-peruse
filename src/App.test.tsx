@@ -3198,6 +3198,28 @@ describe("App: 文書の表示結果の通知（11.4）", () => {
     );
     expect(reported).toEqual(["fail"]);
   });
+
+  test("本文の描画パイプラインの例外は、理由を表示し、失敗として1回だけ知らせる", async () => {
+    const reported: string[] = [];
+    mockBackend({
+      scan: () => ROOT,
+      read: (path) => fileContent(path, "![図](a.png)\n"),
+      // 画像の発行そのものの失敗は、画像の位置に原因を示すだけでパイプラインの例外にならない。
+      // 応答の形がIPCの契約から外れると、`applyImageResources` が例外を投げ、本文全体が描画できない。
+      issue: () => null as unknown as ImageResource[],
+      reportOpen: (result) => reported.push(result),
+    });
+    render(<App />);
+    await openReadme();
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toMatch(
+        /^文書を描画できませんでした（.+）。$/,
+      ),
+    );
+    // 描画できていないので、成功は知らせない。
+    expect(reported).toEqual(["fail"]);
+  });
 });
 
 describe("App: パスコピーの結果", () => {
