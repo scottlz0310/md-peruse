@@ -45,6 +45,37 @@ pub(crate) fn lock_lifecycle() -> MutexGuard<'static, ()> {
     LIFECYCLE.lock().expect("ワークスペース開閉のロックに失敗")
 }
 
+/// 利用者の指示（フォルダーを開く、文書を開く、ワークスペースを閉じる）に、受けた順に振る番号。
+///
+/// フォルダーを開く解決は、応答しない共有で約21秒かかる。その間に出した別の指示を待たせない
+/// よう、解決は開閉のロックの外で行う。すると、遅い指示が後から終わったときに、利用者が
+/// 後に出した指示の結果を上書きしうる。そこで、指示ごとに番号を振り、後の番号の指示が
+/// 適用済みなら、先の番号のフォルダーは適用しない（最後に指示したものが勝つ。9.2）。
+///
+/// 番号の管理は `AppState` が持つ。プロセス全体で共有すると、並行して動くテストが互いの
+/// 指示を捨ててしまう。
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Instruction(u64);
+
+impl Instruction {
+    /// 指示を受けた時点で呼ぶ。ロックを待つ前に呼ぶこと。待ったあとに振ると、受けた順と
+    /// 番号の順が食い違う。
+    pub(crate) fn issue(state: &AppState) -> Self {
+        Self(state.issue_instruction())
+    }
+
+    /// 後の番号の指示が、すでに適用されているか。開閉のロックの内側で呼ぶこと。
+    fn is_superseded(self, state: &AppState) -> bool {
+        state.instruction_superseded(self.0)
+    }
+
+    /// 適用したことを記録する。適用できなかった指示は記録しない（失敗した指示は、
+    /// 先の指示を捨てる理由にならない）。開閉のロックの内側で呼ぶこと。
+    pub(crate) fn mark_applied(self, state: &AppState) {
+        state.mark_instruction_applied(self.0);
+    }
+}
+
 /// ダイアログの親にするウィンドウのラベル（`tauri.conf.json` の `app.windows`）。
 pub const MAIN_WINDOW: &str = "main";
 
@@ -79,12 +110,33 @@ pub fn pick_and_open<R: Runtime>(app: &AppHandle<R>) {
 /// フォルダーの選択、最近使ったフォルダー、起動時の復元が、ここへ集まる。開けなかった
 /// ときは現在のワークスペースを保ち、理由を返す。示し方（ダイアログ、応答、黙って外す）は
 /// 呼び出し側が決める。
+///
+/// フォルダーを開く解決は、開閉のロックの外で行う。応答しない共有を開いている間に出した、
+/// ほかのフォルダーや文書を開く指示を待たせないためである（9.2）。解決が終わったとき、後に
+/// 出した指示がすでに適用されていれば、このフォルダーは適用せず、成功として返す。通知も、
+/// 最近使ったフォルダーへの記録も、数えることもしない。解決そのものの失敗は、その指示が
+/// 捨てられたかどうかによらず返す。
 pub fn open_path<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
+    open_path_with(app, path, WorkspaceRoot::open)
+}
+
+/// `open_path` の本体。フォルダーを開く段階を差し替えられるようにしてある。
+fn open_path_with<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &Path,
+    open_root: impl FnOnce(&Path) -> io::Result<WorkspaceRoot>,
+) -> Result<(), ErrorCode> {
+    let instruction = Instruction::issue(&app.state::<AppState>());
+    let root = open_root(path).map_err(|error| open_error_code(&error))?;
     {
         let _lifecycle = lock_lifecycle();
-        open_unlocked(app, path)?;
+        if instruction.is_superseded(&app.state::<AppState>()) {
+            return Ok(());
+        }
+        install_unlocked(app, root)?;
+        instruction.mark_applied(&app.state::<AppState>());
     }
-    // 利用者が開いたときだけ記録する。起動時の復元は `open_unlocked` を直接呼ぶため、数えない
+    // 利用者が開いたときだけ記録する。起動時の復元は `install_unlocked` を直接呼ぶため、数えない
     // （11.4）。開閉のロックを放してから記録し、記録の結果は返さない。
     app.state::<Telemetry>().record(TelemetryEvent::OpenFolder);
     Ok(())
@@ -167,17 +219,8 @@ pub fn current_workspace<R: Runtime>(app: &AppHandle<R>) -> Option<WorkspaceOpen
     app.state::<AppState>().current_workspace()
 }
 
-/// `open_path` の本体。開閉を直列にするロック（`lock_lifecycle`）を保持した呼び出し元から
-/// 呼ぶこと。
-fn open_unlocked<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
-    let opened = open_selected_folder(&app.state::<AppState>(), path, sink)?;
-    announce_opened(app, opened);
-    Ok(())
-}
-
-/// 開いたルートを据え、記録してからFrontendへ知らせる。`open_unlocked` の後半で、ルートを
-/// 先に（ロックの外で）開いた呼び出し元が使う。ロックを保持した呼び出し元から呼ぶこと。
+/// 開いたルートを据え、記録してからFrontendへ知らせる。ルートは先に（ロックの外で）開いておく。
+/// 開閉を直列にするロック（`lock_lifecycle`）を保持した呼び出し元から呼ぶこと。
 fn install_unlocked<R: Runtime>(app: &AppHandle<R>, root: WorkspaceRoot) -> Result<(), ErrorCode> {
     let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
     let opened = install_selected_folder(&app.state::<AppState>(), root, sink)?;
@@ -204,8 +247,11 @@ fn announce_opened<R: Runtime>(app: &AppHandle<R>, opened: WorkspaceOpenedEvent)
 /// メニューの処理（メインスレッド）で待つと、その間ウィンドウが応答しなくなる。
 pub fn close<R: Runtime>(app: &AppHandle<R>) -> JoinHandle<()> {
     let app = app.clone();
+    // 番号は、指示を受けた時点（スレッドを作る前）で振る。
+    let instruction = Instruction::issue(&app.state::<AppState>());
     thread::spawn(move || {
         let _lifecycle = lock_lifecycle();
+        instruction.mark_applied(&app.state::<AppState>());
         app.state::<AppState>().close_workspace();
         // 閉じる操作をしたワークスペースは、次の起動で開き直さない（9.2）。
         app.state::<SettingsStore>().clear_last_workspace();
@@ -998,6 +1044,227 @@ mod tests {
 
         assert_eq!(error, ErrorCode::WorkspaceNotFound);
         assert_eq!(state.scope_id(), Some(current.scope_id));
+    }
+
+    /// 解決を止めたフォルダー `slow` を開く指示（A）の間に、`meanwhile` を別のスレッドで行う。
+    /// `meanwhile` の結果と、Aを放したあとのAの結果を返す。`meanwhile` が2秒で戻らなければ、
+    /// 開閉のロックを保持しているとみなす（応答しない共有を開いている間も待たされない、9.2）。
+    fn open_interrupted_by<T: Send + 'static>(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        slow: &Path,
+        resolve: fn(&Path) -> io::Result<WorkspaceRoot>,
+        meanwhile: impl FnOnce(&AppHandle<tauri::test::MockRuntime>) -> T + Send + 'static,
+    ) -> (T, Result<(), ErrorCode>) {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let handle = app.handle().clone();
+        let slow = slow.to_owned();
+        let opening = thread::spawn(move || {
+            open_path_with(&handle, &slow, move |path| {
+                entered_tx.send(()).expect("入ったことを知らせられない");
+                release_rx.recv().expect("放す合図が来ない");
+                resolve(path)
+            })
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("Aがフォルダーを開く段階へ進まない");
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = app.handle().clone();
+        thread::spawn(move || {
+            done_tx.send(meanwhile(&handle)).expect("結果を返せない");
+        });
+        let during = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("フォルダーを開いている間、開閉のロックを保持している");
+
+        release_tx.send(()).expect("放せない");
+        let slow_result = opening.join().expect("Aのスレッドが失敗した");
+        (during, slow_result)
+    }
+
+    /// 応答しない共有（A）を開いている間に、別のフォルダー（B）を開く。Bは待たされずに開き、
+    /// 後から解決が終わったAは適用しない。最後に指示したものが勝つ（9.2）。Aは通知も、
+    /// 最近使ったフォルダーへの記録もしない。
+    #[test]
+    fn the_folder_opened_last_wins_over_one_still_resolving() {
+        let temp = TempDir::new("last-wins");
+        let slow = temp.path().join("slow");
+        let quick = temp.path().join("quick");
+        fs::create_dir(&slow).unwrap();
+        fs::create_dir(&quick).unwrap();
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let quick_path = quick.clone();
+        let (quick_result, slow_result) =
+            open_interrupted_by(&app, &slow, WorkspaceRoot::open, move |handle| {
+                open_path(handle, &quick_path)
+            });
+
+        assert_eq!(quick_result, Ok(()));
+        assert_eq!(slow_result, Ok(()), "捨てたAは成功として返す");
+        let payloads = opened.lock().unwrap().clone();
+        assert_eq!(payloads.len(), 1, "Aを通知した: {payloads:?}");
+        assert!(payloads[0].contains("quick"), "{payloads:?}");
+        assert!(app.state::<AppState>().scope_id().is_some());
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, Some(canonical(&quick)));
+        assert_eq!(settings.recent_folders, [canonical(&quick)]);
+    }
+
+    /// 応答しない共有を開いている間に開いた文書は、その共有に破棄されない。共有を据える切り替えは
+    /// 開いているloose tabを破棄する（6.1）ため、後から適用すると、利用者が開いた文書が失われる。
+    /// 文書を先に開き、共有は適用しない。最後のワークスペースの記録も、共有で上書きしない。
+    #[test]
+    fn a_document_opened_while_a_folder_resolves_is_not_discarded_by_it() {
+        let temp = TempDir::new("document-wins");
+        let slow = temp.path().join("slow");
+        let elsewhere = temp.path().join("elsewhere");
+        fs::create_dir(&slow).unwrap();
+        fs::create_dir(&elsewhere).unwrap();
+        let note = elsewhere.join("note.md");
+        fs::write(&note, b"# note\n").unwrap();
+        let app = app_with(Settings::default());
+        let documents = collect(&app, crate::open_document::OPEN_DOCUMENT_EVENT);
+        let workspaces = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let (document_result, slow_result) =
+            open_interrupted_by(&app, &slow, WorkspaceRoot::open, move |handle| {
+                crate::open_document::open_document(handle, &note)
+            });
+
+        assert_eq!(document_result, Ok(()));
+        assert_eq!(slow_result, Ok(()));
+        assert_eq!(documents.lock().unwrap().len(), 1);
+        assert!(workspaces.lock().unwrap().is_empty(), "Aを据えた");
+        assert!(
+            app.state::<AppState>().has_open_scope(),
+            "Aが、利用者が開いた文書を破棄した"
+        );
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, None);
+        assert!(settings.recent_folders.is_empty());
+    }
+
+    /// 応答しない共有を開いている間に、ワークスペースを閉じる操作を終えたときは、閉じた状態を
+    /// 保つ。閉じる操作のあとに、先に出した指示の共有が開いてしまうと、利用者の最後の指示に反する。
+    #[test]
+    fn a_close_finished_while_a_folder_resolves_wins() {
+        let temp = TempDir::new("close-wins");
+        let current = temp.path().join("current");
+        let slow = temp.path().join("slow");
+        fs::create_dir(&current).unwrap();
+        fs::create_dir(&slow).unwrap();
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+        let closed = collect(&app, WORKSPACE_CLOSED_EVENT);
+        open_path(app.handle(), &current).expect("開けない");
+
+        let (_, slow_result) = open_interrupted_by(&app, &slow, WorkspaceRoot::open, |handle| {
+            close(handle).join().expect("閉じるスレッドが失敗した");
+        });
+
+        assert_eq!(slow_result, Ok(()));
+        assert_eq!(closed.lock().unwrap().len(), 1);
+        assert_eq!(opened.lock().unwrap().len(), 1, "Aを通知した");
+        assert!(app.state::<AppState>().scope_id().is_none());
+        assert_eq!(app.state::<SettingsStore>().settings().last_workspace, None);
+    }
+
+    /// 先に出した指示のほうが先に解決を終えたときは、それを適用し、後の指示が置き換える。後の
+    /// 指示の解決が終わるまで、先の指示を捨てない（適用済みの指示だけが、先の指示を捨てる）。
+    #[test]
+    fn an_earlier_folder_that_resolves_first_is_applied_and_then_replaced() {
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let temp = TempDir::new("earlier-first");
+        let first = temp.path().join("first");
+        let second = temp.path().join("second");
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let gated = |path: PathBuf| {
+            let (entered_tx, entered_rx) = mpsc::channel();
+            let (release_tx, release_rx) = mpsc::channel::<()>();
+            let handle = app.handle().clone();
+            let opening = thread::spawn(move || {
+                open_path_with(&handle, &path, move |path| {
+                    entered_tx.send(()).expect("入ったことを知らせられない");
+                    release_rx.recv().expect("放す合図が来ない");
+                    WorkspaceRoot::open(path)
+                })
+            });
+            entered_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("フォルダーを開く段階へ進まない");
+            (release_tx, opening)
+        };
+        // 指示の順は、1つ目、2つ目。
+        let (release_first, opening_first) = gated(first.clone());
+        let (release_second, opening_second) = gated(second.clone());
+
+        release_first.send(()).expect("放せない");
+        assert_eq!(opening_first.join().unwrap(), Ok(()));
+        assert_eq!(opened.lock().unwrap().len(), 1, "先の指示を捨てた");
+        release_second.send(()).expect("放せない");
+        assert_eq!(opening_second.join().unwrap(), Ok(()));
+
+        let payloads = opened.lock().unwrap().clone();
+        assert_eq!(payloads.len(), 2, "{payloads:?}");
+        assert!(payloads[0].contains("first") && payloads[1].contains("second"));
+        let settings = app.state::<SettingsStore>().settings();
+        assert_eq!(settings.last_workspace, Some(canonical(&second)));
+    }
+
+    /// 開けなかった指示は適用されないので、先に出した指示を捨てる理由にならない。
+    #[test]
+    fn a_failed_later_folder_does_not_discard_an_earlier_one() {
+        let temp = TempDir::new("failed-later");
+        let slow = temp.path().join("slow");
+        fs::create_dir(&slow).unwrap();
+        let missing = temp.path().join("missing");
+        let app = app_with(Settings::default());
+        let opened = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let (missing_result, slow_result) =
+            open_interrupted_by(&app, &slow, WorkspaceRoot::open, move |handle| {
+                open_path(handle, &missing)
+            });
+
+        assert_eq!(missing_result, Err(ErrorCode::WorkspaceNotFound));
+        assert_eq!(slow_result, Ok(()));
+        assert_eq!(opened.lock().unwrap().len(), 1, "Aが開かなかった");
+        assert!(app.state::<AppState>().scope_id().is_some());
+    }
+
+    /// 捨てられるAでも、解決そのものの失敗は返す。「見つからない」は、呼び出し側が最近使った
+    /// フォルダーから外す根拠になる（`recent::open`）。
+    #[test]
+    fn a_failure_to_resolve_is_reported_even_when_a_later_folder_won() {
+        let temp = TempDir::new("failed-slow");
+        let slow = temp.path().join("slow");
+        let quick = temp.path().join("quick");
+        fs::create_dir(&slow).unwrap();
+        fs::create_dir(&quick).unwrap();
+        let app = app_with(Settings::default());
+
+        let (_, slow_result) = open_interrupted_by(
+            &app,
+            &slow,
+            |_| Err(io::Error::from(io::ErrorKind::NotFound)),
+            move |handle| open_path(handle, &quick),
+        );
+
+        assert_eq!(slow_result, Err(ErrorCode::WorkspaceNotFound));
+        assert!(app.state::<AppState>().scope_id().is_some(), "Bが失われた");
     }
 
     #[test]
