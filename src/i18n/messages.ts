@@ -81,6 +81,15 @@ export type Messages = {
     tooLarge: string;
     invalid: (detail: string) => string;
   };
+  /**
+   * 脚注セクションの読み上げ文言。見出しは視覚的に隠してあり、戻りのリンクは見た目が「↩」だけ
+   * なので、スクリーンリーダーだけが読む。`mdast-util-to-hast` の既定値は英語である。
+   */
+  footnote: {
+    label: string;
+    /** 添字は0始まり。再参照（同じ脚注を2回以上参照）は `N-M` の形で区別する。 */
+    backLabel: (referenceIndex: number, rereferenceIndex: number) => string;
+  };
 };
 
 /**
@@ -170,6 +179,11 @@ const ja: Messages = {
     tooLarge: "数式が大きすぎるため描画していません。",
     invalid: (detail) => `数式を解釈できません（${detail}）。`,
   },
+  footnote: {
+    label: "脚注",
+    backLabel: (referenceIndex, rereferenceIndex) =>
+      `参照 ${referenceIndex + 1}${rereferenceIndex > 1 ? `-${rereferenceIndex}` : ""} に戻る`,
+  },
 };
 
 /** 英語の書き方は、Rust側の英語の文言（`ipc/message.rs`、`menu.rs`）に揃える。 */
@@ -251,6 +265,12 @@ const en: Messages = {
     loadFailed: (detail) => `Could not load the math renderer (${detail}).`,
     tooLarge: "The formula is too large and was not rendered.",
     invalid: (detail) => `Cannot parse the formula (${detail}).`,
+  },
+  // `mdast-util-to-hast` の既定値（`Footnotes`、`Back to reference N`）と同じ。
+  footnote: {
+    label: "Footnotes",
+    backLabel: (referenceIndex, rereferenceIndex) =>
+      `Back to reference ${referenceIndex + 1}${rereferenceIndex > 1 ? `-${rereferenceIndex}` : ""}`,
   },
 };
 
