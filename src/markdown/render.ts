@@ -35,10 +35,10 @@ export type ImageIssuer = (references: string[]) => Promise<ImageResource[]>;
  * 見出しIDは数式の描画より前に付ける。後ろだとMathMLのテキストと `annotation` の
  * LaTeXを二重に拾う（8.2）。
  *
- * 数式の描画できなかった理由は、hastへ文言として書き込む。そのため、UI言語ごとに
- * プロセッサを組み立てる（10.5）。
+ * 数式の描画できなかった理由と、脚注の読み上げ文言は、hastへ文言として書き込む。
+ * そのため、UI言語ごとにプロセッサを組み立てる（10.5）。
  */
-function createToHast(math: Messages["math"]) {
+function createToHast({ math, footnote }: Messages) {
   return (
     unified()
       .use(remarkParse)
@@ -46,23 +46,24 @@ function createToHast(math: Messages["math"]) {
       .use(remarkMath)
       // YAMLだけを対象とする。解析しないと本文の見出しとして誤描画される（8.1）。
       .use(remarkFrontmatter, ["yaml"])
-      .use(remarkRehype, { handlers: rawHtmlHandlers })
+      .use(remarkRehype, {
+        handlers: rawHtmlHandlers,
+        footnoteLabel: footnote.label,
+        footnoteBackLabel: footnote.backLabel,
+      })
       .use(rehypeHeadingIds)
       .use(rehypeMath, { messages: math })
   );
 }
 
 /** 言語ごとのプロセッサ。unifiedのプロセッサは最初の実行で凍結されるため、使い回す。 */
-const toHastByMessages = new Map<
-  Messages["math"],
-  ReturnType<typeof createToHast>
->();
+const toHastByMessages = new Map<Messages, ReturnType<typeof createToHast>>();
 
 function toHastFor(messages: Messages) {
-  let processor = toHastByMessages.get(messages.math);
+  let processor = toHastByMessages.get(messages);
   if (processor === undefined) {
-    processor = createToHast(messages.math);
-    toHastByMessages.set(messages.math, processor);
+    processor = createToHast(messages);
+    toHastByMessages.set(messages, processor);
   }
   return processor;
 }

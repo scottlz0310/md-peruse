@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Element, Root, Text } from "hast";
 import { sanitize } from "hast-util-sanitize";
+import { toString as hastToString } from "hast-util-to-string";
 import { visit } from "unist-util-visit";
+import { MESSAGES, type Messages } from "../i18n/messages";
 import { anchorElementId } from "./heading-id";
 import { KATEX_LIMITS, KATEX_OUTPUT_EXPANSION_RATIO } from "./limits";
 import { markdownToHast } from "./render";
@@ -13,8 +15,11 @@ import { sanitizeSchema } from "./sanitize-schema";
  * 要素を手で組むテストでは、上流のプラグインが何を生成するかを検証できない。
  * 生成物とschemaの食い違い（許可し忘れた属性、idの二重前置）はここで捕まえる。
  */
-async function render(markdown: string): Promise<Root> {
-  return sanitize(await markdownToHast(markdown), sanitizeSchema) as Root;
+async function render(markdown: string, messages?: Messages): Promise<Root> {
+  return sanitize(
+    await markdownToHast(markdown, messages),
+    sanitizeSchema,
+  ) as Root;
 }
 
 function collect(tree: Root, tagName: string): Element[] {
@@ -128,6 +133,34 @@ describe("脚注のidとhrefが一致する", () => {
       expect(ids).toContain(href.slice(1));
     }
   });
+});
+
+describe("脚注の読み上げ文言はUI言語に従う（10.5）", () => {
+  // 同じ脚注を2回参照すると、2つ目の戻りリンクは `N-2` の形で区別される。
+  const markdown = "最初[^1]と2回目[^1]\n\n[^1]: 脚注\n";
+
+  test.each([
+    ["ja", "脚注", ["参照 1 に戻る", "参照 1-2 に戻る"]],
+    ["en", "Footnotes", ["Back to reference 1", "Back to reference 1-2"]],
+  ] as const)(
+    "%s: セクションの見出しと戻りリンクの aria-label",
+    async (language, heading, backLabels) => {
+      const tree = await render(markdown, MESSAGES[language]);
+
+      const headings = collect(tree, "h2").filter(
+        (element) => element.properties?.id !== undefined,
+      );
+      expect(headings.map((element) => hastToString(element))).toEqual([
+        heading,
+      ]);
+      const labels = collect(tree, "a")
+        .filter(
+          (anchor) => anchor.properties?.dataFootnoteBackref !== undefined,
+        )
+        .map((anchor) => anchor.properties?.ariaLabel);
+      expect(labels).toEqual([...backLabels]);
+    },
+  );
 });
 
 describe("見出しアンカー", () => {

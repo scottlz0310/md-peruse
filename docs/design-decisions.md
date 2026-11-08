@@ -1613,7 +1613,7 @@ Frontendの文言の正本は `src/i18n/messages.ts`（`Messages` 型と `MESSAG
 文言を作る場所によって、言語を切り替えたときの扱いが分かれる。
 
 - **表示のときに文言へ変えるもの**。ラベル、検索バー、リンクの拒否理由、コードのハイライトの失敗は、コンポーネントが `useMessages()` で読む。Mermaidの失敗は、`MermaidRenderError` が文言ではなく失敗の種類（`tooLarge`、`timeout`、`loadFailed`、`renderFailed`）と詳細を持ち、`MermaidDiagram` が表示のときに文言へ変える。言語を切り替えても、描画し直さずに変わる。
-- **hastへ書き込むもの**。数式の描画できなかった理由は、`rehypeMath` がhastへテキストとして書く。そのため、言語ごとにプロセッサを組み立てて使い回し（`render.ts`）、言語が変わったときは文書を組み立て直す（`MarkdownDocument` のeffectが文言を依存に持つ）。理由の種類だけをhastへ載せ、表示のときに文言へ変える案は、sanitize schemaへ属性を足すことになり、全列挙の方針（8.2）に反するため採らない。
+- **hastへ書き込むもの**。数式の描画できなかった理由は、`rehypeMath` がhastへテキストとして書く。脚注セクションの見出しと戻りリンクの読み上げ文言（`aria-label`）も、`remark-rehype` の `footnoteLabel` / `footnoteBackLabel` でhastへ書く（既定値は英語。日本語は「脚注」と「参照 N に戻る」。再参照は「参照 1-2 に戻る」。英語は既定値と同じで、`Footnotes` と `Back to reference N`）。いずれも視覚的には見えず、スクリーンリーダーだけが読む。そのため、言語ごとにプロセッサを組み立てて使い回し（`render.ts`。キャッシュは `Messages` 全体で引く）、言語が変わったときは文書を組み立て直す（`MarkdownDocument` のeffectが文言を依存に持つ）。理由の種類だけをhastへ載せ、表示のときに文言へ変える案は、sanitize schemaへ属性を足すことになり、全列挙の方針（8.2）に反するため採らない。
 
 UI文字列を外部のi18nライブラリへ載せない。対象は2言語であり、複数形や語順の入れ替えを要する文言も持たない。読み込み時に辞書を選ぶだけで足り、ライブラリの導入は依存とCSPの検討を増やすほうが大きい。
 

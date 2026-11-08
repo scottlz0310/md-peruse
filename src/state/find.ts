@@ -34,7 +34,7 @@ export const FIND_ACTIVE_HIGHLIGHT_NAME = "md-peruse-find-active";
  * `text` 要素の配置が図形のレイアウトに従うため、`::highlight()` を掛けたときの見え方を
  * 保証できない。どちらも対象から外す。
  *
- * 脚注セクションの見出し（`Footnotes`）はスクリーンリーダー向けに視覚的に隠している
+ * 脚注セクションの見出し（`Footnotes`。日本語は「脚注」）はスクリーンリーダー向けに視覚的に隠している
  * （App.css）ため、一致しても画面に見えない。対象から外す。
  *
  * コードブロックは対象に含める。lowlightが入れるのは `span` の入れ子だけであり、
