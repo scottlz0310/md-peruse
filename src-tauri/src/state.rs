@@ -92,6 +92,62 @@ pub struct LooseOpened {
     pub label: String,
 }
 
+/// 開こうとする文書を、遅いI/Oを済ませた形にしたもの（`ResolvedDocument::resolve`）。
+///
+/// 応答しない共有の上の文書は、正規化や所在フォルダーを開く段階で長く待つ。それを開閉を直列にする
+/// ロックの内側でやると、ほかの操作が待たされる（9.2）。そのため待ちうる部分をここへ集め、
+/// ロックの外で済ませる。ロックの内側でするのは、ワークスペースの内外の判定と据え付けだけである。
+pub struct ResolvedDocument {
+    /// `canonicalize` 済みの絶対パス。
+    path: PathBuf,
+    /// loose tabにするための所在フォルダー。ワークスペースの中の文書では使わないため、失敗は
+    /// 据えるときまで持ち越す（ワークスペースの中なら、ここの失敗は開く妨げにならない）。
+    loose: io::Result<LooseTarget>,
+}
+
+/// loose tabの暗黙のルートになる所在フォルダーと、その中の文書名。
+struct LooseTarget {
+    folder: WorkspaceRoot,
+    name: String,
+    label: String,
+}
+
+impl LooseTarget {
+    fn of(file_path: &Path) -> io::Result<Self> {
+        if !file_path.is_file() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "loose tabにはファイルを指定する",
+            ));
+        }
+        let folder = file_path
+            .parent()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "所在フォルダーがない"))?;
+        let name = file_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .filter(|name| is_valid_name(name))
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "扱えないファイル名"))?
+            .to_owned();
+        Ok(Self {
+            label: recent_folder_label(&folder.to_string_lossy()),
+            folder: WorkspaceRoot::open(folder)?,
+            name,
+        })
+    }
+}
+
+impl ResolvedDocument {
+    /// パスを解決する。応答しないストレージでは長く待つため、開閉のロックの外で呼ぶこと。
+    ///
+    /// 解決できないのは、パスが実在しないとき、アクセスできないときである。
+    pub fn resolve(path: &Path) -> io::Result<Self> {
+        let path = fs::canonicalize(path)?;
+        let loose = LooseTarget::of(&path);
+        Ok(Self { path, loose })
+    }
+}
+
 /// commandから参照するアプリの状態。
 pub struct AppState {
     scopes: Arc<Mutex<Scopes>>,
@@ -201,27 +257,21 @@ impl AppState {
     ///
     /// 監視の開始に失敗したときは開かない。監視のないタブは、外部の更新に追従しないまま
     /// 開けているように見える（ワークスペースと同じ理由）。
-    pub fn open_loose(&self, path: &Path, sink: Arc<dyn ChangeSink>) -> io::Result<LooseOpened> {
-        let file_path = fs::canonicalize(path)?;
-        if !file_path.is_file() {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                "loose tabにはファイルを指定する",
-            ));
-        }
-        let folder = file_path
-            .parent()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "所在フォルダーがない"))?;
-        let name = file_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .filter(|name| is_valid_name(name))
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "扱えないファイル名"))?
-            .to_owned();
-        let label = recent_folder_label(&folder.to_string_lossy());
+    ///
+    /// 文書は解決済みで受ける。ここは開閉のロックの内側で呼ぶため、遅いI/Oをしない（9.2）。
+    pub fn open_loose(
+        &self,
+        document: ResolvedDocument,
+        sink: Arc<dyn ChangeSink>,
+    ) -> io::Result<LooseOpened> {
+        let LooseTarget {
+            folder: root,
+            name,
+            label,
+        } = document.loose?;
 
         if let Some(found) = self.lock_scopes().loose.iter().find(|loose| {
-            loose.scope.root.path() == folder && loose.file.eq_ignore_ascii_case(&name)
+            loose.scope.root.path() == root.path() && loose.file.eq_ignore_ascii_case(&name)
         }) {
             return Ok(LooseOpened {
                 scope_id: found.scope.id.clone(),
@@ -230,7 +280,6 @@ impl AppState {
             });
         }
 
-        let root = WorkspaceRoot::open(folder)?;
         let id = new_scope_id();
         let watcher = LooseWatcher::start(
             root.path(),
@@ -265,14 +314,14 @@ impl AppState {
         self.workspace().close_loose(scope_id);
     }
 
-    /// 絶対パスが開いているワークスペースの中にあれば、そのスコープIDとワークスペース相対パスを
-    /// 返す。ワークスペースを開いていないとき、境界外のとき、実在しないときは `None`。
+    /// 文書が開いているワークスペースの中にあれば、そのスコープIDとワークスペース相対パスを
+    /// 返す。ワークスペースを開いていないとき、境界外のときは `None`。I/Oをしない。
     ///
     /// ドロップされたファイルを、通常タブとloose tabのどちらで開くかの判定に使う（10.4）。
-    pub fn workspace_document(&self, absolute: &Path) -> Option<(String, String)> {
+    pub fn workspace_document(&self, document: &ResolvedDocument) -> Option<(String, String)> {
         let scopes = self.lock_scopes();
         let workspace = scopes.workspace.as_ref()?;
-        let relative = workspace.root.relativize(absolute)?;
+        let relative = workspace.root.relativize_canonical(&document.path)?;
         Some((workspace.id.clone(), relative))
     }
 
@@ -611,6 +660,11 @@ mod tests {
         fn images_changed(&self, _scope_id: &str) {}
     }
 
+    /// 実在するパスを解決する。
+    fn resolved(path: &Path) -> ResolvedDocument {
+        ResolvedDocument::resolve(path).expect("解決できない")
+    }
+
     fn sink() -> Arc<dyn ChangeSink> {
         Arc::new(DiscardingSink)
     }
@@ -778,7 +832,7 @@ mod tests {
         let (temp, state, outside) = with_workspace_and_outside("loose");
         let workspace_scope = state.scope_id().unwrap();
 
-        let opened = state.open_loose(&outside, sink()).unwrap();
+        let opened = state.open_loose(resolved(&outside), sink()).unwrap();
 
         assert_ne!(opened.scope_id, workspace_scope);
         assert_eq!(opened.file, "note.md");
@@ -805,9 +859,9 @@ mod tests {
         let (_temp, state, outside) = with_workspace_and_outside("dedupe");
         let sibling = write_document(outside.parent().unwrap(), "other.md");
 
-        let first = state.open_loose(&outside, sink()).unwrap();
-        let again = state.open_loose(&outside, sink()).unwrap();
-        let other = state.open_loose(&sibling, sink()).unwrap();
+        let first = state.open_loose(resolved(&outside), sink()).unwrap();
+        let again = state.open_loose(resolved(&outside), sink()).unwrap();
+        let other = state.open_loose(resolved(&sibling), sink()).unwrap();
 
         assert_eq!(again.scope_id, first.scope_id);
         assert_ne!(other.scope_id, first.scope_id);
@@ -818,15 +872,14 @@ mod tests {
     fn folders_and_missing_files_are_not_opened_as_documents() {
         let (temp, state, _) = with_workspace_and_outside("invalid");
 
+        // フォルダーは、解決できても文書としては開けない。実在しないものは、解決の段階で失敗する。
         assert!(
             state
-                .open_loose(&temp.path().join("outside"), sink())
+                .open_loose(resolved(&temp.path().join("outside")), sink())
                 .is_err()
         );
         assert!(
-            state
-                .open_loose(&temp.path().join("outside").join("missing.md"), sink())
-                .is_err()
+            ResolvedDocument::resolve(&temp.path().join("outside").join("missing.md")).is_err()
         );
         assert_eq!(state.lock_loose_watchers().len(), 0);
     }
@@ -904,7 +957,7 @@ mod tests {
     fn copying_validates_the_scope_and_preserves_writer_errors() {
         use crate::ipc::types::{CopyPathFormat, CopyPathRequest};
         let (_temp, state, outside) = with_workspace_and_outside("copy-path");
-        let opened = state.open_loose(&outside, sink()).unwrap();
+        let opened = state.open_loose(resolved(&outside), sink()).unwrap();
         for (scope_id, path, format, expected) in [
             (
                 opened.scope_id.clone(),
@@ -961,7 +1014,7 @@ mod tests {
     #[test]
     fn closing_a_loose_scope_releases_it() {
         let (_temp, state, outside) = with_workspace_and_outside("close-loose");
-        let opened = state.open_loose(&outside, sink()).unwrap();
+        let opened = state.open_loose(resolved(&outside), sink()).unwrap();
 
         state.close_loose("unknown");
         assert!(
@@ -983,21 +1036,21 @@ mod tests {
     #[test]
     fn switching_or_closing_the_workspace_discards_loose_scopes() {
         let (temp, state, outside) = with_workspace_and_outside("discard");
-        let first = state.open_loose(&outside, sink()).unwrap();
+        let first = state.open_loose(resolved(&outside), sink()).unwrap();
         state
             .open_workspace(&temp.path().join("outside"), sink())
             .unwrap();
         assert_eq!(state.workspace().with_scope(&first.scope_id, |_| ()), None);
         assert_eq!(state.lock_loose_watchers().len(), 0);
 
-        let second = state.open_loose(&outside, sink()).unwrap();
+        let second = state.open_loose(resolved(&outside), sink()).unwrap();
         state.close_workspace();
         assert_eq!(state.workspace().with_scope(&second.scope_id, |_| ()), None);
         assert_eq!(state.lock_loose_watchers().len(), 0);
     }
 
     /// ドロップされたファイルがワークスペースの中にあるかの判定。中ならワークスペース相対パスを
-    /// 返し、通常タブで開く。外、ワークスペースが無い、実在しないときは返さない（10.4）。
+    /// 返し、通常タブで開く。外、ワークスペースが無いときは返さない（10.4）。実在しないものは、判定の前の解決で失敗する。
     #[test]
     fn a_document_inside_the_workspace_is_recognized() {
         let temp = TempDir::new("inside");
@@ -1005,20 +1058,16 @@ mod tests {
         let inside = write_document(&workspace.join("docs"), "a.md");
         let outside = write_document(&temp.path().join("elsewhere"), "b.md");
         let state = AppState::new(LanguagePreference::System);
-        assert_eq!(state.workspace_document(&inside), None);
+        assert_eq!(state.workspace_document(&resolved(&inside)), None);
 
         state.open_workspace(&workspace, sink()).unwrap();
         let scope = state.scope_id().unwrap();
 
         assert_eq!(
-            state.workspace_document(&inside),
+            state.workspace_document(&resolved(&inside)),
             Some((scope, "docs/a.md".to_owned()))
         );
-        assert_eq!(state.workspace_document(&outside), None);
-        assert_eq!(
-            state.workspace_document(&workspace.join("missing.md")),
-            None
-        );
+        assert_eq!(state.workspace_document(&resolved(&outside)), None);
     }
 
     /// 画像resource IDは、それを発行したスコープのルートで解決する。別のスコープのIDや未知のIDは
@@ -1026,7 +1075,7 @@ mod tests {
     #[test]
     fn image_ids_resolve_within_the_scope_that_issued_them() {
         let (temp, state, outside) = with_workspace_and_outside("image-scopes");
-        let opened = state.open_loose(&outside, sink()).unwrap();
+        let opened = state.open_loose(resolved(&outside), sink()).unwrap();
         let handle = state.workspace();
         let loose_id = handle
             .with_scope_images(&opened.scope_id, |_, images| images.issue("a.png"))
@@ -1068,7 +1117,7 @@ mod tests {
     #[test]
     fn retargeting_keeps_the_scope() {
         let (_temp, state, outside) = with_workspace_and_outside("retarget");
-        let opened = state.open_loose(&outside, sink()).unwrap();
+        let opened = state.open_loose(resolved(&outside), sink()).unwrap();
         let handle = state.workspace();
         let id = handle
             .with_scope_images(&opened.scope_id, |_, images| images.issue("a.png"))
@@ -1117,7 +1166,10 @@ mod tests {
         let sub = write_document(&folder.join("sub"), "b.md");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
-            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .open_loose(
+                resolved(&outside),
+                Arc::clone(&recording) as Arc<dyn ChangeSink>,
+            )
             .unwrap();
         let wait_for = |expected: (String, String)| {
             let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
@@ -1175,7 +1227,10 @@ mod tests {
         let sub = write_document(&folder.join("sub"), "b.md");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
-            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .open_loose(
+                resolved(&outside),
+                Arc::clone(&recording) as Arc<dyn ChangeSink>,
+            )
             .unwrap();
         let handle = state.workspace();
         let wait_for = |path: &str| {
@@ -1252,7 +1307,10 @@ mod tests {
         write_document(&outside.parent().unwrap().join("sub"), "b.md");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
-            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .open_loose(
+                resolved(&outside),
+                Arc::clone(&recording) as Arc<dyn ChangeSink>,
+            )
             .unwrap();
 
         state
@@ -1292,7 +1350,10 @@ mod tests {
         write_document(&outside.parent().unwrap().join("sub"), "notes.txt");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
-            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .open_loose(
+                resolved(&outside),
+                Arc::clone(&recording) as Arc<dyn ChangeSink>,
+            )
             .unwrap();
         let handle = state.workspace();
         let absolute = elsewhere.to_string_lossy().into_owned();
@@ -1380,7 +1441,10 @@ mod tests {
         let external = write_document(&elsewhere, "b.md");
         let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
         let opened = state
-            .open_loose(&outside, Arc::clone(&recording) as Arc<dyn ChangeSink>)
+            .open_loose(
+                resolved(&outside),
+                Arc::clone(&recording) as Arc<dyn ChangeSink>,
+            )
             .unwrap();
         let handle = state.workspace();
 

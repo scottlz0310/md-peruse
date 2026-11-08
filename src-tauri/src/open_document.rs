@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 use crate::ipc::error::ErrorCode;
 use crate::ipc::types::OpenDocumentEvent;
 use crate::open_folder::{Instruction, lock_lifecycle};
-use crate::state::AppState;
+use crate::state::{AppState, ResolvedDocument};
 use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 
 /// 文書をタブで開く指示を運ぶTauri eventの名前。
@@ -22,19 +22,31 @@ pub const OPEN_DOCUMENT_EVENT: &str = "open-document";
 
 /// ファイルを文書として開き、Frontendへ知らせる。
 ///
-/// 開閉を直列にするロックの内側で行う。ワークスペースの判定から送出までの間に切り替えが
+/// ワークスペースの判定から送出までは、開閉を直列にするロックの内側で行う。その間に切り替えが
 /// 入ると、旧ワークスペースのスコープIDで開く指示が届き、Frontendはそれを捨てるため、
-/// 開いたつもりの文書が開かない。
+/// 開いたつもりの文書が開かない。パスの解決（応答しないストレージでは長く待つ）は、ロックの外で
+/// 先に済ませる。ロックを持ったまま待つと、ほかのフォルダーやファイルを開く操作まで待たされる（9.2）。
 ///
 /// 読込の失敗はここでは扱わない。タブを開いた後の最初の読込に失敗したタブは、Frontendが
-/// 閉じて理由を示す（9.1）。ここで返すのは、loose tabのスコープを作れなかった理由である。
+/// 閉じて理由を示す（9.1）。ここで返すのは、パスを解決できなかった理由と、loose tabの
+/// スコープを作れなかった理由である。
 pub fn open_document<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    // 番号は、ロックを待つ前に振る。応答しない共有を開いている最中の指示は、先に開く。その共有は、
+    open_document_with(app, path, ResolvedDocument::resolve)
+}
+
+/// `open_document` の本体。パスの解決を差し替えられる形にして、テストが解決で止められるようにする。
+pub(crate) fn open_document_with<R: Runtime>(
+    app: &AppHandle<R>,
+    path: &Path,
+    resolve: impl FnOnce(&Path) -> io::Result<ResolvedDocument>,
+) -> Result<(), ErrorCode> {
+    // 番号は、解決を始める前に振る。応答しない共有を開いている最中の指示は、先に開く。その共有は、
     // 後から解決が終わっても適用されない（`open_folder::open_path`、9.2）。
     let state = app.state::<AppState>();
     let instruction = Instruction::issue(&state);
+    let document = resolve(path).map_err(|error| open_error_code(&error))?;
     let _lifecycle = lock_lifecycle();
-    let event = match state.workspace_document(path) {
+    let event = match state.workspace_document(&document) {
         Some((scope_id, path)) => OpenDocumentEvent {
             scope_id,
             path,
@@ -43,7 +55,7 @@ pub fn open_document<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), 
         None => {
             let sink: Arc<dyn ChangeSink> = Arc::new(TauriChangeSink::new(app.clone()));
             let opened = state
-                .open_loose(path, sink)
+                .open_loose(document, sink)
                 .map_err(|error| open_error_code(&error))?;
             OpenDocumentEvent {
                 scope_id: opened.scope_id,

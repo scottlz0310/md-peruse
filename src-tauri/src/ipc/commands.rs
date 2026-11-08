@@ -553,6 +553,10 @@ mod tests {
         use tauri::Manager;
         use tauri::async_runtime::block_on;
 
+        fn resolved(path: &std::path::Path) -> crate::state::ResolvedDocument {
+            crate::state::ResolvedDocument::resolve(path).expect("解決できない")
+        }
+
         /// 送出を捨てる `ChangeSink`。ここで見るのはcommandの応答である。
         struct DiscardingSink;
 
@@ -791,7 +795,7 @@ mod tests {
                 .open_workspace(&workspace, Arc::new(DiscardingSink))
                 .expect("ワークスペースを開けない");
             let opened = state
-                .open_loose(&outside.join("note.md"), Arc::new(DiscardingSink))
+                .open_loose(resolved(&outside.join("note.md")), Arc::new(DiscardingSink))
                 .expect("loose tabを開けない");
             let read = |path: &str| {
                 block_on(read_file_command(
@@ -860,7 +864,7 @@ mod tests {
             let recording = Arc::new(RecordingSink(Mutex::new(Vec::new())));
             let opened = state
                 .open_loose(
-                    &temp.path().join("note.md"),
+                    resolved(&temp.path().join("note.md")),
                     Arc::clone(&recording) as Arc<dyn ChangeSink>,
                 )
                 .expect("loose tabを開けない");
@@ -925,7 +929,10 @@ mod tests {
             let app = mock_app_with_state(LanguagePreference::Ja);
             let state = app.state::<AppState>();
             let opened = state
-                .open_loose(&temp.path().join("root/note.md"), Arc::new(DiscardingSink))
+                .open_loose(
+                    resolved(&temp.path().join("root/note.md")),
+                    Arc::new(DiscardingSink),
+                )
                 .expect("loose tabを開けない");
             let watch = |scope_id: &str, path: &str| {
                 block_on(watch_loose_document_command(

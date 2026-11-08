@@ -1087,6 +1087,121 @@ mod tests {
         (during, slow_result)
     }
 
+    /// 解決を止めたファイル `slow` を開く指示の間に、`meanwhile` を別のスレッドで行う。
+    /// `meanwhile` の結果と、止めた解決を放したあとのファイルの結果を返す。`meanwhile` が2秒で
+    /// 戻らなければ、開閉のロックを保持しているとみなす（応答しない共有の上のファイル、9.2）。
+    fn document_interrupted_by<T: Send + 'static>(
+        app: &tauri::App<tauri::test::MockRuntime>,
+        slow: &Path,
+        meanwhile: impl FnOnce(&AppHandle<tauri::test::MockRuntime>) -> T + Send + 'static,
+    ) -> (T, Result<(), ErrorCode>) {
+        use crate::open_document::open_document_with;
+        use crate::state::ResolvedDocument;
+        use std::sync::mpsc;
+        use std::time::Duration;
+
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let handle = app.handle().clone();
+        let slow = slow.to_owned();
+        let opening = thread::spawn(move || {
+            open_document_with(&handle, &slow, move |path| {
+                entered_tx.send(()).expect("入ったことを知らせられない");
+                release_rx.recv().expect("放す合図が来ない");
+                ResolvedDocument::resolve(path)
+            })
+        });
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("ファイルがパスを解決する段階へ進まない");
+
+        let (done_tx, done_rx) = mpsc::channel();
+        let handle = app.handle().clone();
+        thread::spawn(move || {
+            done_tx.send(meanwhile(&handle)).expect("結果を返せない");
+        });
+        let during = done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("ファイルのパスを解決している間、開閉のロックを保持している");
+
+        release_tx.send(()).expect("放せない");
+        let slow_result = opening.join().expect("ファイルのスレッドが失敗した");
+        (during, slow_result)
+    }
+
+    /// 応答しない共有の上のファイルを開いている間も、ほかのフォルダーとファイルは待たされずに
+    /// 開く（9.2）。パスの解決を、開閉のロックの外で行うためである。止めたファイルは、解決が
+    /// 終わったあとに開く。
+    #[test]
+    fn a_document_that_resolves_slowly_does_not_hold_the_lifecycle_lock() {
+        let temp = TempDir::new("document-off-lock");
+        let slow = temp.path().join("slow");
+        let quick = temp.path().join("quick");
+        fs::create_dir(&slow).unwrap();
+        fs::create_dir(&quick).unwrap();
+        let slow_note = slow.join("slow.md");
+        let quick_note = quick.join("quick.md");
+        fs::write(&slow_note, b"# slow\n").unwrap();
+        fs::write(&quick_note, b"# quick\n").unwrap();
+
+        type Meanwhile = fn(&AppHandle<tauri::test::MockRuntime>, &Path) -> Result<(), ErrorCode>;
+        let cases: [(&str, &Path, Meanwhile); 2] = [
+            ("別のファイル", &quick_note, |handle, path| {
+                crate::open_document::open_document(handle, path)
+            }),
+            ("別のフォルダー", &quick, |handle, path| {
+                open_path(handle, path)
+            }),
+        ];
+        for (name, target, meanwhile) in cases {
+            let app = app_with(Settings::default());
+            let documents = collect(&app, crate::open_document::OPEN_DOCUMENT_EVENT);
+            let target = target.to_owned();
+
+            let (during, slow_result) =
+                document_interrupted_by(&app, &slow_note, move |handle| meanwhile(handle, &target));
+
+            assert_eq!(during, Ok(()), "{name}");
+            assert_eq!(slow_result, Ok(()), "{name}");
+            let documents = documents.lock().unwrap().clone();
+            assert!(
+                documents
+                    .last()
+                    .is_some_and(|last| last.contains("slow.md")),
+                "{name}: 止めたファイルを開いていない: {documents:?}"
+            );
+        }
+    }
+
+    /// 応答しない共有の上のファイルは、あとから指示したフォルダーに捨てられない。フォルダーを先に
+    /// 開いても、ファイルはそのワークスペースのloose tabとして開く。利用者が求めたファイルを
+    /// 失わないためである（フォルダーを捨てる向きの規則は 9.2）。
+    #[test]
+    fn a_slow_document_is_still_opened_after_a_later_folder() {
+        let temp = TempDir::new("document-after-folder");
+        let slow = temp.path().join("slow");
+        let quick = temp.path().join("quick");
+        fs::create_dir(&slow).unwrap();
+        fs::create_dir(&quick).unwrap();
+        let note = slow.join("note.md");
+        fs::write(&note, b"# note\n").unwrap();
+        let app = app_with(Settings::default());
+        let documents = collect(&app, crate::open_document::OPEN_DOCUMENT_EVENT);
+        let workspaces = collect(&app, WORKSPACE_OPENED_EVENT);
+
+        let quick_path = quick.clone();
+        let (folder_result, document_result) =
+            document_interrupted_by(&app, &note, move |handle| open_path(handle, &quick_path));
+
+        assert_eq!(folder_result, Ok(()));
+        assert_eq!(document_result, Ok(()));
+        assert_eq!(workspaces.lock().unwrap().len(), 1);
+        let documents = documents.lock().unwrap().clone();
+        assert_eq!(documents.len(), 1, "{documents:?}");
+        assert!(documents[0].contains("note.md"), "{documents:?}");
+        assert!(app.state::<AppState>().scope_id().is_some());
+    }
+
     /// 応答しない共有（A）を開いている間に、別のフォルダー（B）を開く。Bは待たされずに開き、
     /// 後から解決が終わったAは適用しない。最後に指示したものが勝つ（9.2）。Aは通知も、
     /// 最近使ったフォルダーへの記録もしない。
