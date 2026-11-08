@@ -20,7 +20,7 @@ Right-click a file or folder in the tree, or a document tab, to copy its path. F
 There is no feature for editing the text. Use your own editor for editing.
 
 Supported environment: Windows on x64. ARM64 is not supported."
-ReleaseNotes,3,テキスト,,「ファイル」→「印刷…」（Ctrl+P）で、表示中の文書の全文を印刷できるようになりました。Windows標準の印刷プレビューで、用紙・向き・余白・ページ範囲を選べ、PDFへの出力もできます。サイドバーやタブは印刷されず、画面のテーマや文字サイズに関係なく、白地に黒で出力します。長い表やコード、縦に長いMermaid図は、読み取れる大きさのままページをまたいで出力されます。,"Print the whole of the open document from File > Print... (Ctrl+P). The standard Windows print preview lets you choose paper, orientation, margins and page range, and save a PDF. The sidebar and tabs are not printed, and the output is black on white regardless of your theme or text size. Long tables, code and tall Mermaid diagrams continue across pages at a readable size."
+ReleaseNotes,3,テキスト,,応答しないネットワーク共有を開いている間も、ほかのフォルダーやファイルを待たずに開けるようになりました。また、日本語の表示では、スクリーンリーダーが脚注を「脚注」「参照 N に戻る」と日本語で読み上げるようになりました。,Other folders and files now open without waiting while a network share that is not responding is being opened. Footnote labels read by screen readers now follow the display language.
 Title,4,テキスト,,md-peruse,md-peruse
 ShortTitle,5,テキスト,,,
 SortTitle,6,テキスト,,,
