@@ -13,6 +13,7 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::file_kind::is_markdown_path;
@@ -104,6 +105,10 @@ pub struct AppState {
     /// `scopes` とは別のロックにする。
     loose_watchers: Arc<Mutex<Vec<LooseWatcher>>>,
     language: Mutex<Language>,
+    /// 次に振る指示の番号（`open_folder::Instruction`）。
+    next_instruction: AtomicU64,
+    /// これまでに適用した指示の番号のうち、最大のもの。開閉のロックの内側で読み書きする。
+    latest_applied_instruction: AtomicU64,
 }
 
 impl AppState {
@@ -114,7 +119,25 @@ impl AppState {
             watcher: Mutex::new(None),
             loose_watchers: Arc::new(Mutex::new(Vec::new())),
             language: Mutex::new(resolve_language(preference, &os_language_tag())),
+            next_instruction: AtomicU64::new(1),
+            latest_applied_instruction: AtomicU64::new(0),
         }
+    }
+
+    /// 指示に番号を振る。受けた順に増える。
+    pub(crate) fn issue_instruction(&self) -> u64 {
+        self.next_instruction.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// 番号より後の指示が、すでに適用されているか。開閉のロックの内側で呼ぶこと。
+    pub(crate) fn instruction_superseded(&self, number: u64) -> bool {
+        self.latest_applied_instruction.load(Ordering::Relaxed) > number
+    }
+
+    /// 番号の指示を適用したと記録する。開閉のロックの内側で呼ぶこと。
+    pub(crate) fn mark_instruction_applied(&self, number: u64) {
+        self.latest_applied_instruction
+            .fetch_max(number, Ordering::Relaxed);
     }
 
     /// 現在のUI言語。`IpcError` の文言の組み立てに使う。

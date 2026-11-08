@@ -13,7 +13,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 use crate::ipc::error::ErrorCode;
 use crate::ipc::types::OpenDocumentEvent;
-use crate::open_folder::lock_lifecycle;
+use crate::open_folder::{Instruction, lock_lifecycle};
 use crate::state::AppState;
 use crate::watch_runtime::{ChangeSink, TauriChangeSink};
 
@@ -29,8 +29,11 @@ pub const OPEN_DOCUMENT_EVENT: &str = "open-document";
 /// 読込の失敗はここでは扱わない。タブを開いた後の最初の読込に失敗したタブは、Frontendが
 /// 閉じて理由を示す（9.1）。ここで返すのは、loose tabのスコープを作れなかった理由である。
 pub fn open_document<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), ErrorCode> {
-    let _lifecycle = lock_lifecycle();
+    // 番号は、ロックを待つ前に振る。応答しない共有を開いている最中の指示は、先に開く。その共有は、
+    // 後から解決が終わっても適用されない（`open_folder::open_path`、9.2）。
     let state = app.state::<AppState>();
+    let instruction = Instruction::issue(&state);
+    let _lifecycle = lock_lifecycle();
     let event = match state.workspace_document(path) {
         Some((scope_id, path)) => OpenDocumentEvent {
             scope_id,
@@ -49,6 +52,7 @@ pub fn open_document<R: Runtime>(app: &AppHandle<R>, path: &Path) -> Result<(), 
             }
         }
     };
+    instruction.mark_applied(&state);
     // 送出の失敗は受け手（WebView）がいないときであり、伝える相手がいない。
     let _ = app.emit(OPEN_DOCUMENT_EVENT, event);
     Ok(())
