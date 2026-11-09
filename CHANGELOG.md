@@ -13,6 +13,10 @@
 
 ## [Unreleased]
 
+### Security
+
+- 公開から 3 日未満の依存を新規に解決しないようにした。`bunfig.toml` に `minimumReleaseAge = 259200` を、`src-tauri/.cargo/config.toml` に `global-min-publish-age = "3 days"` を追加した（後者は Rust 1.100 以降で有効、それ未満では無視される）。lock file maintenance は Renovate の minimumReleaseAge を回避するための防御で、frozen install には影響しない。
+
 ## [0.3.1] - 2026-11-08
 
 ### Fixed
